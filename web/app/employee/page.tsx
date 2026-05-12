@@ -5,18 +5,46 @@ import { StatusBadge } from "@/components/ui/badge";
 import { peso, formatDate } from "@/lib/utils";
 import { redirect } from "next/navigation";
 import { TimeClock } from "./time-clock";
+import { fetchActiveMaintenanceAlerts } from "@/lib/maintenance";
+import { fetchReadyMadeDashboardLowStockItems } from "@/lib/ready-made-dashboard-low-stock";
+import { DashboardReminderCards } from "@/components/dashboard-reminder-cards";
 
 export const dynamic = "force-dynamic";
 
 export default async function EmployeeDashboard() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+  const uid = user.profile.id;
   const supabase = createClient();
-  const [{ data: orders }, { data: salaries }, { data: attendance }] = await Promise.all([
-    supabase.from("orders").select("*").eq("assigned_to", user.id).order("created_at", { ascending: false }),
-    supabase.from("salaries").select("*").eq("user_id", user.id).order("created_at", { ascending: false }).limit(3),
-    supabase.from("attendance").select("*").eq("user_id", user.id).order("time_in", { ascending: false }).limit(1),
+  const [
+    { data: orders },
+    { data: salaries },
+    { data: attendance },
+    { data: tasksAssigned },
+    maintenanceAlerts,
+    { data: inventory },
+    readyMadeLow,
+  ] = await Promise.all([
+    supabase.from("orders").select("*").order("created_at", { ascending: false }),
+    supabase.from("salaries").select("*").eq("user_id", uid).order("created_at", { ascending: false }).limit(3),
+    supabase.from("attendance").select("*").eq("user_id", uid).order("time_in", { ascending: false }).limit(1),
+    supabase
+      .from("tasks")
+      .select("id,title,status,priority,due_date, assignees:task_assignees!inner(user_id)")
+      .eq("assignees.user_id", uid)
+      .order("due_date", { ascending: true }),
+    fetchActiveMaintenanceAlerts(supabase, uid),
+    supabase.from("inventory").select("*"),
+    fetchReadyMadeDashboardLowStockItems(supabase),
   ]);
+
+  const tasksReminders = (tasksAssigned || [])
+    .filter((t) => t.status !== "done" && t.status !== "cancelled")
+    .map(({ id, title, status, priority, due_date }) => ({ id, title, status, priority, due_date }));
+  const lowStock = [
+    ...(inventory || []).filter((i) => Number(i.quantity) <= Number(i.min_level)),
+    ...readyMadeLow,
+  ];
 
   const open = (orders || []).filter((o) => !["delivered", "cancelled"].includes(o.status));
   const lastAttendance = attendance?.[0];
@@ -27,8 +55,8 @@ export default async function EmployeeDashboard() {
       <PageHeader title={`Hi, ${user.profile.full_name || "there"}`} description="Your tasks and earnings at a glance" />
       <div className="grid gap-4 lg:grid-cols-3">
         <Card><CardContent className="p-5">
-          <div className="text-xs uppercase text-muted-foreground">Open Tasks</div>
-          <div className="mt-1 text-3xl font-semibold">{open.length}</div>
+          <div className="text-xs uppercase text-muted-foreground">Open tasks</div>
+          <div className="mt-1 text-3xl font-semibold">{tasksReminders.length}</div>
         </CardContent></Card>
         <Card><CardContent className="p-5">
           <div className="text-xs uppercase text-muted-foreground">Latest Net Pay</div>
@@ -38,6 +66,10 @@ export default async function EmployeeDashboard() {
           <div className="text-xs uppercase text-muted-foreground">Attendance</div>
           <TimeClock onClock={onClock} lastId={lastAttendance?.id} userId={user.id} />
         </CardContent></Card>
+      </div>
+
+      <div className="mt-6">
+        <DashboardReminderCards maintenance={maintenanceAlerts} tasks={tasksReminders} lowStock={lowStock} variant="employee" />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">

@@ -21,6 +21,12 @@ export async function middleware(request: NextRequest) {
   const isAuthRoute = path.startsWith("/login");
   const isProtected = path.startsWith("/admin") || path.startsWith("/employee");
 
+  let profile: { role: string } | null = null;
+  if (user) {
+    const { data } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+    profile = data ?? null;
+  }
+
   if (!user && isProtected) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
@@ -28,8 +34,13 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user && isProtected) {
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-    const role = profile?.role ?? "employee";
+    // Must match server layouts: auth user without a profile row cannot load app shell.
+    if (!profile) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      return NextResponse.redirect(url);
+    }
+    const role = profile.role;
     // /admin is shared by admin and sub_admin
     if (path.startsWith("/admin") && !(role === "admin" || role === "sub_admin")) {
       const url = request.nextUrl.clone();
@@ -46,13 +57,30 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user && isAuthRoute) {
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    // Avoid redirect loop: missing profile used to send users to /admin while layouts require a profile.
+    if (!profile) {
+      return response;
+    }
     const url = request.nextUrl.clone();
-    url.pathname = profile?.role === "employee" ? "/employee" : "/admin";
+    url.pathname = profile.role === "employee" ? "/employee" : "/admin";
     return NextResponse.redirect(url);
   }
 
   return response;
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|api/public).*)"] };
+/**
+ * Only protect app routes. A catch-all regex with (?!_next/static|…) is easy to get wrong
+ * with path-to-regexp and can accidentally run middleware on /_next/static/* — the HTML loads
+ * but JS/CSS chunks return 404 and the page stays white.
+ */
+export const config = {
+  matcher: [
+    "/admin",
+    "/admin/:path*",
+    "/employee",
+    "/employee/:path*",
+    "/login",
+    "/login/:path*",
+  ],
+};

@@ -38,7 +38,7 @@ Copy `.env.local.example` → `.env.local` and fill in:
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://<project>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key>
-SUPABASE_SERVICE_ROLE_KEY=<service role key>   # optional, for future server-only ops
+SUPABASE_SERVICE_ROLE_KEY=<service role key>   # required for Admin → Add Employee (server-side auth.admin.createUser)
 ```
 
 Find these in **Supabase → Project Settings → API**.

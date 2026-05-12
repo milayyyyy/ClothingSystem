@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,8 +8,18 @@ import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { peso } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Pencil, Plus } from "lucide-react";
+import {
+  EMPLOYEE_POSITION_LABEL,
+  EMPLOYEE_POSITION_VALUES,
+  isEmployeePositionValue,
+} from "@/lib/employee-positions";
+
+const selectClass = cn(
+  "flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background focus-visible:border-primary",
+);
 
 type P = any;
 
@@ -52,12 +63,22 @@ export function EmployeesClient({ initial }: { initial: P[] }) {
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 <Badge variant={p.role === "admin" ? "purple" : "blue"}>{p.role}</Badge>
                 <Badge variant={p.active ? "green" : "red"}>{p.active ? "Active" : "Inactive"}</Badge>
-                {p.position && <Badge variant="outline">{p.position}</Badge>}
+                {p.position && (
+                  <Badge variant="outline">
+                    {(() => {
+                      const k = String(p.position).trim().toLowerCase();
+                      return isEmployeePositionValue(k) ? EMPLOYEE_POSITION_LABEL[k] : p.position;
+                    })()}
+                  </Badge>
+                )}
               </div>
-              <dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                <div><dt className="text-muted-foreground text-xs">Salary type</dt><dd className="capitalize">{p.salary_type}</dd></div>
-                <div><dt className="text-muted-foreground text-xs">Rate</dt><dd>{peso(p.salary_rate)}</dd></div>
-              </dl>
+              <p className="mt-4 text-xs text-muted-foreground">
+                Pay type, rate, and allowance are set on the{" "}
+                <Link href="/admin/salary" className="font-medium text-primary underline underline-offset-2">
+                  Salary
+                </Link>{" "}
+                page.
+              </p>
             </CardContent>
           </Card>
         ))}
@@ -70,23 +91,52 @@ export function EmployeesClient({ initial }: { initial: P[] }) {
 
 function AddEmployee({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState<any>({
-    email: "", password: "", full_name: "", phone: "", position: "",
-    role: "employee", salary_type: "daily", salary_rate: 0,
+    email: "",
+    password: "",
+    full_name: "",
+    phone: "",
+    position: "sales",
+    role: "employee",
   });
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  function set(k: string, v: any) { setForm((f: any) => ({ ...f, [k]: v })); }
+  function set(k: string, v: any) {
+    setForm((f: any) => ({ ...f, [k]: v }));
+  }
 
   async function save(e: React.FormEvent) {
-    e.preventDefault(); setErr(null); setBusy(true);
+    e.preventDefault();
+    setErr(null);
+    setBusy(true);
+    const payload = {
+      email: form.email,
+      password: form.password,
+      full_name: form.full_name,
+      phone: form.phone,
+      position: form.position,
+      role: form.role,
+    };
     const res = await fetch("/api/admin/create-employee", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form),
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
     const j = await res.json();
     setBusy(false);
-    if (!res.ok) { setErr(j.error || "Failed"); return; }
-    onClose(); onSaved();
-    setForm({ email: "", password: "", full_name: "", phone: "", position: "", role: "employee", salary_type: "daily", salary_rate: 0 });
+    if (!res.ok) {
+      setErr([j.error, j.hint].filter(Boolean).join(" ") || "Failed");
+      return;
+    }
+    onClose();
+    onSaved();
+    setForm({
+      email: "",
+      password: "",
+      full_name: "",
+      phone: "",
+      position: "sales",
+      role: "employee",
+    });
   }
 
   return (
@@ -96,18 +146,33 @@ function AddEmployee({ open, onClose, onSaved }: { open: boolean; onClose: () =>
         <div><Label>Email</Label><Input type="email" required value={form.email} onChange={(e) => set("email", e.target.value)} /></div>
         <div><Label>Password</Label><Input type="password" required minLength={6} value={form.password} onChange={(e) => set("password", e.target.value)} /></div>
         <div><Label>Phone</Label><Input value={form.phone} onChange={(e) => set("phone", e.target.value)} /></div>
-        <div><Label>Position</Label><Input value={form.position} onChange={(e) => set("position", e.target.value)} /></div>
-        <div><Label>Role</Label>
-          <select className="h-9 w-full rounded-md border bg-transparent px-3 text-sm" value={form.role} onChange={(e) => set("role", e.target.value)}>
-            <option value="employee">Employee</option><option value="admin">Admin</option>
+        <div>
+          <Label>Position</Label>
+          <select
+            required
+            className={selectClass}
+            value={form.position}
+            onChange={(e) => set("position", e.target.value)}
+          >
+            {EMPLOYEE_POSITION_VALUES.map((v) => (
+              <option key={v} value={v}>{EMPLOYEE_POSITION_LABEL[v]}</option>
+            ))}
           </select>
         </div>
-        <div><Label>Salary type</Label>
-          <select className="h-9 w-full rounded-md border bg-transparent px-3 text-sm" value={form.salary_type} onChange={(e) => set("salary_type", e.target.value)}>
-            <option value="daily">Daily</option><option value="monthly">Monthly</option><option value="per_order">Per order</option>
+        <div>
+          <Label>Role</Label>
+          <select className={selectClass} value={form.role} onChange={(e) => set("role", e.target.value)}>
+            <option value="employee">Employee</option>
+            <option value="admin">Admin</option>
           </select>
         </div>
-        <div className="col-span-2"><Label>Rate (₱)</Label><Input type="number" step="0.01" value={form.salary_rate} onChange={(e) => set("salary_rate", Number(e.target.value))} /></div>
+        <p className="col-span-2 text-xs text-muted-foreground">
+          After creating this person, set their salary type, rate, and allowance under{" "}
+          <Link href="/admin/salary" className="font-medium text-primary underline underline-offset-2">
+            Salary
+          </Link>
+          .
+        </p>
         {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
         <div className="col-span-2 flex justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
@@ -123,41 +188,94 @@ function EditEmployee({ open, onClose, employee, onSaved }: { open: boolean; onC
   const [form, setForm] = useState<any>({});
   function set(k: string, v: any) { setForm((f: any) => ({ ...f, [k]: v })); }
 
-  if (employee && form.id !== employee.id) setForm(employee);
+  useEffect(() => {
+    if (!open || !employee) return;
+    const raw = String(employee.position ?? "").trim();
+    const key = raw.toLowerCase();
+    const position = raw
+      ? (isEmployeePositionValue(key) ? key : raw)
+      : "sales";
+    setForm({
+      ...employee,
+      position,
+    });
+  }, [open, employee]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    await supabase.from("profiles").update({
-      full_name: form.full_name, phone: form.phone, position: form.position,
-      role: form.role, salary_type: form.salary_type, salary_rate: Number(form.salary_rate || 0),
-      active: form.active,
-    }).eq("id", form.id);
-    onClose(); onSaved();
+    const posRaw = String(form.position || "").trim().toLowerCase();
+    const position = isEmployeePositionValue(posRaw) ? posRaw : String(form.position || "").trim() || null;
+    await supabase
+      .from("profiles")
+      .update({
+        full_name: form.full_name,
+        phone: form.phone,
+        position,
+        role: form.role,
+        active: form.active,
+      })
+      .eq("id", form.id);
+    onClose();
+    onSaved();
   }
 
   if (!employee) return null;
+
+  const posRaw = String(form.position || "").trim();
+  const posKey = posRaw.toLowerCase();
+  const isStandardPosition = isEmployeePositionValue(posKey);
+  const positionSelectValue = isStandardPosition ? posKey : (posRaw || "sales");
+
   return (
     <Dialog open={open} onClose={onClose} title="Edit Employee">
       <form onSubmit={save} className="grid grid-cols-2 gap-3">
-        <div className="col-span-2"><Label>Full name</Label><Input value={form.full_name || ""} onChange={(e) => set("full_name", e.target.value)} /></div>
-        <div><Label>Phone</Label><Input value={form.phone || ""} onChange={(e) => set("phone", e.target.value)} /></div>
-        <div><Label>Position</Label><Input value={form.position || ""} onChange={(e) => set("position", e.target.value)} /></div>
-        <div><Label>Role</Label>
-          <select className="h-9 w-full rounded-md border bg-transparent px-3 text-sm" value={form.role} onChange={(e) => set("role", e.target.value)}>
-            <option value="employee">Employee</option><option value="admin">Admin</option>
+        <div className="col-span-2">
+          <Label>Full name</Label>
+          <Input value={form.full_name || ""} onChange={(e) => set("full_name", e.target.value)} />
+        </div>
+        <div>
+          <Label>Phone</Label>
+          <Input value={form.phone || ""} onChange={(e) => set("phone", e.target.value)} />
+        </div>
+        <div>
+          <Label>Position</Label>
+          <select
+            className={selectClass}
+            value={positionSelectValue}
+            onChange={(e) => set("position", e.target.value)}
+          >
+            {EMPLOYEE_POSITION_VALUES.map((v) => (
+              <option key={v} value={v}>
+                {EMPLOYEE_POSITION_LABEL[v]}
+              </option>
+            ))}
+            {!isStandardPosition && posRaw && <option value={posRaw}>{posRaw} (legacy)</option>}
+          </select>
+          {!isStandardPosition && posRaw && (
+            <p className="text-xs text-muted-foreground">Choose Sales, Artist, Staff, or Sewer to align with roles.</p>
+          )}
+        </div>
+        <div>
+          <Label>Role</Label>
+          <select className={selectClass} value={form.role} onChange={(e) => set("role", e.target.value)}>
+            <option value="employee">Employee</option>
+            <option value="admin">Admin</option>
           </select>
         </div>
-        <div><Label>Status</Label>
-          <select className="h-9 w-full rounded-md border bg-transparent px-3 text-sm" value={form.active ? "1" : "0"} onChange={(e) => set("active", e.target.value === "1")}>
-            <option value="1">Active</option><option value="0">Inactive</option>
+        <div>
+          <Label>Status</Label>
+          <select className={selectClass} value={form.active ? "1" : "0"} onChange={(e) => set("active", e.target.value === "1")}>
+            <option value="1">Active</option>
+            <option value="0">Inactive</option>
           </select>
         </div>
-        <div><Label>Salary type</Label>
-          <select className="h-9 w-full rounded-md border bg-transparent px-3 text-sm" value={form.salary_type || "daily"} onChange={(e) => set("salary_type", e.target.value)}>
-            <option value="daily">Daily</option><option value="monthly">Monthly</option><option value="per_order">Per order</option>
-          </select>
-        </div>
-        <div><Label>Rate (₱)</Label><Input type="number" step="0.01" value={form.salary_rate || 0} onChange={(e) => set("salary_rate", e.target.value)} /></div>
+        <p className="col-span-2 text-xs text-muted-foreground">
+          Salary type, rate, and allowance are edited on the{" "}
+          <Link href="/admin/salary" className="font-medium text-primary underline underline-offset-2">
+            Salary
+          </Link>{" "}
+          page.
+        </p>
         <div className="col-span-2 flex justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button type="submit">Save</Button>

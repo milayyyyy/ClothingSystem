@@ -1,22 +1,32 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getSessionUser } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { BarChart } from "@/components/ui/bar-chart";
 import { peso, formatDate } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/badge";
-import { ShoppingBag, Wallet, TrendingDown, TrendingUp, Package, Receipt, AlertTriangle } from "lucide-react";
+import { ShoppingBag, Wallet, TrendingDown, TrendingUp, Package, Receipt, Warehouse } from "lucide-react";
 import Link from "next/link";
+import { fetchActiveMaintenanceAlerts } from "@/lib/maintenance";
+import { fetchReadyMadeDashboardLowStockItems } from "@/lib/ready-made-dashboard-low-stock";
+import { DashboardReminderCards } from "@/components/dashboard-reminder-cards";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminDashboard() {
+  const user = await getSessionUser();
+  if (!user) redirect("/login");
   const supabase = createClient();
-  const [{ data: orders }, { data: expenses }, { data: inventory }] = await Promise.all([
-    supabase.from("orders").select("*").order("created_at", { ascending: false }),
-    supabase.from("expenses").select("*"),
-    supabase.from("inventory").select("*"),
-  ]);
+  const [{ data: orders }, { data: expenses }, { data: inventory }, { data: tasksRaw }, maintenanceAlerts, readyMadeLow] =
+    await Promise.all([
+      supabase.from("orders").select("*").order("created_at", { ascending: false }),
+      supabase.from("expenses").select("*"),
+      supabase.from("inventory").select("*"),
+      supabase.from("tasks").select("id,title,status,priority,due_date").order("due_date", { ascending: true }),
+      fetchActiveMaintenanceAlerts(supabase, user.id),
+      fetchReadyMadeDashboardLowStockItems(supabase),
+    ]);
 
   const totalSales = (orders || []).reduce((s, o) => s + Number(o.total || 0), 0);
   const collected = (orders || []).reduce((s, o) => s + Number(o.down_payment || 0), 0);
@@ -26,7 +36,18 @@ export default async function AdminDashboard() {
     .filter((e) => new Date(e.expense_date).getMonth() === new Date().getMonth())
     .reduce((s, e) => s + Number(e.amount), 0);
   const profit = totalSales - monthExpenses;
-  const lowStock = (inventory || []).filter((i) => Number(i.quantity) <= Number(i.min_level));
+  const lowStock = [
+    ...(inventory || []).filter((i) => Number(i.quantity) <= Number(i.min_level)),
+    ...readyMadeLow,
+  ];
+  const tasksReminders = (tasksRaw || [])
+    .filter((t) => t.status !== "done" && t.status !== "cancelled")
+    .sort((a, b) => {
+      if (!a.due_date && !b.due_date) return 0;
+      if (!a.due_date) return 1;
+      if (!b.due_date) return -1;
+      return String(a.due_date).localeCompare(String(b.due_date));
+    });
 
   // Last 6 months of sales
   const months = Array.from({ length: 6 }).map((_, i) => {
@@ -52,6 +73,19 @@ export default async function AdminDashboard() {
         description={`Overview · ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}`}
       />
 
+      <div className="mb-4 flex flex-wrap gap-2 text-sm">
+        <span className="text-muted-foreground">Shortcuts:</span>
+        <Link href="/admin/stores" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+          <Warehouse className="h-3.5 w-3.5" /> Stores
+        </Link>
+        <span className="text-muted-foreground">·</span>
+        <Link href="/admin/orders" className="font-medium text-primary hover:underline">Orders</Link>
+        <span className="text-muted-foreground">·</span>
+        <Link href="/admin/inventory" className="font-medium text-primary hover:underline">Inventory</Link>
+        <span className="text-muted-foreground">·</span>
+        <Link href="/admin/inventory/ready-made" className="font-medium text-primary hover:underline">Ready made</Link>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard label="Total Sales"   value={peso(totalSales)}    icon={TrendingUp}   accent="primary" />
         <StatCard label="Collected"     value={peso(collected)}     icon={Wallet}       accent="success" />
@@ -61,59 +95,23 @@ export default async function AdminDashboard() {
         <StatCard label="Est. Profit"   value={peso(profit)}        icon={TrendingUp}   accent="success" />
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2 anim-in">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Sales Trend</CardTitle>
-                <CardDescription>Total order value over the last 6 months</CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <BarChart data={chartData} />
-          </CardContent>
-        </Card>
-
-        <Card className="anim-in">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-500" /> Low Stock
-            </CardTitle>
-            <CardDescription>Items at or below minimum level</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {lowStock.length === 0 && (
-              <p className="rounded-md bg-emerald-500/5 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">
-                All items above minimum.
-              </p>
-            )}
-            {lowStock.slice(0, 6).map((i) => {
-              const pct = Math.min(100, (Number(i.quantity) / Math.max(1, Number(i.min_level))) * 100);
-              return (
-                <div key={i.id} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="truncate font-medium">{i.name}</span>
-                    <span className="text-xs text-muted-foreground">{i.quantity}/{i.min_level} {i.unit}</span>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: pct + "%", background: pct < 50 ? "hsl(var(--destructive))" : "hsl(var(--warning))" }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-            {lowStock.length > 0 && (
-              <Link href="/admin/inventory" className="block pt-2 text-xs font-medium text-primary hover:underline">
-                View all inventory →
-              </Link>
-            )}
-          </CardContent>
-        </Card>
+      <div className="mt-6">
+        <DashboardReminderCards maintenance={maintenanceAlerts} tasks={tasksReminders} lowStock={lowStock} variant="admin" />
       </div>
+
+      <Card className="mt-6 anim-in">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Sales Trend</CardTitle>
+              <CardDescription>Total order value over the last 6 months</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <BarChart data={chartData} />
+        </CardContent>
+      </Card>
 
       <Card className="mt-6 anim-in">
         <CardHeader>

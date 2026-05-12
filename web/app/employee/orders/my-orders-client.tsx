@@ -1,10 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { peso, formatDate } from "@/lib/utils";
+import { ORDER_SERVICE_LABEL, ORDER_SERVICE_STAGES, normalizeOrderServiceStage } from "@/lib/order-services";
+import { getOrderKind as getSalesChannel, orderTypeLabel } from "@/lib/sales";
 
 const SUB_STAGES = [
   { v: "design_layout", label: "Design Layout" },
@@ -15,11 +17,28 @@ const SUB_STAGES = [
   { v: "for_pickup", label: "For Pickup" },
 ] as const;
 
+const SERVICE_STAGES = ORDER_SERVICE_STAGES.map((v) => ({
+  v,
+  label: ORDER_SERVICE_LABEL[v] || v,
+}));
+
 const FLOW_STATUS = ["pending", "printing", "sewing", "ready"] as const;
 
 export function MyOrdersClient({ initial }: { initial: any[] }) {
   const supabase = createClient();
   const [list, setList] = useState(initial);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.from("orders").select("*").order("due_date", { ascending: true });
+      if (error || cancelled || !data) return;
+      setList(data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
 
   async function advanceStatus(o: any) {
     const idx = FLOW_STATUS.indexOf(o.status);
@@ -33,11 +52,19 @@ export function MyOrdersClient({ initial }: { initial: any[] }) {
     if (data) setList((prev) => prev.map((x) => (x.id === o.id ? data : x)));
   }
 
+  async function setServiceStage(o: any, stage: string) {
+    const { data } = await supabase.from("orders").update({ stage, updated_at: new Date().toISOString() }).eq("id", o.id).select().single();
+    if (data) setList((prev) => prev.map((x) => (x.id === o.id ? data : x)));
+  }
+
   return (
     <div className="grid gap-4 md:grid-cols-2">
       {list.map((o) => {
-        const isSub = (o.kind || o.order_type) === "sublimation";
+        const ch = getSalesChannel(o);
+        const isSub = ch === "sublimation";
         const stageIdx = SUB_STAGES.findIndex((s) => s.v === o.sub_stage);
+        const svcNorm = normalizeOrderServiceStage(o.stage);
+        const svcIdx = SERVICE_STAGES.findIndex((s) => s.v === svcNorm);
         return (
           <Card key={o.id}>
             <CardContent className="p-5">
@@ -47,7 +74,13 @@ export function MyOrdersClient({ initial }: { initial: any[] }) {
                   <div className="font-semibold">{o.customer_name}</div>
                   {o.customer_phone && <div className="text-xs text-muted-foreground">{o.customer_phone}</div>}
                 </div>
-                <Badge variant={isSub ? "teal" : (o.kind === "online" ? "purple" : "blue")}>{o.kind || o.order_type || "local"}</Badge>
+                <Badge
+                  variant={
+                    isSub ? "teal" : ch === "online" ? "purple" : ch === "services" ? "amber" : "blue"
+                  }
+                >
+                  {orderTypeLabel(ch)}
+                </Badge>
               </div>
 
               <dl className="mt-3 grid grid-cols-3 gap-2 text-sm">
@@ -75,6 +108,39 @@ export function MyOrdersClient({ initial }: { initial: any[] }) {
                           }
                         >
                           <span className={"flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " + (done ? "bg-emerald-500 text-white" : active ? "bg-primary text-primary-foreground" : "bg-muted")}>{i + 1}</span>
+                          {s.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {!isSub && (
+                <div className="mt-4">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Services</div>
+                  <div className="space-y-1.5">
+                    {SERVICE_STAGES.map((s, i) => {
+                      const done = svcIdx > i;
+                      const active = svcIdx === i;
+                      return (
+                        <button
+                          key={s.v}
+                          type="button"
+                          onClick={() => setServiceStage(o, s.v)}
+                          className={
+                            "flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm " +
+                            (active ? "border-primary bg-primary/5" : done ? "border-emerald-300/40 bg-emerald-500/5 text-muted-foreground" : "hover:bg-accent")
+                          }
+                        >
+                          <span
+                            className={
+                              "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold " +
+                              (done ? "bg-emerald-500 text-white" : active ? "bg-primary text-primary-foreground" : "bg-muted")
+                            }
+                          >
+                            {i + 1}
+                          </span>
                           {s.label}
                         </button>
                       );

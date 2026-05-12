@@ -56,11 +56,13 @@ create table if not exists public.inventory (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   category text,
+  item_type text,
   quantity numeric(12,2) default 0,
   unit text default 'pcs',
   min_level numeric(12,2) default 0,
   unit_cost numeric(12,2) default 0,
   supplier text,
+  notes text,
   updated_at timestamptz default now(),
   created_at timestamptz default now()
 );
@@ -72,6 +74,18 @@ create table if not exists public.orders (
   customer_name text not null,
   customer_phone text,
   order_type text default 'sublimation',
+  source text,
+  customer_email text,
+  customer_social text,
+  stage text,
+  external_order_no text,
+  waybill_no text,
+  courier text,
+  buyer_alias text,
+  sku_code text,
+  variation text,
+  shirt_type text,
+  shirt_size text,
   quantity int default 1,
   unit_price numeric(12,2) default 0,
   total numeric(12,2) generated always as (quantity * unit_price) stored,
@@ -191,14 +205,4 @@ update public.profiles
    set role = 'admin', full_name = 'Drips Printing Admin'
  where email = 'dripsprinting@gmail.com';
 
--- Seed inventory ---------------------------------------------------------
-insert into public.inventory (name, category, quantity, unit, min_level, unit_cost, supplier) values
-  ('Sublimation fabric',     'Materials', 120, 'meters', 50,  180, 'TexMart'),
-  ('Polyester jersey cloth', 'Materials',  80, 'meters', 40,  220, 'TexMart'),
-  ('Sublimation ink CMYK',   'Materials',  18, 'liters', 10,  950, 'InkPro'),
-  ('Transfer paper rolls',   'Materials',  25, 'rolls',  15,  650, 'PaperHub'),
-  ('Sewing thread',          'Supplies',  140, 'spools', 60,   45, 'ThreadCo'),
-  ('Zippers',                'Supplies',  300, 'pcs',   100,    8, 'TrimWorld'),
-  ('Teflon sheets',          'Supplies',   12, 'pcs',     6,  320, 'PressMart'),
-  ('Packaging bags',         'Supplies',  450, 'pcs',   200,    3, 'PackPro')
-on conflict do nothing;
+-- Inventory seed rows removed (materials/supplies no longer used; add products via admin).

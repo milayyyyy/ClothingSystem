@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import {
   LayoutDashboard, ShoppingBag, Package, Users, Clock, Wallet, Receipt,
   BarChart3, LogOut, Printer, ChevronDown, Truck, ListChecks, Activity,
-  Store, Globe, Sparkles, Boxes, Hammer,
+  Store, Globe, Sparkles, Warehouse, LayoutGrid, Wrench, TrendingUp, List, Landmark, Briefcase,
 } from "lucide-react";
 
 type Role = "admin" | "sub_admin" | "employee";
@@ -32,26 +32,34 @@ const STAFF_GROUPS: Group[] = [
     {
       href: "/admin/orders", label: "Orders", icon: ShoppingBag,
       children: [
-        { href: "/admin/orders?type=local",       label: "Local",       icon: Store,    query: { type: "local" } },
-        { href: "/admin/orders?type=online",      label: "Online",      icon: Globe,    query: { type: "online" } },
-        { href: "/admin/orders?type=sublimation", label: "Sublimation", icon: Sparkles, query: { type: "sublimation" } },
+        { href: "/admin/orders?type=walkin_online", label: "Walk In & Online", icon: Store, query: { type: "walkin_online" } },
+        { href: "/admin/orders/bigseller",        label: "BigSeller",    icon: Globe },
+        { href: "/admin/orders?type=services",    label: "Services",     icon: Briefcase, query: { type: "services" } },
+        { href: "/admin/orders?type=sublimation", label: "Sublimation",  icon: Sparkles, query: { type: "sublimation" } },
       ],
     },
-    {
-      href: "/admin/inventory", label: "Inventory", icon: Package,
-      children: [
-        { href: "/admin/inventory?category=Materials",    label: "Materials",  icon: Boxes,    query: { category: "Materials" } },
-        { href: "/admin/inventory?category=Supplies",     label: "Supplies",   icon: Hammer,   query: { category: "Supplies" } },
-      ],
-    },
+    { href: "/admin/inventory", label: "Inventory", icon: Package },
+    { href: "/admin/inventory/ready-made", label: "Ready made inventory", icon: LayoutGrid },
     { href: "/admin/suppliers", label: "Suppliers", icon: Truck },
-    { href: "/admin/expenses", label: "Expenses", icon: Receipt },
+    {
+      href: "/admin/sales-expenses",
+      label: "Sales & expenses",
+      icon: Receipt,
+      children: [
+        { href: "/admin/sales-expenses/sales", label: "Sales", icon: TrendingUp },
+        { href: "/admin/sales-expenses/sales/list", label: "Sales list", icon: List },
+        { href: "/admin/sales-expenses/expenses", label: "Expenses", icon: Receipt },
+      ],
+    },
+    { href: "/admin/finance", label: "Finance", icon: Landmark },
   ]},
   { title: "People", items: [
     { href: "/admin/employees", label: "Employees", icon: Users, adminOnly: true },
     { href: "/admin/attendance", label: "Attendance", icon: Clock },
     { href: "/admin/salary", label: "Salary", icon: Wallet },
     { href: "/admin/tasks", label: "Tasks", icon: ListChecks },
+    { href: "/admin/maintenance", label: "Machine maintenance", icon: Wrench },
+    { href: "/admin/stores", label: "Stores", icon: Warehouse },
   ]},
   { title: "Audit", items: [
     { href: "/admin/activity", label: "Activity Log", icon: Activity },
@@ -87,6 +95,9 @@ export function Sidebar({ role, name }: { role: Role; name: string }) {
 
   function isItemActive(item: Item) {
     if (pathname === item.href) return true;
+    // /admin/inventory must not stay highlighted on /admin/inventory/ready-made (separate nav item).
+    if (item.href === "/admin/inventory" && pathname.startsWith("/admin/inventory/ready-made")) return false;
+    if (item.href === "/admin/inventory" && pathname.startsWith("/admin/inventory/settings")) return false;
     if (item.href !== homeBase && pathname.startsWith(item.href)) return true;
     return false;
   }
@@ -110,11 +121,13 @@ export function Sidebar({ role, name }: { role: Role; name: string }) {
   }
 
   function isChildActive(itemHref: string, child: Child) {
-    if (pathname !== itemHref) return false;
-    const queryKey = child.query ? Object.keys(child.query)[0] : null;
-    if (queryKey) return params.get(queryKey) === child.query![queryKey];
-    // "All" child has no query — active when no relevant param is set
-    return !Array.from(params.keys()).some((k) => ["type", "category", "status"].includes(k));
+    if (child.query) {
+      if (pathname !== itemHref) return false;
+      const queryKey = Object.keys(child.query)[0];
+      return params.get(queryKey) === child.query![queryKey];
+    }
+    // Path-based sub-route — exact match so /sales does not steal highlight from /sales/list
+    return pathname === child.href;
   }
 
   async function logout() {

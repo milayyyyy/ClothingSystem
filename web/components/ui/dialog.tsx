@@ -1,5 +1,6 @@
 "use client";
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,29 +17,44 @@ export function Dialog({ open, onClose, children, title, description, size = "lg
   }, [open, onClose]);
 
   if (!open) return null;
+  if (typeof document === "undefined") return null;
   const w = size === "md" ? "max-w-md" : size === "xl" ? "max-w-2xl" : "max-w-lg";
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 anim-in" onClick={onClose}>
-      <div className="absolute inset-0 bg-background/80" />
+  return createPortal(
+    (
       <div
-        className={cn("relative w-full rounded-xl border bg-card p-6 shadow-2xl", w)}
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-[100] overflow-y-auto overscroll-contain anim-in"
+        role="presentation"
       >
-        <button
-          onClick={onClose}
-          className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          aria-label="Close"
-        >
-          <X className="h-4 w-4" />
-        </button>
-        {(title || description) && (
-          <div className="mb-5">
-            {title && <h2 className="text-lg font-semibold tracking-tight">{title}</h2>}
-            {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+        <div className="fixed inset-0 bg-background/80" aria-hidden />
+        <div className="relative flex min-h-full items-center justify-center p-4 sm:p-6 sm:py-10">
+          <div
+            className={cn(
+              "relative z-10 flex w-full max-h-[min(90dvh,calc(100dvh-2rem))] flex-col overflow-hidden rounded-xl border bg-card shadow-2xl",
+              w,
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="relative shrink-0 border-b border-border/60 px-6 pb-4 pt-6 pr-14">
+              <button
+                type="button"
+                onClick={onClose}
+                className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              {(title || description) && (
+                <div>
+                  {title && <h2 className="text-lg font-semibold tracking-tight">{title}</h2>}
+                  {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+                </div>
+              )}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">{children}</div>
           </div>
-        )}
-        {children}
+        </div>
       </div>
-    </div>
+    ),
+    document.body,
   );
 }

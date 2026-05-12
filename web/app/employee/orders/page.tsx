@@ -9,7 +9,11 @@ export default async function MyOrdersPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const supabase = createClient();
-  const { data } = await supabase.from("orders").select("*").eq("assigned_to", user.id).order("due_date", { ascending: true });
+  // RLS (orders_select) already limits rows to assigned_to = auth.uid(); no .eq() so we never drift from session.
+  const { data, error } = await supabase.from("orders").select("*").order("due_date", { ascending: true });
+  if (error) {
+    console.error("employee orders:", error.message);
+  }
   return (
     <div>
       <PageHeader title="My Orders" description="Update status as you progress" />

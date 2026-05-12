@@ -3,11 +3,21 @@ import { cookies } from "next/headers";
 
 export type Role = "admin" | "sub_admin" | "employee";
 
+function requirePublicEnv(name: "NEXT_PUBLIC_SUPABASE_URL" | "NEXT_PUBLIC_SUPABASE_ANON_KEY", v: string | undefined) {
+  const t = (v ?? "").trim();
+  if (!t) {
+    throw new Error(
+      `Missing ${name}. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to web/.env.local and restart the dev server.`,
+    );
+  }
+  return t;
+}
+
 export function createClient() {
   const cookieStore = cookies();
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    requirePublicEnv("NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL),
+    requirePublicEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
     {
       cookies: {
         get(name: string) { return cookieStore.get(name)?.value; },

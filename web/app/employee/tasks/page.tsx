@@ -16,8 +16,11 @@ export default async function EmployeeTasksPage() {
     .order("created_at", { ascending: false });
   return (
     <div>
-      <PageHeader title="My Tasks" description="Assigned to you individually or as a group" />
-      <EmployeeTasksClient initial={data || []} />
+      <PageHeader
+        title="My Tasks"
+        description="Assigned to you individually or as a group. See the maintenance reminder below for scheduled machine downtime."
+      />
+      <EmployeeTasksClient userId={me.id} initial={data || []} />
     </div>
   );
 }

@@ -1,13 +1,15 @@
 "use client";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { MachineMaintenanceReminder } from "@/components/machine-maintenance-reminder";
+import { ScheduledMaintenanceAlerts } from "@/components/scheduled-maintenance-alerts";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 
 const STATUSES = ["open", "in_progress", "done"] as const;
 
-export function EmployeeTasksClient({ initial }: { initial: any[] }) {
+export function EmployeeTasksClient({ userId, initial }: { userId: string; initial: any[] }) {
   const supabase = createClient();
   const [list, setList] = useState(initial);
 
@@ -19,7 +21,10 @@ export function EmployeeTasksClient({ initial }: { initial: any[] }) {
   }
 
   return (
-    <div className="grid gap-3 md:grid-cols-2">
+    <div className="space-y-6">
+      <ScheduledMaintenanceAlerts userId={userId} />
+      <MachineMaintenanceReminder variant="employee" />
+      <div className="grid gap-3 md:grid-cols-2">
       {list.map((t) => (
         <Card key={t.id}>
           <CardContent className="p-5">
@@ -41,6 +46,7 @@ export function EmployeeTasksClient({ initial }: { initial: any[] }) {
         </Card>
       ))}
       {list.length === 0 && <p className="text-sm text-muted-foreground">No tasks assigned.</p>}
+      </div>
     </div>
   );
 }

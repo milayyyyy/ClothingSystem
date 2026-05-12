@@ -1,14 +1,17 @@
 "use client";
 import { usePathname } from "next/navigation";
 import { Search } from "lucide-react";
+import { MaintenanceBell } from "@/components/maintenance-bell";
 
 const NAMES: Record<string, string> = {
-  admin: "Dashboard", orders: "Orders", inventory: "Inventory", employees: "Employees",
-  attendance: "Attendance", salary: "Salary", expenses: "Expenses", reports: "Reports",
+  admin: "Dashboard", orders: "Orders", stores: "Stores", inventory: "Inventory", "ready-made": "Ready made", employees: "Employees",
+  attendance: "Attendance", salary: "Salary", expenses: "Expenses", reports: "Reports", maintenance: "Machine maintenance",
+  "sales-expenses": "Sales & expenses", sales: "Sales", list: "Sales list",
+  bigseller: "BigSeller",
   employee: "Dashboard", profile: "Profile",
 };
 
-export function Topbar({ name, role }: { name: string; role: string }) {
+export function Topbar({ name, role, userId }: { name: string; role: string; userId?: string }) {
   const path = usePathname();
   const segs = path.split("/").filter(Boolean);
   const crumbs = segs.map((s, i) => ({ label: NAMES[s] || s, href: "/" + segs.slice(0, i + 1).join("/") }));
@@ -24,6 +27,7 @@ export function Topbar({ name, role }: { name: string; role: string }) {
         ))}
       </nav>
       <div className="ml-auto flex items-center gap-3">
+        {userId ? <MaintenanceBell userId={userId} /> : null}
         <div className="hidden items-center gap-2 rounded-md border bg-muted/30 px-3 py-1.5 text-sm text-muted-foreground md:flex">
           <Search className="h-3.5 w-3.5" />
           <span className="text-xs">Quick search</span>

@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { peso } from "@/lib/utils";
+import { salaryTypeLabel } from "@/lib/payroll";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function ProfilePage() {
           <Field label="Position" value={p.position || "—"} />
           <Field label="Role"><Badge variant="blue">{p.role}</Badge></Field>
           <Field label="Status"><Badge variant={p.active ? "green" : "red"}>{p.active ? "Active" : "Inactive"}</Badge></Field>
-          <Field label="Salary type" value={p.salary_type} />
+          <Field label="Salary type" value={salaryTypeLabel(p.salary_type)} />
           <Field label="Rate" value={peso(p.salary_rate)} />
         </dl>
         <p className="mt-6 text-xs text-muted-foreground">To update your profile, contact an administrator.</p>
