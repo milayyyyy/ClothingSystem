@@ -14,7 +14,10 @@ export default async function AdminSalaryPage() {
 
   return (
     <div>
-      <PageHeader title="Salary" description="Compute and record payroll" />
+      <PageHeader
+        title="Salary"
+        description="Set pay types and rates; this month’s amounts follow attendance (Admin → Attendance). Recorded payouts below."
+      />
       <SalaryClient employees={employees || []} salaries={salaries || []} attendance={attendance || []} />
     </div>
   );
