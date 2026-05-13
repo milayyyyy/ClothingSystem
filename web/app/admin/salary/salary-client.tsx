@@ -971,12 +971,12 @@ export function SalaryClient({
                   </td>
                   <td className="p-2">{salaryTypeLabel(r.type)}</td>
                   <td className="p-2 text-right tabular-nums">{r.displayDays}</td>
-                  <td className="p-2 text-right tabular-nums">{r.type === "hourly" ? r.rawH.toFixed(2) : "—"}</td>
-                  <td className="p-2 text-right tabular-nums">{r.type === "hourly" ? r.paidH.toFixed(2) : "—"}</td>
-                  <td className="p-2 text-right tabular-nums">{r.type === "hourly" ? r.regH.toFixed(2) : "—"}</td>
-                  <td className="p-2 text-right tabular-nums">{r.type === "hourly" ? r.otH.toFixed(2) : "—"}</td>
-                  <td className="p-2 text-right tabular-nums">{peso(r.base)}</td>
-                  <td className="p-2 text-right tabular-nums">{peso(r.allowance)}</td>
+                  <td className="p-2 text-right tabular-nums text-muted-foreground">{!r.settledSnapshot && r.type === "hourly" ? r.rawH.toFixed(2) : "—"}</td>
+                  <td className="p-2 text-right tabular-nums text-muted-foreground">{!r.settledSnapshot && r.type === "hourly" ? r.paidH.toFixed(2) : "—"}</td>
+                  <td className="p-2 text-right tabular-nums text-muted-foreground">{!r.settledSnapshot && r.type === "hourly" ? r.regH.toFixed(2) : "—"}</td>
+                  <td className="p-2 text-right tabular-nums text-muted-foreground">{!r.settledSnapshot && r.type === "hourly" ? r.otH.toFixed(2) : "—"}</td>
+                  <td className="p-2 text-right tabular-nums">{r.settledSnapshot ? "—" : peso(r.base)}</td>
+                  <td className="p-2 text-right tabular-nums">{r.settledSnapshot ? "—" : peso(r.allowance)}</td>
                   <td
                     className="p-2 text-right font-semibold tabular-nums"
                     title={r.settledSnapshot && r.displayTotal > 0 ? `Last recorded net pay for this period: ${peso(r.displayTotal)}` : undefined}
