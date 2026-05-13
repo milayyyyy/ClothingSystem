@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
@@ -66,13 +66,64 @@ export function FinanceClient({
   accounts,
   transactions,
   error,
+  flowDateFrom = "",
+  flowDateTo = "",
+  flowRangeActive = false,
 }: {
   accounts: FinanceAccountRow[];
   transactions: FinanceTxRow[];
   error: string | null;
+  /** URL `from` for money-flow date filter (YYYY-MM-DD). */
+  flowDateFrom?: string;
+  /** URL `to` for money-flow date filter (YYYY-MM-DD). */
+  flowDateTo?: string;
+  /** True when both dates are valid and from <= to (server applied filter). */
+  flowRangeActive?: boolean;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
+
+  const [flowFromInput, setFlowFromInput] = useState(flowDateFrom);
+  const [flowToInput, setFlowToInput] = useState(flowDateTo);
+
+  useEffect(() => {
+    setFlowFromInput(flowDateFrom);
+    setFlowToInput(flowDateTo);
+  }, [flowDateFrom, flowDateTo]);
+
+  function applyFlowDateFilter() {
+    const from = flowFromInput.trim().slice(0, 10);
+    const to = flowToInput.trim().slice(0, 10);
+    if (!from && !to) {
+      clearFlowDateFilter();
+      return;
+    }
+    if (!from || !to) {
+      alert("Set both start date and end date, or clear both to see the latest recorded activity.");
+      return;
+    }
+    if (from > to) {
+      alert("Start date must be on or before end date.");
+      return;
+    }
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    params.set("from", from);
+    params.set("to", to);
+    const q = params.toString();
+    router.push(q ? `${pathname}?${q}` : pathname);
+  }
+
+  function clearFlowDateFilter() {
+    setFlowFromInput("");
+    setFlowToInput("");
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    params.delete("from");
+    params.delete("to");
+    const q = params.toString();
+    router.push(q ? `${pathname}?${q}` : pathname);
+  }
 
   const [accountOpen, setAccountOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<FinanceAccountRow | null>(null);
@@ -372,13 +423,44 @@ export function FinanceClient({
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <CardTitle>Money flow (in / out)</CardTitle>
-          <Button type="button" size="sm" onClick={openCreateTx} disabled={(accounts || []).length === 0}>
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <CardTitle>Money flow (in / out)</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {flowRangeActive
+                ? `Showing entries whose date is between ${flowDateFrom} and ${flowDateTo}, newest recorded first.`
+                : "Showing the most recently recorded activity first (not sorted by transaction date alone)."}
+            </p>
+          </div>
+          <Button type="button" size="sm" onClick={openCreateTx} disabled={(accounts || []).length === 0} className="shrink-0 self-end sm:self-start">
             Add money flow
           </Button>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {(accounts || []).length > 0 && (
+            <div className="flex flex-col gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <div className="grid gap-1 sm:min-w-[160px]">
+                <Label htmlFor="flow-from" className="text-xs">
+                  Start date
+                </Label>
+                <Input id="flow-from" type="date" value={flowFromInput} onChange={(e) => setFlowFromInput(e.target.value)} />
+              </div>
+              <div className="grid gap-1 sm:min-w-[160px]">
+                <Label htmlFor="flow-to" className="text-xs">
+                  End date
+                </Label>
+                <Input id="flow-to" type="date" value={flowToInput} onChange={(e) => setFlowToInput(e.target.value)} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" onClick={() => void applyFlowDateFilter()}>
+                  Apply filter
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => void clearFlowDateFilter()} disabled={!flowRangeActive && !flowFromInput && !flowToInput}>
+                  Clear
+                </Button>
+              </div>
+            </div>
+          )}
           {(accounts || []).length === 0 ? (
             <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
               Create an account first to start recording money flow.
@@ -388,7 +470,8 @@ export function FinanceClient({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[120px]">Date</TableHead>
+                    <TableHead className="w-[120px] whitespace-nowrap">Date</TableHead>
+                    <TableHead className="w-[150px] text-muted-foreground">Recorded</TableHead>
                     <TableHead className="w-[220px]">Account</TableHead>
                     <TableHead className="w-[120px]">Type</TableHead>
                     <TableHead className="text-right w-[140px]">In</TableHead>
@@ -400,7 +483,7 @@ export function FinanceClient({
                 <TableBody>
                   {(transactions || []).length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                      <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
                         No money flow yet.
                       </TableCell>
                     </TableRow>
@@ -408,9 +491,20 @@ export function FinanceClient({
                     transactions.map((t) => {
                       const a = byId.get(t.account_id);
                       const dir = t.direction === "out" ? "out" : "in";
+                      const rec = t.created_at
+                        ? new Date(t.created_at).toLocaleString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "—";
                       return (
                         <TableRow key={t.id}>
                           <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{t.occurred_at}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap" title={t.created_at || undefined}>
+                            {rec}
+                          </TableCell>
                           <TableCell className="font-medium">{a?.name || "—"}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">{labelKind(a?.kind || "")}</TableCell>
                           <TableCell className="text-right tabular-nums text-emerald-700 dark:text-emerald-300">

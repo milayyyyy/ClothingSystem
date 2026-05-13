@@ -193,11 +193,11 @@ create policy expenses_admin on public.expenses
 -- salaries policies
 drop policy if exists salaries_select on public.salaries;
 create policy salaries_select on public.salaries
-  for select using (user_id = auth.uid() or public.is_admin());
+  for select using (user_id = auth.uid() or public.is_admin_or_sub());
 
 drop policy if exists salaries_admin_write on public.salaries;
 create policy salaries_admin_write on public.salaries
-  for all using (public.is_admin()) with check (public.is_admin());
+  for all using (public.is_admin_or_sub()) with check (public.is_admin_or_sub());
 
 -- Seed: promote dripsprinting@gmail.com to admin once that auth user exists.
 -- (Create the auth user first via Supabase Dashboard > Authentication > Users.)

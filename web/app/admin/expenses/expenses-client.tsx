@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { peso, formatDate, cn } from "@/lib/utils";
 import { defaultSalesListDateRange } from "@/lib/sales-list";
-import { Plus, Trash2, FileImage } from "lucide-react";
+import { Plus, Trash2, FileImage, Pencil } from "lucide-react";
 
 const CATS = [
   "Materials", "Fabrics", "Salary", "Employee Expenses", "Marketing",
@@ -97,6 +97,7 @@ export function ExpensesClient({
   const supabase = createClient();
   const [list, setList] = useState<ExpenseRow[]>(initial);
   const [open, setOpen] = useState(false);
+  const [editRow, setEditRow] = useState<ExpenseRow | null>(null);
 
   const defaults = useMemo(() => defaultSalesListDateRange(), []);
   const [from, setFrom] = useState(defaults.from);
@@ -357,7 +358,7 @@ export function ExpensesClient({
             <th className="p-3">Supplier</th>
             <th className="p-3">Finance account</th>
             <th className="p-3">Receipt</th>
-            <th className="p-3 w-12"></th>
+            <th className="p-3 w-28 text-right">Actions</th>
           </tr></thead>
           <tbody>
             {filtered.map((e) => (
@@ -383,15 +384,20 @@ export function ExpensesClient({
                   )}
                 </td>
                 <td className="p-3 text-right">
-                  <button type="button" onClick={() => remove(e)} className="text-muted-foreground hover:text-destructive" aria-label="Delete expense">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <div className="flex justify-end gap-0.5">
+                    <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setEditRow(e)} aria-label="Edit expense">
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive" onClick={() => remove(e)} aria-label="Delete expense">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="p-6 text-center text-muted-foreground">
+                <td colSpan={9} className="p-6 text-center text-muted-foreground">
                   {list.length === 0 ? "No expenses." : "No expenses match the current filters."}
                 </td>
               </tr>
@@ -408,6 +414,15 @@ export function ExpensesClient({
         financeAccounts={financeAccounts}
         inventoryItems={inventoryItems}
         employees={employees}
+      />
+
+      <ExpenseEditDialog
+        row={editRow}
+        open={!!editRow}
+        onClose={() => setEditRow(null)}
+        onSaved={refresh}
+        suppliers={suppliers}
+        financeAccounts={financeAccounts}
       />
     </>
   );
@@ -922,6 +937,242 @@ function ExpenseForm({
           </Button>
           <Button type="submit" disabled={submitDisabled}>
             {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+const expenseEditSelect = cn(
+  "flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background focus-visible:border-primary",
+);
+
+type EditExpenseFormState = {
+  expense_date: string;
+  category: string;
+  description: string;
+  amount: number;
+  supplier_id: string;
+  finance_account_id: string;
+};
+
+function ExpenseEditDialog({
+  row,
+  open,
+  onClose,
+  onSaved,
+  suppliers,
+  financeAccounts,
+}: {
+  row: ExpenseRow | null;
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void | Promise<void>;
+  suppliers: SupplierOption[];
+  financeAccounts: FinanceAccountOption[];
+}) {
+  const supabase = createClient();
+  const [form, setForm] = useState<EditExpenseFormState>({
+    expense_date: "",
+    category: "Materials",
+    description: "",
+    amount: 0,
+    supplier_id: "",
+    finance_account_id: "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!row || !open) return;
+    setForm({
+      expense_date: expenseDateKey(row.expense_date),
+      category: row.category || "Materials",
+      description: row.description || "",
+      amount: Number(row.amount) || 0,
+      supplier_id: row.supplier_id || "",
+      finance_account_id: row.finance_account_id || "",
+    });
+  }, [row, open]);
+
+  async function submitEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!row) return;
+    const amt = Math.max(0, Math.round((Number(form.amount) || 0) * 100) / 100);
+    const financeId = form.finance_account_id.trim() || null;
+    const account = financeId ? financeAccounts.find((a) => a.id === financeId) : undefined;
+
+    if (amt > 0 && !financeId) {
+      alert("Choose a finance account when the amount is greater than zero.");
+      return;
+    }
+    if (amt > 0 && financeAccounts.length === 0) {
+      alert("Add a finance account under Finance first.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { data: tx } = await supabase.from("finance_transactions").select("id").eq("expense_id", row.id).maybeSingle();
+
+      const descTrim = form.description.trim();
+      const expensePayload = {
+        expense_date: form.expense_date,
+        category: form.category,
+        description: descTrim || null,
+        amount: amt,
+        supplier_id: form.supplier_id || null,
+        finance_account_id: financeId,
+        paid_through: amt > 0 && account ? account.name : null,
+      };
+
+      const { error: exErr } = await supabase.from("expenses").update(expensePayload).eq("id", row.id);
+      if (exErr) {
+        alert(exErr.message);
+        return;
+      }
+
+      const descForTx = descTrim
+        ? `Expense: ${form.category} — ${descTrim.slice(0, 120)}`
+        : `Expense: ${form.category}`;
+
+      if (amt > 0 && financeId) {
+        const txBody = {
+          occurred_at: form.expense_date,
+          account_id: financeId,
+          direction: "out" as const,
+          amount: amt,
+          description: descForTx,
+        };
+        if (tx?.id) {
+          const { error: txErr } = await supabase.from("finance_transactions").update(txBody).eq("id", tx.id);
+          if (txErr) {
+            alert(txErr.message);
+            return;
+          }
+        } else {
+          const { error: txErr } = await supabase.from("finance_transactions").insert({
+            ...txBody,
+            notes: `expense:${row.id}`,
+            expense_id: row.id,
+          });
+          if (txErr) {
+            alert(txErr.message);
+            return;
+          }
+        }
+      } else if (tx?.id) {
+        const { error: delErr } = await supabase.from("finance_transactions").delete().eq("id", tx.id);
+        if (delErr) {
+          alert(delErr.message);
+          return;
+        }
+      }
+
+      onClose();
+      await onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!row) return null;
+
+  return (
+    <Dialog
+      open={open}
+      onClose={saving ? () => {} : onClose}
+      title="Edit expense"
+      description="Updates this row and its linked finance withdrawal (if any)."
+      size="md"
+    >
+      <form onSubmit={(e) => void submitEdit(e)} className="grid gap-3">
+        <div>
+          <Label htmlFor="ee-date">Date</Label>
+          <Input
+            id="ee-date"
+            type="date"
+            className="mt-1 h-9"
+            value={form.expense_date}
+            onChange={(e) => setForm((f) => ({ ...f, expense_date: e.target.value }))}
+            required
+          />
+        </div>
+        <div>
+          <Label htmlFor="ee-cat">Category</Label>
+          <select
+            id="ee-cat"
+            className={cn(expenseEditSelect, "mt-1")}
+            value={form.category}
+            onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+          >
+            {CATS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label htmlFor="ee-desc">Description</Label>
+          <Input
+            id="ee-desc"
+            className="mt-1 h-9"
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+          />
+        </div>
+        <div>
+          <Label htmlFor="ee-amt">Amount (₱)</Label>
+          <Input
+            id="ee-amt"
+            type="number"
+            step="0.01"
+            min={0}
+            className="mt-1 h-9"
+            value={Number.isFinite(form.amount) ? form.amount : 0}
+            onChange={(e) => setForm((f) => ({ ...f, amount: Number(e.target.value) }))}
+          />
+        </div>
+        <div>
+          <Label htmlFor="ee-acct">Finance account</Label>
+          <select
+            id="ee-acct"
+            className={cn(expenseEditSelect, "mt-1")}
+            value={form.finance_account_id}
+            onChange={(e) => setForm((f) => ({ ...f, finance_account_id: e.target.value }))}
+          >
+            <option value="">None (no deduction / remove ledger row)</option>
+            {financeAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {formatAccountOption(a)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label htmlFor="ee-sup">Supplier</Label>
+          <select
+            id="ee-sup"
+            className={cn(expenseEditSelect, "mt-1")}
+            value={form.supplier_id}
+            onChange={(e) => setForm((f) => ({ ...f, supplier_id: e.target.value }))}
+          >
+            <option value="">None</option>
+            {suppliers.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save changes"}
           </Button>
         </div>
       </form>
