@@ -134,8 +134,9 @@ export function SalesListClient({ orders }: Props) {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Orders: <span className="font-medium text-foreground">Ready</span> or{" "}
-            <span className="font-medium text-foreground">Delivered</span> only; date uses last update.
+            Completed orders show the full amount. Pending orders with a recorded{" "}
+            <span className="font-medium text-foreground">down payment</span> appear as{" "}
+            <span className="font-medium text-amber-600 dark:text-amber-400">Deposit</span> rows.
           </p>
         </CardContent>
       </Card>
@@ -223,14 +224,11 @@ function SalesRow({ row }: { row: UnifiedSaleListRow }) {
             ? "amber"
             : "blue";
 
-  const channelLabel = row.isBigSeller
-    ? "BigSeller"
-    : orderTypeLabel(row.channel);
-
+  const channelLabel = row.isBigSeller ? "BigSeller" : orderTypeLabel(row.channel);
   const dateLabel = formatSalesDateTime(new Date(row.atMs).toISOString());
 
   return (
-    <tr className="border-t hover:bg-muted/30">
+    <tr className={`border-t hover:bg-muted/30 ${row.isDeposit ? "bg-amber-50/30 dark:bg-amber-900/10" : ""}`}>
       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{dateLabel}</td>
       <td className="py-3 font-mono text-xs">
         <div>
@@ -252,12 +250,24 @@ function SalesRow({ row }: { row: UnifiedSaleListRow }) {
         {row.customerOrTitle}
       </td>
       <td className="py-3">
-        <Badge variant={ch as "purple" | "teal" | "blue" | "amber"}>{channelLabel}</Badge>
+        <div className="flex flex-wrap items-center gap-1">
+          <Badge variant={ch as "purple" | "teal" | "blue" | "amber"}>{channelLabel}</Badge>
+          {row.isDeposit && (
+            <Badge variant="amber" className="text-[10px]">Deposit</Badge>
+          )}
+        </div>
       </td>
       <td className="max-w-[180px] truncate py-3 text-muted-foreground" title={row.storeOrNotes}>
         {row.storeOrNotes}
       </td>
-      <td className="px-4 py-3 text-right font-medium">{peso(row.amount)}</td>
+      <td className="px-4 py-3 text-right">
+        <div className="font-medium">{peso(row.amount)}</div>
+        {row.isDeposit && row.orderTotal > 0 && (
+          <div className="text-[11px] text-muted-foreground">
+            of {peso(row.orderTotal)} total
+          </div>
+        )}
+      </td>
       <td className="px-2 py-3 text-center">
         {row.hasTeamsSheet && row.orderId && (
           <Link
