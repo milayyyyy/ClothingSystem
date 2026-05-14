@@ -37,6 +37,7 @@ export default async function AdminBigSellerOrdersPage() {
         employees={employees || []}
         initialKind="online"
         hideKindTabs
+        hideNewOrder
       />
     </div>
   );

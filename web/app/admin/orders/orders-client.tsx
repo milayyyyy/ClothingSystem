@@ -969,12 +969,14 @@ export function OrdersClient({
   initialKind,
   defaultSearch,
   hideKindTabs = false,
+  hideNewOrder = false,
 }: {
   initialOrders: Order[];
   employees: Emp[];
   initialKind?: OrdersTabKind;
   defaultSearch?: string;
   hideKindTabs?: boolean;
+  hideNewOrder?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1088,6 +1090,53 @@ export function OrdersClient({
       return true;
     });
   }, [orders, kindFilter, stageFilter, search, hideKindTabs, printedFrom, printedTo]);
+
+  // Duplicate detection: groups of orders sharing the same waybill_no, external_order_no, or sku_code
+  const duplicateGroups = useMemo(() => {
+    if (!hideNewOrder) return [];
+    // Build maps: field-value → order ids
+    const waybillMap = new Map<string, Order[]>();
+    const externalMap = new Map<string, Order[]>();
+    const skuMap = new Map<string, Order[]>();
+    for (const o of orders) {
+      if (o.waybill_no?.trim()) {
+        const k = String(o.waybill_no).trim().toLowerCase();
+        if (!waybillMap.has(k)) waybillMap.set(k, []);
+        waybillMap.get(k)!.push(o);
+      }
+      if (o.external_order_no?.trim()) {
+        const k = String(o.external_order_no).trim().toLowerCase();
+        if (!externalMap.has(k)) externalMap.set(k, []);
+        externalMap.get(k)!.push(o);
+      }
+      if (o.sku_code?.trim()) {
+        const k = String(o.sku_code).trim().toLowerCase();
+        if (!skuMap.has(k)) skuMap.set(k, []);
+        skuMap.get(k)!.push(o);
+      }
+    }
+    const groups: { field: string; value: string; orders: Order[] }[] = [];
+    const seen = new Set<string>(); // dedupe by "field:value"
+    for (const [v, list] of waybillMap) {
+      if (list.length > 1 && !seen.has(`w:${v}`)) {
+        seen.add(`w:${v}`);
+        groups.push({ field: "Waybill", value: list[0].waybill_no, orders: list });
+      }
+    }
+    for (const [v, list] of externalMap) {
+      if (list.length > 1 && !seen.has(`e:${v}`)) {
+        seen.add(`e:${v}`);
+        groups.push({ field: "External order #", value: list[0].external_order_no, orders: list });
+      }
+    }
+    for (const [v, list] of skuMap) {
+      if (list.length > 1 && !seen.has(`s:${v}`)) {
+        seen.add(`s:${v}`);
+        groups.push({ field: "BigSeller code", value: list[0].sku_code, orders: list });
+      }
+    }
+    return groups;
+  }, [orders, hideNewOrder]);
 
   useEffect(() => {
     if (kindFilter === "online") setSelectedListOrderIds(new Set());
@@ -1508,16 +1557,47 @@ export function OrdersClient({
               <Settings2 className="mr-1 h-4 w-4" /> Job Types
             </Button>
           )}
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setOpen(true);
-            }}
-          >
-            <Plus className="mr-1 h-4 w-4" /> New Order
-          </Button>
+          {!hideNewOrder && (
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setOpen(true);
+              }}
+            >
+              <Plus className="mr-1 h-4 w-4" /> New Order
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Duplicate order alert — BigSeller page only */}
+      {duplicateGroups.length > 0 && (
+        <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 dark:border-yellow-700 dark:bg-yellow-900/20">
+          <div className="flex items-center gap-2 text-sm font-semibold text-yellow-800 dark:text-yellow-300">
+            <span>⚠️</span>
+            <span>{duplicateGroups.length} duplicate{duplicateGroups.length > 1 ? "s" : ""} detected</span>
+          </div>
+          <div className="mt-2 space-y-1.5">
+            {duplicateGroups.map((g, i) => (
+              <div key={i} className="text-xs text-yellow-800 dark:text-yellow-400">
+                <span className="font-medium">{g.field}:</span>{" "}
+                <span className="font-mono">{g.value}</span>{" — "}
+                {g.orders.map((o, j) => (
+                  <span key={o.id}>
+                    {j > 0 && ", "}
+                    <button
+                      className="underline hover:no-underline"
+                      onClick={() => { setEditing(o); setOpen(true); }}
+                    >
+                      #{o.order_no} {o.customer_name}
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <Card>
         <CardContent className="p-0">
