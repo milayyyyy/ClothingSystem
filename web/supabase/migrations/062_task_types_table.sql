@@ -15,6 +15,9 @@ create table if not exists public.task_types (
 
 alter table public.task_types enable row level security;
 
+drop policy if exists "staff read task_types" on public.task_types;
+drop policy if exists "admin manage task_types" on public.task_types;
+
 create policy "staff read task_types"
   on public.task_types for select
   using (true);

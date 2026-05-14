@@ -10,6 +10,9 @@ create table if not exists public.roles (
 
 alter table public.roles enable row level security;
 
+drop policy if exists "staff read roles" on public.roles;
+drop policy if exists "admin manage roles" on public.roles;
+
 create policy "staff read roles"
   on public.roles for select using (true);
 

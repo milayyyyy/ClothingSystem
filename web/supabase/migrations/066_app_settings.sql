@@ -8,6 +8,9 @@ create table if not exists public.app_settings (
 
 alter table public.app_settings enable row level security;
 
+drop policy if exists "staff read app_settings" on public.app_settings;
+drop policy if exists "admin manage app_settings" on public.app_settings;
+
 -- All authenticated staff can read settings
 create policy "staff read app_settings"
   on public.app_settings for select

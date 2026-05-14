@@ -10,6 +10,9 @@ create table if not exists public.employee_positions (
 
 alter table public.employee_positions enable row level security;
 
+drop policy if exists "staff read employee_positions" on public.employee_positions;
+drop policy if exists "admin manage employee_positions" on public.employee_positions;
+
 create policy "staff read employee_positions"
   on public.employee_positions for select
   using (true);

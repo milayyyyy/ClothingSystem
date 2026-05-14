@@ -9,7 +9,9 @@ create table if not exists public.job_types (
 
 alter table public.job_types enable row level security;
 
--- Admins and sub-admins can manage job types; authenticated users can read them.
+drop policy if exists "admin_full_job_types" on public.job_types;
+drop policy if exists "authenticated_read_job_types" on public.job_types;
+
 create policy "admin_full_job_types" on public.job_types
   for all using (public.is_admin_or_sub()) with check (public.is_admin_or_sub());
 
