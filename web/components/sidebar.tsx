@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import {
   LayoutDashboard, ShoppingBag, Package, Users, Clock, Wallet, Receipt,
   BarChart3, LogOut, Printer, ChevronDown, Truck, ListChecks, Activity,
-  Store, Globe, Sparkles, Warehouse, LayoutGrid, Wrench, TrendingUp, List, Landmark, Briefcase, Settings,
+  Store, Globe, Sparkles, Warehouse, LayoutGrid, Wrench, TrendingUp, List, Landmark, Briefcase, Settings, PackageX,
 } from "lucide-react";
 
 type Role = "admin" | "sub_admin" | "employee";
@@ -41,6 +41,7 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/inventory", label: "Inventory", icon: Package },
     { href: "/admin/inventory/ready-made", label: "Ready made inventory", icon: LayoutGrid },
     { href: "/admin/suppliers", label: "Suppliers", icon: Truck },
+    { href: "/admin/returns", label: "Returns", icon: PackageX },
     {
       href: "/admin/sales-expenses",
       label: "Sales & expenses",

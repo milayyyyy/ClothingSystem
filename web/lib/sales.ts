@@ -26,13 +26,16 @@ export function isOrderCancelled(status: string | null | undefined) {
 
 /** True when this order counts toward completed sales totals.
  *  Accepts either a raw status string or a full order object so callers
- *  do not need to know which field to check. */
+ *  do not need to know which field to check.
+ *  Orders with a return_status ('returning' or 'returned') are excluded. */
 export function isSalesRecognized(
-  statusOrOrder: string | null | undefined | { status?: string | null; stage?: string | null },
+  statusOrOrder: string | null | undefined | { status?: string | null; stage?: string | null; return_status?: string | null },
   stage?: string | null,
 ): boolean {
   if (statusOrOrder !== null && typeof statusOrOrder === "object") {
-    const o = statusOrOrder as { status?: string | null; stage?: string | null };
+    const o = statusOrOrder as { status?: string | null; stage?: string | null; return_status?: string | null };
+    // Exclude returned/returning orders from sales
+    if (o.return_status) return false;
     if (RECOGNIZED_SALES_STATUSES.has(String(o.status || "").toLowerCase())) return true;
     if (RECOGNIZED_SALES_STAGES.has(String(o.stage || "").toLowerCase())) return true;
     return false;
