@@ -245,18 +245,31 @@ export function AdminAttendanceClient({
             <Trash2 className="mr-1 h-4 w-4" />
             {bulkBusy ? "Deleting…" : `Delete selected (${selectedCount})`}
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => void toggleClockMode()}
-            disabled={clockModeBusy}
-            title={`Employee clock mode: ${clockMode}. Click to switch.`}
-          >
-            {clockMode === "manual"
-              ? <><Clock className="mr-1 h-4 w-4" />Manual Clock</>
-              : <><ScanFace className="mr-1 h-4 w-4" />Face ID Clock</>
-            }
-          </Button>
+          {/* Clock mode switch */}
+          <div className="flex items-center gap-2.5 rounded-lg border bg-muted/30 px-3 py-1.5">
+            <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className={`text-xs font-medium transition-colors ${clockMode === "manual" ? "text-foreground" : "text-muted-foreground"}`}>
+              Manual
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={clockMode === "face"}
+              disabled={clockModeBusy}
+              onClick={() => void toggleClockMode()}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50
+                ${clockMode === "face" ? "bg-primary" : "bg-input"}`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform
+                  ${clockMode === "face" ? "translate-x-4" : "translate-x-0"}`}
+              />
+            </button>
+            <span className={`text-xs font-medium transition-colors ${clockMode === "face" ? "text-foreground" : "text-muted-foreground"}`}>
+              Face ID
+            </span>
+            <ScanFace className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          </div>
           <Button type="button" onClick={() => setAdding(true)} disabled={employees.length === 0}>
             <Plus className="mr-1 h-4 w-4" />
             Add attendance
