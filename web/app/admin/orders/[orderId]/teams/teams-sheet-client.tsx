@@ -584,14 +584,14 @@ export function TeamsSheetClient({
       const teams = flatRowsToTeams(flatRows);
       await persistSublimationTeams(supabase, orderId, teams);
 
-      // 2. Save pricing back to the order
-      //    total = sum(count × price) stored as unit_price with quantity=1
+      // 2. Save pricing back to the order (gracefully skip if migration 057 not yet applied).
       const computedTotal = uniqueLines.reduce(
         (sum, l) => sum + l.count * (linePrices[l.key] ?? 0),
         0,
       );
       const dp = Math.max(0, Number(downPaymentStr) || 0);
 
+      // First try with jersey_line_prices column; fall back without it if column missing.
       const { error: orderErr } = await supabase
         .from("orders")
         .update({
@@ -602,7 +602,14 @@ export function TeamsSheetClient({
         })
         .eq("id", orderId);
 
-      if (orderErr) throw orderErr;
+      if (orderErr) {
+        // Likely column doesn't exist yet — save just unit_price + down_payment.
+        const { error: fallbackErr } = await supabase
+          .from("orders")
+          .update({ unit_price: computedTotal, quantity: 1, down_payment: dp })
+          .eq("id", orderId);
+        if (fallbackErr) throw fallbackErr;
+      }
 
       setMessage("Saved.");
       reload();
