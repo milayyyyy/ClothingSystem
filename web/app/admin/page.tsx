@@ -36,10 +36,8 @@ export default async function AdminDashboard() {
     .filter((e) => new Date(e.expense_date).getMonth() === new Date().getMonth())
     .reduce((s, e) => s + Number(e.amount), 0);
   const profit = totalSales - monthExpenses;
-  const lowStock = [
-    ...(inventory || []).filter((i) => Number(i.quantity) <= Number(i.min_level)),
-    ...readyMadeLow,
-  ];
+  const lowStockInventory = (inventory || []).filter((i) => Number(i.quantity) <= Number(i.min_level));
+  const lowStock = lowStockInventory; // kept for DashboardReminderCards compat
   const tasksReminders = (tasksRaw || [])
     .filter((t) => t.status !== "done" && t.status !== "cancelled")
     .sort((a, b) => {
@@ -96,7 +94,7 @@ export default async function AdminDashboard() {
       </div>
 
       <div className="mt-6">
-        <DashboardReminderCards maintenance={maintenanceAlerts} tasks={tasksReminders} lowStock={lowStock} variant="admin" />
+        <DashboardReminderCards maintenance={maintenanceAlerts} tasks={tasksReminders} lowStock={lowStock} lowStockReadyMade={readyMadeLow} variant="admin" />
       </div>
 
       <Card className="mt-6 anim-in">
