@@ -4,26 +4,27 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
+    /* Light mode — tinted background so cards have lift */
+    --background: 220 18% 95%;
+    --foreground: 222 47% 7%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --primary: 243 75% 58%;
+    --card-foreground: 222 47% 7%;
+    --primary: 243 75% 55%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 220 14% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 220 14% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
+    --secondary: 220 16% 91%;
+    --secondary-foreground: 222 47% 7%;
+    --muted: 220 16% 91%;
+    --muted-foreground: 215 22% 36%;
+    --accent: 220 16% 91%;
+    --accent-foreground: 222 47% 7%;
+    --destructive: 0 84% 58%;
     --destructive-foreground: 210 40% 98%;
-    --success: 152 60% 36%;
-    --warning: 38 92% 50%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 243 75% 58%;
-    --sidebar: 220 14% 98%;
+    --success: 152 60% 33%;
+    --warning: 38 92% 44%;
+    --border: 220 16% 84%;
+    --input: 220 16% 84%;
+    --ring: 243 75% 55%;
+    --sidebar: 220 18% 97%;
     --radius: 0.625rem;
   }
   .dark {
@@ -53,6 +54,23 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: 'rlig' 1, 'calt' 1;
+    font-weight: 400;
+  }
+
+  /* Light mode — give cards elevation so the UI has depth */
+  :root:not(.dark) [class*="rounded"][class*="border"],
+  :root:not(.dark) .card {
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.07), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  }
+  /* Topbar / sticky headers pop slightly more */
+  :root:not(.dark) header.sticky {
+    box-shadow: 0 1px 0 0 hsl(var(--border)), 0 2px 8px -2px rgb(0 0 0 / 0.06);
+  }
+  /* Sidebar gets a right-side shadow to separate from content */
+  :root:not(.dark) aside,
+  :root:not(.dark) nav[class*="sidebar"],
+  :root:not(.dark) [data-sidebar] {
+    box-shadow: 1px 0 0 0 hsl(var(--border)), 4px 0 12px -4px rgb(0 0 0 / 0.06);
   }
   button,
   a,
@@ -89,7 +107,7 @@
   }
   .card-hover:hover {
     transform: translateY(-1px);
-    @apply border-primary/30 shadow-[0_4px_20px_-8px_hsl(var(--primary)/0.25)];
+    @apply border-primary/30 shadow-[0_6px_24px_-6px_hsl(var(--primary)/0.22)];
   }
   .row-hover { transition: background-color .12s ease; }
 }
