@@ -970,6 +970,7 @@ export function OrdersClient({
   defaultSearch,
   hideKindTabs = false,
   hideNewOrder = false,
+  canCreate = true,
 }: {
   initialOrders: Order[];
   employees: Emp[];
@@ -977,6 +978,8 @@ export function OrdersClient({
   defaultSearch?: string;
   hideKindTabs?: boolean;
   hideNewOrder?: boolean;
+  /** Admins/sub-admins can create and delete. Employees can only edit and forward. */
+  canCreate?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1486,9 +1489,11 @@ export function OrdersClient({
               >
                 <ArrowRight className="h-3.5 w-3.5" /> Forward selected
               </Button>
-              <Button type="button" variant="destructive" onClick={() => void removeSelectedOnline()}>
-                <Trash2 className="h-3.5 w-3.5" /> Delete selected ({selectedOnlineIds.size})
-              </Button>
+              {canCreate && (
+                <Button type="button" variant="destructive" onClick={() => void removeSelectedOnline()}>
+                  <Trash2 className="h-3.5 w-3.5" /> Delete selected ({selectedOnlineIds.size})
+                </Button>
+              )}
             </>
           )}
           {kindFilter !== "online" && selectedListOrderIds.size > 0 && (
@@ -1516,9 +1521,11 @@ export function OrdersClient({
               >
                 <ArrowRight className="h-3.5 w-3.5" /> Forward selected
               </Button>
-              <Button type="button" variant="destructive" onClick={() => void removeSelectedListOrders()}>
-                <Trash2 className="h-3.5 w-3.5" /> Delete selected ({selectedListOrderIds.size})
-              </Button>
+              {canCreate && (
+                <Button type="button" variant="destructive" onClick={() => void removeSelectedListOrders()}>
+                  <Trash2 className="h-3.5 w-3.5" /> Delete selected ({selectedListOrderIds.size})
+                </Button>
+              )}
             </>
           )}
           {hideKindTabs && (
@@ -1558,7 +1565,7 @@ export function OrdersClient({
               <Settings2 className="mr-1 h-4 w-4" /> Job Types
             </Button>
           )}
-          {!hideNewOrder && (
+          {!hideNewOrder && canCreate && (
             <Button
               onClick={() => {
                 setEditing(null);
@@ -1729,15 +1736,17 @@ export function OrdersClient({
                           >
                             <Pencil className="h-4 w-4" />
                           </button>
-                          <button
-                            type="button"
-                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                            title="Delete order"
-                            aria-label="Delete order"
-                            onClick={() => remove(o.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          {canCreate && (
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                              title="Delete order"
+                              aria-label="Delete order"
+                              onClick={() => remove(o.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1881,14 +1890,16 @@ export function OrdersClient({
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => remove(o.id)}
-                          className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                          title="Delete order"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {canCreate && (
+                          <button
+                            type="button"
+                            onClick={() => remove(o.id)}
+                            className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            title="Delete order"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

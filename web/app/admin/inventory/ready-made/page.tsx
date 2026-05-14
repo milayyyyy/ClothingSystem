@@ -1,10 +1,13 @@
 import Link from "next/link";
+import { getSessionUser } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/page-header";
 import { ReadyMadeInventoryClient } from "./ready-made-inventory-client";
 
 export const dynamic = "force-dynamic";
 
-export default function ReadyMadeInventoryPage() {
+export default async function ReadyMadeInventoryPage() {
+  const user = await getSessionUser();
+  const canEdit = user?.profile?.role === "admin" || user?.profile?.role === "sub_admin";
   return (
     <div>
       <PageHeader
@@ -19,7 +22,7 @@ export default function ReadyMadeInventoryPage() {
           </Link>
         }
       />
-      <ReadyMadeInventoryClient />
+      <ReadyMadeInventoryClient canEdit={canEdit} />
     </div>
   );
 }

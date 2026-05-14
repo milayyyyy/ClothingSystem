@@ -32,7 +32,7 @@ function sortByOrder<T extends { sort_order: number }>(arr: T[]) {
   return [...arr].sort((a, b) => a.sort_order - b.sort_order);
 }
 
-export function ReadyMadeInventoryClient() {
+export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean }) {
   const supabase = createClient();
   const [groups, setGroups] = useState<Group[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
@@ -506,14 +506,16 @@ export function ReadyMadeInventoryClient() {
             />
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => setNewGroupOpen(true)} disabled={saving}>
-            <Plus className="mr-1 h-4 w-4" /> New group
-          </Button>
-          <Button type="button" size="sm" onClick={() => openNewSheet()} disabled={saving || !groups.length}>
-            <Plus className="mr-1 h-4 w-4" /> New sheet
-          </Button>
-        </div>
+        {canEdit && (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setNewGroupOpen(true)} disabled={saving}>
+              <Plus className="mr-1 h-4 w-4" /> New group
+            </Button>
+            <Button type="button" size="sm" onClick={() => openNewSheet()} disabled={saving || !groups.length}>
+              <Plus className="mr-1 h-4 w-4" /> New sheet
+            </Button>
+          </div>
+        )}
       </div>
 
       {boards.length > 0 && (
@@ -632,9 +634,11 @@ export function ReadyMadeInventoryClient() {
                   }}
                   aria-label="Group name"
                 />
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => deleteGroup(g.id)} aria-label="Delete group">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                {canEdit && (
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => deleteGroup(g.id)} aria-label="Delete group">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
               </div>
               <div className="flex flex-col gap-1.5">
                 {boardsFiltered.map((b) => (
@@ -676,9 +680,11 @@ export function ReadyMadeInventoryClient() {
                   <p className="text-[11px] text-muted-foreground">No sheets match search.</p>
                 )}
               </div>
-              <Button type="button" variant="secondary" size="sm" className="mt-2 h-7 w-full text-[11px]" onClick={() => openNewSheet(g.id)}>
-                <Plus className="mr-1 h-3 w-3" /> Sheet in this group
-              </Button>
+              {canEdit && (
+                <Button type="button" variant="secondary" size="sm" className="mt-2 h-7 w-full text-[11px]" onClick={() => openNewSheet(g.id)}>
+                  <Plus className="mr-1 h-3 w-3" /> Sheet in this group
+                </Button>
+              )}
             </div>
             );
           })}
@@ -772,9 +778,11 @@ export function ReadyMadeInventoryClient() {
                       ))}
                     </select>
                   </div>
-                  <Button type="button" variant="outline" size="sm" onClick={() => deleteBoard(activeBoard.id)}>
-                    <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete sheet
-                  </Button>
+                  {canEdit && (
+                    <Button type="button" variant="outline" size="sm" onClick={() => deleteBoard(activeBoard.id)}>
+                      <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete sheet
+                    </Button>
+                  )}
                 </div>
 
                 <div className="space-y-3 rounded-md border border-border/60 bg-muted/15 px-3 py-2.5 text-xs">
@@ -869,7 +877,7 @@ export function ReadyMadeInventoryClient() {
                               />
                               <button
                                 type="button"
-                                className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                                className={`shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 ${!canEdit ? "hidden" : ""}`}
                                 onClick={() => removeColumn(c.id)}
                                 aria-label="Remove column"
                               >
@@ -878,11 +886,13 @@ export function ReadyMadeInventoryClient() {
                             </div>
                           </th>
                         ))}
-                        <th className="border-b bg-muted/40 px-1 py-1 align-middle">
-                          <Button type="button" variant="ghost" size="sm" className="h-7 text-[10px]" onClick={() => addColumn()}>
-                            + Column
-                          </Button>
-                        </th>
+                        {canEdit && (
+                          <th className="border-b bg-muted/40 px-1 py-1 align-middle">
+                            <Button type="button" variant="ghost" size="sm" className="h-7 text-[10px]" onClick={() => addColumn()}>
+                              + Column
+                            </Button>
+                          </th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -944,22 +954,26 @@ export function ReadyMadeInventoryClient() {
                             </td>
                           ))}
                           <td className="bg-muted/10 px-1 py-0 text-center">
-                            <button
-                              type="button"
-                              className="rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                              onClick={() => removeRow(r.id)}
-                            >
-                              Remove
-                            </button>
+                            {canEdit && (
+                              <button
+                                type="button"
+                                className="rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                onClick={() => removeRow(r.id)}
+                              >
+                                Remove
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                <Button type="button" variant="secondary" size="sm" onClick={() => addRow()}>
-                  <Plus className="mr-1 h-3.5 w-3.5" /> Add row
-                </Button>
+                {canEdit && (
+                  <Button type="button" variant="secondary" size="sm" onClick={() => addRow()}>
+                    <Plus className="mr-1 h-3.5 w-3.5" /> Add row
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}

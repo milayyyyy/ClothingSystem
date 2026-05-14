@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/page-header";
 import { ReturnsClient } from "./returns-client";
 
@@ -6,6 +6,8 @@ export const dynamic = "force-dynamic";
 
 export default async function ReturnsPage() {
   const supabase = createClient();
+  const user = await getSessionUser();
+  const canEdit = user?.profile?.role === "admin" || user?.profile?.role === "sub_admin";
 
   const [
     { data: returnOrders },
@@ -61,6 +63,7 @@ export default async function ReturnsPage() {
         invItems={invItems || []}
         rmGroups={rmGroups || []}
         rmBoards={rmBoards || []}
+        canEdit={canEdit}
       />
     </div>
   );

@@ -598,12 +598,14 @@ export function ReturnsClient({
   invItems,
   rmGroups,
   rmBoards,
+  canEdit = true,
 }: {
   returnOrders: Order[];
   completedOrders: Order[];
   invItems: InvItem[];
   rmGroups: RmGroup[];
   rmBoards: RmBoard[];
+  canEdit?: boolean;
 }) {
   const supabase = createClient();
   const [returnOrders, setReturnOrders] = useState<Order[]>(initialReturnOrders);
@@ -712,10 +714,12 @@ export function ReturnsClient({
             );
           })}
         </div>
-        <Button className="gap-1.5" onClick={() => setNewReturnOpen(true)}>
-          <PackageX className="h-4 w-4" />
-          New return
-        </Button>
+        {canEdit && (
+          <Button className="gap-1.5" onClick={() => setNewReturnOpen(true)}>
+            <PackageX className="h-4 w-4" />
+            New return
+          </Button>
+        )}
       </div>
 
       {err && (
@@ -812,7 +816,7 @@ export function ReturnsClient({
                         )}
                       </div>
 
-                      {o.return_status === "returning" && (
+                      {o.return_status === "returning" && canEdit && (
                         <>
                           <Button
                             size="sm"
