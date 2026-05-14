@@ -51,7 +51,13 @@ export function SalesListClient({ orders }: Props) {
       if (!inDateRange(r.dateKey, from, to, allTime)) return false;
       if (!rowMatchesTab(r, tab)) return false;
       if (q) {
-        const blob = [r.customerOrTitle, r.storeOrNotes, r.orderNo != null ? String(r.orderNo) : ""].join(" ").toLowerCase();
+        const blob = [
+          r.customerOrTitle,
+          r.storeOrNotes,
+          r.designRef,
+          r.orderNo != null ? `#${r.orderNo}` : "",
+          r.orderNo != null ? String(r.orderNo) : "",
+        ].join(" ").toLowerCase();
         if (!blob.includes(q)) return false;
       }
       return true;

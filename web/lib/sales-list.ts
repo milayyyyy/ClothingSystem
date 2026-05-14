@@ -18,6 +18,7 @@ export type UnifiedSaleListRow = {
   orderNo?: number | null;
   customerOrTitle: string;
   storeOrNotes: string;
+  designRef: string;
   status?: string;
 };
 
@@ -70,6 +71,7 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
       orderNo: o.order_no,
       customerOrTitle: String(o.customer_name || "—"),
       storeOrNotes: storeOrPlatform(o),
+      designRef: String(o.design_ref || ""),
       status: String(o.status || ""),
     });
   }

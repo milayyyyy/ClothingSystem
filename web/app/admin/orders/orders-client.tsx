@@ -200,7 +200,9 @@ function mergedServiceStageForSub(currentStage: string | null | undefined, nextS
   return ORDER_SERVICE_STAGES[Math.max(i1, i2)];
 }
 
-type OrderForwardPatch = { stage: string; sub_stage?: string | null };
+type OrderForwardPatch = { stage: string; sub_stage?: string | null; updated_at: string };
+
+function nowIso() { return new Date().toISOString(); }
 
 function computeOrderForwardUpdate(order: Order): OrderForwardPatch | null {
   if (String(order?.status || "").toLowerCase() === "cancelled") return null;
@@ -211,18 +213,15 @@ function computeOrderForwardUpdate(order: Order): OrderForwardPatch | null {
     if (idx < 0) idx = 0;
     if (idx < SUB_STAGE_FORWARD_ORDER.length - 1) {
       const nextSub = SUB_STAGE_FORWARD_ORDER[idx + 1]!;
-      return {
-        sub_stage: nextSub,
-        stage: mergedServiceStageForSub(order.stage, nextSub),
-      };
+      return { sub_stage: nextSub, stage: mergedServiceStageForSub(order.stage, nextSub), updated_at: nowIso() };
     }
     const nextStage = nextOrderServiceStage(order.stage);
     if (!nextStage) return null;
-    return { stage: nextStage, sub_stage: SUB_STAGE_FORWARD_ORDER[0] };
+    return { stage: nextStage, sub_stage: SUB_STAGE_FORWARD_ORDER[0], updated_at: nowIso() };
   }
   const nextStage = nextOrderServiceStage(order.stage);
   if (!nextStage) return null;
-  return { stage: nextStage };
+  return { stage: nextStage, updated_at: nowIso() };
 }
 
 /** Set pipeline to a chosen step (bulk forward). Allows moving to any listed stage, not only “next”. */
@@ -233,14 +232,11 @@ function computeOrderTargetUpdate(order: Order, target: string): OrderForwardPat
   const kind = getOrderKind(order);
   if (kind === "sublimation") {
     if (!(SUB_STAGE_FORWARD_ORDER as readonly string[]).includes(t)) return null;
-    return {
-      sub_stage: t,
-      stage: mergedServiceStageForSub(order.stage, t),
-    };
+    return { sub_stage: t, stage: mergedServiceStageForSub(order.stage, t), updated_at: nowIso() };
   }
   const normalized = normalizeOrderServiceStage(t);
   if (!(ORDER_SERVICE_STAGES as readonly string[]).includes(normalized)) return null;
-  return { stage: normalized, sub_stage: null };
+  return { stage: normalized, sub_stage: null, updated_at: nowIso() };
 }
 
 function canForwardOrder(order: Order): boolean {
