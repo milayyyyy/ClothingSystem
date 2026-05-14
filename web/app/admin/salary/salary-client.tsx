@@ -783,8 +783,9 @@ export function SalaryClient({
       const priorDaysWorked = Math.max(0, Math.round(Number(monthRow?.days_worked ?? 0)));
       const priorBonusAmount = Number((monthRow as { bonus_amount?: number | null })?.bonus_amount ?? 0) || 0;
       const settledSnapshot = salaryRecordPaid && previewTotal <= 1e-6;
-      const displayDays = settledSnapshot && days === 0 && priorDaysWorked > 0 ? priorDaysWorked : days;
-      const displayTotal = settledSnapshot && priorNetPay > 0 ? priorNetPay : previewTotal;
+      // When settled, show 0 — nothing new to pay. The Pay/status column shows the last recorded net.
+      const displayDays = settledSnapshot ? 0 : days;
+      const displayTotal = settledSnapshot ? 0 : previewTotal;
 
       return {
         id: e.id,
@@ -1016,7 +1017,7 @@ export function SalaryClient({
                   <td className="p-2 text-right tabular-nums">{peso(r.allowance)}</td>
                   <td
                     className="p-2 text-right font-semibold tabular-nums"
-                    title={r.settledSnapshot && r.displayTotal > 0 ? `Last recorded net pay for this period: ${peso(r.displayTotal)}` : undefined}
+                    title={r.settledSnapshot && r.priorNetPay > 0 ? `Last recorded net pay: ${peso(r.priorNetPay)}` : undefined}
                   >
                     {peso(r.displayTotal)}
                   </td>
