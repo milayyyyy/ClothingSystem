@@ -11,14 +11,18 @@ export default async function MyAttendancePage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const supabase = createClient();
-  const { data } = await supabase.from("attendance").select("*").eq("user_id", user.id).order("time_in", { ascending: false }).limit(50);
+  const [{ data }, { data: setting }] = await Promise.all([
+    supabase.from("attendance").select("*").eq("user_id", user.id).order("time_in", { ascending: false }).limit(50),
+    supabase.from("app_settings").select("value").eq("key", "clock_mode").maybeSingle(),
+  ]);
   const last = data?.[0];
   const onClock = !!(last && !last.time_out);
+  const clockMode: "manual" | "face" = (setting as any)?.value === "face" ? "face" : "manual";
 
   return (
     <div>
       <PageHeader title="Attendance" description="Time in / time out" />
-      <Card className="mb-6"><CardContent className="p-5"><TimeClock onClock={onClock} lastId={last?.id} userId={user.id} profileId={user.profile.id} lastTimeIn={last?.time_in} /></CardContent></Card>
+      <Card className="mb-6"><CardContent className="p-5"><TimeClock onClock={onClock} lastId={last?.id} userId={user.id} profileId={user.profile.id} lastTimeIn={last?.time_in} forcedMode={clockMode} /></CardContent></Card>
       <Card><CardContent className="p-0">
         <table className="w-full text-sm">
           <thead className="bg-muted/40 text-left"><tr><th className="p-3">Date</th><th>Time In</th><th>Time Out</th><th>Hours</th></tr></thead>

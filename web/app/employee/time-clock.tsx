@@ -36,6 +36,7 @@ export function TimeClock({
   userId,
   profileId,
   lastTimeIn,
+  forcedMode,
 }: {
   onClock: boolean;
   lastId?: string;
@@ -43,6 +44,8 @@ export function TimeClock({
   /** Profile table id — needed for face recognition descriptor lookup */
   profileId?: string;
   lastTimeIn?: string;
+  /** Mode set by admin — employee cannot change this */
+  forcedMode?: ClockMode;
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -54,21 +57,6 @@ export function TimeClock({
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  // Persist clock mode preference in localStorage
-  const [mode, setMode] = useState<ClockMode>(() => {
-    if (typeof window !== "undefined") {
-      return (localStorage.getItem("clockMode") as ClockMode) || "manual";
-    }
-    return "manual";
-  });
-
-  function switchMode(m: ClockMode) {
-    setMode(m);
-    setError(null);
-    setSuccessMsg(null);
-    if (typeof window !== "undefined") localStorage.setItem("clockMode", m);
-  }
 
   useEffect(() => {
     setIsClockedIn(onClock);
@@ -139,9 +127,8 @@ export function TimeClock({
     startTransition(() => router.refresh());
   }
 
-  const hasFace = !!profileId;
-  // If no profileId, always force manual
-  const activeMode = hasFace ? mode : "manual";
+  // Admin sets the mode; employee cannot override it
+  const activeMode: ClockMode = forcedMode ?? "manual";
 
   return (
     <div className="space-y-4">
@@ -151,33 +138,13 @@ export function TimeClock({
         <div className="mt-1 text-sm text-muted-foreground">{fmtDate(now)}</div>
       </div>
 
-      {/* Mode toggle — only show if face recognition is available */}
-      {hasFace && (
-        <div className="flex overflow-hidden rounded-lg border text-sm">
-          <button
-            type="button"
-            onClick={() => switchMode("manual")}
-            className={`flex flex-1 items-center justify-center gap-2 px-4 py-2.5 font-medium transition-colors
-              ${activeMode === "manual"
-                ? "bg-primary text-primary-foreground"
-                : "bg-background text-muted-foreground hover:bg-muted/60"}`}
-          >
-            <Clock className="h-4 w-4" />
-            Manual
-          </button>
-          <button
-            type="button"
-            onClick={() => switchMode("face")}
-            className={`flex flex-1 items-center justify-center gap-2 border-l px-4 py-2.5 font-medium transition-colors
-              ${activeMode === "face"
-                ? "bg-primary text-primary-foreground"
-                : "bg-background text-muted-foreground hover:bg-muted/60"}`}
-          >
-            <ScanFace className="h-4 w-4" />
-            Face ID
-          </button>
-        </div>
-      )}
+      {/* Mode badge — shows which mode admin has set */}
+      <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+        {activeMode === "face"
+          ? <><ScanFace className="h-3.5 w-3.5" /> Face ID clock-in enabled</>
+          : <><Clock className="h-3.5 w-3.5" /> Manual clock-in enabled</>
+        }
+      </div>
 
       {/* Status row */}
       <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-4 py-3">

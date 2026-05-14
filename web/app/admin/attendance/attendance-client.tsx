@@ -8,7 +8,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Clock, Pencil, Plus, ScanFace, Trash2 } from "lucide-react";
 
 export type AttendanceRow = {
   id: string;
@@ -65,9 +65,11 @@ function localDayEndIso(ymd: string): string {
 export function AdminAttendanceClient({
   initial,
   employees,
+  initialClockMode,
 }: {
   initial: AttendanceRow[];
   employees: EmployeeOption[];
+  initialClockMode: "manual" | "face";
 }) {
   const supabase = createClient();
   const [rows, setRows] = useState<AttendanceRow[]>(initial);
@@ -78,7 +80,17 @@ export function AdminAttendanceClient({
   const [filterCommitted, setFilterCommitted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [clockMode, setClockMode] = useState<"manual" | "face">(initialClockMode);
+  const [clockModeBusy, setClockModeBusy] = useState(false);
   const headerSelectRef = useRef<HTMLInputElement>(null);
+
+  async function toggleClockMode() {
+    const next = clockMode === "manual" ? "face" : "manual";
+    setClockModeBusy(true);
+    await supabase.from("app_settings").upsert({ key: "clock_mode", value: next, updated_at: new Date().toISOString() });
+    setClockMode(next);
+    setClockModeBusy(false);
+  }
 
 
   useEffect(() => {
@@ -232,6 +244,18 @@ export function AdminAttendanceClient({
           >
             <Trash2 className="mr-1 h-4 w-4" />
             {bulkBusy ? "Deleting…" : `Delete selected (${selectedCount})`}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void toggleClockMode()}
+            disabled={clockModeBusy}
+            title={`Employee clock mode: ${clockMode}. Click to switch.`}
+          >
+            {clockMode === "manual"
+              ? <><Clock className="mr-1 h-4 w-4" />Manual Clock</>
+              : <><ScanFace className="mr-1 h-4 w-4" />Face ID Clock</>
+            }
           </Button>
           <Button type="button" onClick={() => setAdding(true)} disabled={employees.length === 0}>
             <Plus className="mr-1 h-4 w-4" />
