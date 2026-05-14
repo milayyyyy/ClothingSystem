@@ -10,95 +10,251 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { Pencil, Plus, Trash2, Users } from "lucide-react";
+import { ArrowRight, Pencil, Plus, RotateCcw, Trash2, Users } from "lucide-react";
 
 type T = any;
 type P = { id: string; full_name: string; email: string; role: string };
 
-const STATUSES = ["open", "in_progress", "done", "cancelled"] as const;
+const STATUS_FLOW: Record<string, string> = {
+  open: "in_progress",
+  in_progress: "done",
+};
+const STATUS_LABEL: Record<string, string> = {
+  open: "Open",
+  in_progress: "In Progress",
+  done: "Done",
+  cancelled: "Cancelled",
+};
+const STATUS_FORWARD_LABEL: Record<string, string> = {
+  open: "Start",
+  in_progress: "Mark Done",
+};
+
+function statusVariant(s: string) {
+  if (s === "done") return "green";
+  if (s === "in_progress") return "blue";
+  if (s === "cancelled") return "red";
+  return "amber";
+}
 
 export function TasksClient({ userId, initial, people }: { userId: string; initial: T[]; people: P[] }) {
   const supabase = createClient();
   const [list, setList] = useState<T[]>(initial);
-  const [open, setOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
   const [editTask, setEditTask] = useState<T | null>(null);
+  const [forwarding, setForwarding] = useState<string | null>(null);
 
   async function refresh() {
-    const { data } = await supabase.from("tasks").select("*, assignees:task_assignees(user_id, profiles:user_id(full_name, email, role))").order("created_at", { ascending: false });
+    const { data } = await supabase
+      .from("tasks")
+      .select("*, assignees:task_assignees(user_id, profiles:user_id(full_name, email, role))")
+      .order("created_at", { ascending: false });
     setList(data || []);
   }
+
   async function remove(id: string) {
     if (!confirm("Delete task?")) return;
     await supabase.from("tasks").delete().eq("id", id);
     refresh();
   }
-  async function setStatus(id: string, status: string) {
-    const patch: any = { status };
-    if (status === "done") patch.completed_at = new Date().toISOString();
-    await supabase.from("tasks").update(patch).eq("id", id);
-    refresh();
+
+  async function forward(task: T) {
+    const next = STATUS_FLOW[task.status];
+    if (!next) return;
+    setForwarding(task.id);
+    const patch: any = { status: next };
+    if (next === "done") patch.completed_at = new Date().toISOString();
+    await supabase.from("tasks").update(patch).eq("id", task.id);
+    await refresh();
+    setForwarding(null);
+  }
+
+  async function reopen(task: T) {
+    setForwarding(task.id);
+    await supabase.from("tasks").update({ status: "open", completed_at: null }).eq("id", task.id);
+    await refresh();
+    setForwarding(null);
+  }
+
+  async function cancel(task: T) {
+    if (!confirm("Cancel this task?")) return;
+    setForwarding(task.id);
+    await supabase.from("tasks").update({ status: "cancelled" }).eq("id", task.id);
+    await refresh();
+    setForwarding(null);
+  }
+
+  // Group: active first, then done/cancelled
+  const active = list.filter((t) => t.status !== "done" && t.status !== "cancelled");
+  const finished = list.filter((t) => t.status === "done" || t.status === "cancelled");
+
+  function TaskRow({ t }: { t: T }) {
+    const nextStatus = STATUS_FLOW[t.status];
+    const busy = forwarding === t.id;
+    const assigneeNames = (t.assignees || [])
+      .map((a: any) => a.profiles?.full_name || a.profiles?.email)
+      .filter(Boolean)
+      .join(", ") || "Unassigned";
+
+    return (
+      <tr className="border-t hover:bg-muted/20">
+        {/* Status badge */}
+        <td className="w-28 px-3 py-3">
+          <Badge variant={statusVariant(t.status) as any} className="text-xs">
+            {STATUS_LABEL[t.status] || t.status}
+          </Badge>
+        </td>
+
+        {/* Title + description */}
+        <td className="py-3 pr-3">
+          <div className="font-medium text-sm">{t.title}</div>
+          {t.description && (
+            <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{t.description}</div>
+          )}
+        </td>
+
+        {/* Priority */}
+        <td className="w-20 py-3 pr-3">
+          {t.priority && (
+            <Badge variant={t.priority === "urgent" ? "red" : t.priority === "high" ? "amber" : "outline"} className="text-xs capitalize">
+              {t.priority}
+            </Badge>
+          )}
+        </td>
+
+        {/* Due date */}
+        <td className="w-28 py-3 pr-3 text-xs text-muted-foreground">
+          {t.due_date ? formatDate(t.due_date) : "—"}
+        </td>
+
+        {/* Assignees */}
+        <td className="py-3 pr-3">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Users className="h-3 w-3 shrink-0" />
+            <span className="truncate max-w-[160px]" title={assigneeNames}>{assigneeNames}</span>
+          </div>
+        </td>
+
+        {/* Actions */}
+        <td className="w-48 py-3 pr-3">
+          <div className="flex items-center gap-1">
+            {/* Forward button */}
+            {nextStatus && (
+              <Button
+                size="sm"
+                variant="default"
+                className="h-7 gap-1 text-xs"
+                disabled={busy}
+                onClick={() => forward(t)}
+              >
+                {busy ? "…" : STATUS_FORWARD_LABEL[t.status]}
+                <ArrowRight className="h-3 w-3" />
+              </Button>
+            )}
+            {/* Reopen for done/cancelled */}
+            {(t.status === "done" || t.status === "cancelled") && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 text-xs"
+                disabled={busy}
+                onClick={() => reopen(t)}
+              >
+                <RotateCcw className="h-3 w-3" /> Reopen
+              </Button>
+            )}
+            {/* Cancel for active */}
+            {t.status !== "done" && t.status !== "cancelled" && (
+              <button
+                className="rounded p-1 text-muted-foreground hover:bg-muted"
+                title="Cancel task"
+                disabled={busy}
+                onClick={() => cancel(t)}
+              >
+                ✕
+              </button>
+            )}
+            {/* Edit assignees */}
+            <button
+              className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              title="Edit assignees"
+              onClick={() => setEditTask(t)}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            {/* Delete */}
+            <button
+              className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              title="Delete task"
+              onClick={() => remove(t.id)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
   }
 
   return (
     <>
-      <div className="mb-6 space-y-4">
+      <div className="mb-4 space-y-4">
         <ScheduledMaintenanceAlerts userId={userId} />
         <MachineMaintenanceReminder variant="admin" />
         <div className="flex justify-end">
-          <Button onClick={() => setOpen(true)}><Plus className="mr-1 h-4 w-4" /> New Task</Button>
+          <Button onClick={() => setNewOpen(true)}>
+            <Plus className="mr-1 h-4 w-4" /> New Task
+          </Button>
         </div>
       </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        {list.map((t) => (
-          <Card key={t.id} className="card-hover">
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-semibold">{t.title}</div>
-                  {t.description && <p className="mt-1 text-sm text-muted-foreground">{t.description}</p>}
-                </div>
-                <div className="flex shrink-0 items-center gap-0.5">
-                  <button
-                    type="button"
-                    title="Edit assignees"
-                    onClick={() => setEditTask(t)}
-                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => remove(t.id)}
-                    className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                <Badge variant={t.status === "done" ? "green" : t.status === "in_progress" ? "blue" : t.status === "cancelled" ? "red" : "amber"}>{t.status}</Badge>
-                {t.priority && <Badge variant="outline">{t.priority}</Badge>}
-                {t.due_date && <span className="text-muted-foreground">Due {formatDate(t.due_date)}</span>}
-              </div>
-              <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                <Users className="h-3.5 w-3.5" />
-                <span className="truncate">
-                  {(t.assignees || []).map((a: any) => a.profiles?.full_name || a.profiles?.email).join(", ") || "Unassigned"}
-                </span>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-1">
-                {STATUSES.map((s) => (
-                  <button key={s} onClick={() => setStatus(t.id, s)} className={"rounded-full border px-2 py-0.5 text-[11px] capitalize " + (t.status === s ? "bg-primary text-primary-foreground border-primary" : "hover:bg-accent")}>
-                    {s.replace("_", " ")}
-                  </button>
-                ))}
-              </div>
+
+      {/* Active tasks */}
+      <Card className="mb-4">
+        <CardContent className="p-0">
+          <table className="w-full min-w-[700px] text-sm">
+            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2.5 text-left font-medium">Status</th>
+                <th className="py-2.5 text-left font-medium">Task</th>
+                <th className="py-2.5 text-left font-medium">Priority</th>
+                <th className="py-2.5 text-left font-medium">Due</th>
+                <th className="py-2.5 text-left font-medium">Assigned to</th>
+                <th className="py-2.5 pr-3 text-left font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {active.map((t) => <TaskRow key={t.id} t={t} />)}
+              {active.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                    No active tasks. Click "New Task" to add one.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      {/* Done / Cancelled */}
+      {finished.length > 0 && (
+        <details className="group">
+          <summary className="mb-2 cursor-pointer select-none text-sm font-medium text-muted-foreground hover:text-foreground">
+            Completed &amp; Cancelled ({finished.length})
+          </summary>
+          <Card>
+            <CardContent className="p-0">
+              <table className="w-full min-w-[700px] text-sm opacity-75">
+                <tbody>
+                  {finished.map((t) => <TaskRow key={t.id} t={t} />)}
+                </tbody>
+              </table>
             </CardContent>
           </Card>
-        ))}
-        {list.length === 0 && <p className="text-sm text-muted-foreground">No tasks yet.</p>}
-      </div>
-      <NewTaskForm open={open} onClose={() => setOpen(false)} people={people} onSaved={refresh} />
+        </details>
+      )}
+
+      <NewTaskForm open={newOpen} onClose={() => setNewOpen(false)} people={people} onSaved={refresh} />
       <EditTaskAssigneesDialog
         open={!!editTask}
         task={editTask}
