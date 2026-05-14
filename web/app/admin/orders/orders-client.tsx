@@ -2270,6 +2270,7 @@ function OrderForm({
 
   const [form, setForm] = useState<any>(() => order || empty);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   function set(k: string, v: any) {
     setForm((f: any) => ({ ...f, [k]: v }));
   }
@@ -2307,6 +2308,7 @@ function OrderForm({
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
+    setSaveError(null);
     try {
       const kind = getOrderKind(form);
       const primaryAssignee = assigneeIds[0] || null;
@@ -2318,10 +2320,12 @@ function OrderForm({
         sub_stage: kind === "sublimation" ? (form.sub_stage || "design_layout") : null,
         order_type: kind,
       };
-      delete payload.assigned;
-      delete payload.assignees;
-      delete payload.total;
-      delete payload.job_type; // joined object — only persist the _id column
+      // Remove ALL joined/computed fields so only real columns remain
+      delete payload.assigned;      // joined: assigned_to(...)
+      delete payload.assignees;     // joined: order_assignees(...)
+      delete payload.store;         // joined: stores(...)
+      delete payload.job_type;      // joined: job_type_id(...)
+      delete payload.total;         // generated column
       if (kind !== "services") payload.job_type_id = null;
 
       let targetId: string | undefined = order?.id;
@@ -2340,8 +2344,13 @@ function OrderForm({
         await supabase.from("sublimation_teams").delete().eq("order_id", targetId);
       }
 
+      // Save assignees: clear old, insert new
       if (targetId) {
-        await supabase.from("order_assignees").delete().eq("order_id", targetId);
+        const { error: de } = await supabase
+          .from("order_assignees")
+          .delete()
+          .eq("order_id", targetId);
+        if (de) throw de;
         if (assigneeIds.length) {
           const { error: ae } = await supabase
             .from("order_assignees")
@@ -2357,8 +2366,8 @@ function OrderForm({
       }
     } catch (err: unknown) {
       console.error(err);
-      const msg = err instanceof Error ? err.message : "Save failed";
-      alert(msg);
+      const msg = err instanceof Error ? err.message : String(err);
+      setSaveError(msg);
     } finally {
       setSaving(false);
     }
@@ -2621,6 +2630,11 @@ function OrderForm({
         {!isWalkinOnlineCreate && (
           <div className="col-span-2 rounded-md bg-muted/40 p-3 text-sm">
             Total: <b>{peso(total)}</b> &nbsp;·&nbsp; Balance: <b>{peso(balance)}</b>
+          </div>
+        )}
+        {saveError && (
+          <div className="col-span-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {saveError}
           </div>
         )}
         <div className="col-span-2 flex justify-end gap-2 pt-2">
