@@ -26,6 +26,10 @@ type Order = {
   return_inventory_type?: "inventory" | "ready_made" | null;
   return_inventory_ref?: Record<string, unknown> | null;
   notes?: string | null;
+  waybill_no?: string | null;
+  external_order_no?: string | null;
+  sku_code?: string | null;
+  customer_social?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
 };

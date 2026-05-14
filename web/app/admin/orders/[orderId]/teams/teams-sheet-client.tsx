@@ -444,6 +444,70 @@ function backHrefForKind(kind: string): string {
   return "/admin/orders?type=walkin_online";
 }
 
+type FinanceAccount = { id: string; name: string; kind: string; balance?: number | null };
+
+// ---------------------------------------------------------------------------
+// Finance account dialog for down payment
+// ---------------------------------------------------------------------------
+function FinanceAccountDialog({
+  open,
+  dpAmount,
+  accounts,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  dpAmount: number;
+  accounts: FinanceAccount[];
+  onConfirm: (accountId: string) => void;
+  onCancel: () => void;
+}) {
+  const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
+  useEffect(() => { if (open && accounts.length) setAccountId(accounts[0]!.id); }, [open, accounts]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-background/80" onClick={onCancel} />
+      <div className="relative z-10 w-full max-w-sm rounded-xl border bg-card p-6 shadow-2xl">
+        <h2 className="text-base font-semibold">Record down payment</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          A down payment of <span className="font-semibold text-foreground">{peso(dpAmount)}</span> will be recorded. Choose which finance account received this payment.
+        </p>
+        <div className="mt-4">
+          <label className="text-xs font-medium">Finance account</label>
+          <select
+            className="mt-1 h-9 w-full rounded-md border bg-background px-3 text-sm"
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+          >
+            {accounts.length === 0 && <option value="">— no accounts found —</option>}
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} ({a.kind}){a.balance != null ? ` — ₱${Number(a.balance).toLocaleString()}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
+            onClick={onCancel}
+          >
+            Skip
+          </button>
+          <button
+            className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            disabled={!accountId}
+            onClick={() => onConfirm(accountId)}
+          >
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function TeamsSheetClient({
   orderId,
   orderNo,
@@ -473,6 +537,14 @@ export function TeamsSheetClient({
   const [downPaymentStr, setDownPaymentStr] = useState<string>(
     initialDownPayment > 0 ? String(initialDownPayment) : "",
   );
+  // Tracks the last saved down payment so we only record the new portion
+  const [savedDownPayment, setSavedDownPayment] = useState(initialDownPayment);
+
+  // ── Finance account dialog ─────────────────────────────────────────────────
+  const [financeAccounts, setFinanceAccounts] = useState<FinanceAccount[]>([]);
+  const [dpDialogOpen, setDpDialogOpen] = useState(false);
+  // Pending save payload — held until the dialog resolves
+  const pendingSave = useRef<{ computedTotal: number; dp: number } | null>(null);
 
   const teamGroups = useMemo(() => groupRowsByTeam(flatRows), [flatRows]);
 
@@ -584,7 +656,7 @@ export function TeamsSheetClient({
   }
 
   // ── Save (teams + pricing) ─────────────────────────────────────────────────
-  async function save() {
+  async function commitSave(computedTotal: number, dp: number, financeAccountId?: string) {
     setSaving(true);
     setMessage(null);
     try {
@@ -592,26 +664,13 @@ export function TeamsSheetClient({
       const teams = flatRowsToTeams(flatRows);
       await persistSublimationTeams(supabase, orderId, teams);
 
-      // 2. Save pricing back to the order (gracefully skip if migration 057 not yet applied).
-      const computedTotal = uniqueLines.reduce(
-        (sum, l) => sum + l.count * (linePrices[l.key] ?? 0),
-        0,
-      );
-      const dp = Math.max(0, Number(downPaymentStr) || 0);
-
-      // First try with jersey_line_prices column; fall back without it if column missing.
+      // 2. Save pricing back to the order
       const { error: orderErr } = await supabase
         .from("orders")
-        .update({
-          jersey_line_prices: linePrices,
-          unit_price: computedTotal,
-          quantity: 1,
-          down_payment: dp,
-        })
+        .update({ jersey_line_prices: linePrices, unit_price: computedTotal, quantity: 1, down_payment: dp })
         .eq("id", orderId);
 
       if (orderErr) {
-        // Likely column doesn't exist yet — save just unit_price + down_payment.
         const { error: fallbackErr } = await supabase
           .from("orders")
           .update({ unit_price: computedTotal, quantity: 1, down_payment: dp })
@@ -619,6 +678,21 @@ export function TeamsSheetClient({
         if (fallbackErr) throw fallbackErr;
       }
 
+      // 3. Record finance transaction for the new down payment portion
+      if (financeAccountId && dp > savedDownPayment) {
+        const newPortion = dp - savedDownPayment;
+        const today = new Date().toISOString().slice(0, 10);
+        await supabase.from("finance_transactions").insert({
+          occurred_at: today,
+          account_id: financeAccountId,
+          direction: "in",
+          amount: newPortion,
+          description: `Down payment — Order #${orderNo}${customerName ? ` (${customerName})` : ""}`,
+          notes: `teams_sheet_order:${orderId}`,
+        });
+      }
+
+      setSavedDownPayment(dp);
       setMessage("Saved.");
       reload();
     } catch (e) {
@@ -629,9 +703,52 @@ export function TeamsSheetClient({
     }
   }
 
+  async function save() {
+    const computedTotal = uniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0);
+    const dp = Math.max(0, Number(downPaymentStr) || 0);
+
+    // If there's a new/increased down payment, ask for a finance account first
+    if (dp > savedDownPayment) {
+      // Lazy-load finance accounts
+      if (financeAccounts.length === 0) {
+        const { data } = await supabase.from("finance_accounts").select("id,name,kind,balance").order("name");
+        setFinanceAccounts((data as FinanceAccount[]) || []);
+      }
+      pendingSave.current = { computedTotal, dp };
+      setDpDialogOpen(true);
+      return;
+    }
+
+    // No new down payment — save directly
+    await commitSave(computedTotal, dp);
+  }
+
+  function handleDpDialogConfirm(accountId: string) {
+    setDpDialogOpen(false);
+    if (!pendingSave.current) return;
+    const { computedTotal, dp } = pendingSave.current;
+    pendingSave.current = null;
+    void commitSave(computedTotal, dp, accountId);
+  }
+
+  function handleDpDialogSkip() {
+    setDpDialogOpen(false);
+    if (!pendingSave.current) return;
+    const { computedTotal, dp } = pendingSave.current;
+    pendingSave.current = null;
+    void commitSave(computedTotal, dp); // save without recording transaction
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
+      <FinanceAccountDialog
+        open={dpDialogOpen}
+        dpAmount={Math.max(0, (Number(downPaymentStr) || 0) - savedDownPayment)}
+        accounts={financeAccounts}
+        onConfirm={handleDpDialogConfirm}
+        onCancel={handleDpDialogSkip}
+      />
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
