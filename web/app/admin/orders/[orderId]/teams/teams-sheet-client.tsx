@@ -534,6 +534,10 @@ export function TeamsSheetClient({
   const [message, setMessage] = useState<string | null>(null);
   const [uploadingTeamKey, setUploadingTeamKey] = useState<string | null>(null);
 
+  // Walk-in & Online can switch between "teams" and "services" sheet format
+  const canSwitchFormat = orderKind === "local" || orderKind === "online";
+  const [sheetFormat, setSheetFormat] = useState<"teams" | "services">("teams");
+
   // ── Pricing state ──────────────────────────────────────────────────────────
   const [linePrices, setLinePrices] = useState<Record<string, number>>(initialLinePrices);
   const [downPaymentStr, setDownPaymentStr] = useState<string>(
@@ -741,8 +745,8 @@ export function TeamsSheetClient({
     void commitSave(computedTotal, dp); // save without recording transaction
   }
 
-  // ── Labels (change based on order kind) ──────────────────────────────────
-  const isSvc = orderKind === "services";
+  // ── Labels (change based on order kind or chosen format) ─────────────────
+  const isSvc = orderKind === "services" || (canSwitchFormat && sheetFormat === "services");
   const L = {
     pageTitle:     isSvc ? "Services Order — sheet"   : "Teams & jerseys — sheet",
     addGroup:      isSvc ? "+ Services Order"          : "+ Team",
@@ -784,7 +788,26 @@ export function TeamsSheetClient({
             {customerName ? <> · {customerName}</> : null}. Tab between cells like a spreadsheet; use Save when done.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Format toggle — only for Walk-in & Online */}
+          {canSwitchFormat && (
+            <div className="flex rounded-md border overflow-hidden text-xs">
+              <button
+                type="button"
+                className={`px-3 py-1.5 font-medium transition-colors ${sheetFormat === "teams" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                onClick={() => setSheetFormat("teams")}
+              >
+                Teams & Jerseys
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-1.5 font-medium transition-colors border-l ${sheetFormat === "services" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                onClick={() => setSheetFormat("services")}
+              >
+                Services
+              </button>
+            </div>
+          )}
           <Button type="button" variant="outline" size="sm" onClick={addTeam} disabled={loading}>
             {L.addGroup}
           </Button>

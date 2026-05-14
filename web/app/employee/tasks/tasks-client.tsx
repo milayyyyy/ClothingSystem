@@ -1,8 +1,6 @@
 "use client";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { MachineMaintenanceReminder } from "@/components/machine-maintenance-reminder";
-import { ScheduledMaintenanceAlerts } from "@/components/scheduled-maintenance-alerts";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,9 +56,6 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
 
   return (
     <div className="space-y-4">
-      <ScheduledMaintenanceAlerts userId={userId} />
-      <MachineMaintenanceReminder variant="employee" />
-
       {/* Active tasks */}
       <Card>
         <CardContent className="p-0">

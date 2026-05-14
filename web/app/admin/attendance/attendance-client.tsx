@@ -6,8 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, ScanFace, Trash2 } from "lucide-react";
+import { FaceEnrollDialog } from "@/components/face-enroll-dialog";
 
 export type AttendanceRow = {
   id: string;
@@ -31,7 +33,7 @@ function parseDatetimeLocal(s: string) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-export type EmployeeOption = { id: string; full_name: string | null; email: string };
+export type EmployeeOption = { id: string; full_name: string | null; email: string; face_descriptor?: number[] | null };
 
 function defaultShiftDatetimeLocal() {
   const d = new Date();
@@ -78,6 +80,29 @@ export function AdminAttendanceClient({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const headerSelectRef = useRef<HTMLInputElement>(null);
+
+  // Face enrolment state
+  const [enrollOpen, setEnrollOpen] = useState(false);
+  const [enrollEmployee, setEnrollEmployee] = useState<EmployeeOption | null>(null);
+  const [employeesState, setEmployeesState] = useState<EmployeeOption[]>(employees);
+
+  async function refreshEmployees() {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, full_name, email, face_descriptor")
+      .in("role", ["employee", "sub_admin"]);
+    setEmployeesState(data || employees);
+    // Update the enrolling employee's descriptor too
+    if (enrollEmployee) {
+      const updated = (data || []).find((e) => e.id === enrollEmployee.id);
+      if (updated) setEnrollEmployee(updated as EmployeeOption);
+    }
+  }
+
+  function openEnroll(emp: EmployeeOption) {
+    setEnrollEmployee(emp);
+    setEnrollOpen(true);
+  }
 
   useEffect(() => {
     setRows(initial);
@@ -231,7 +256,16 @@ export function AdminAttendanceClient({
             <Trash2 className="mr-1 h-4 w-4" />
             {bulkBusy ? "Deleting…" : `Delete selected (${selectedCount})`}
           </Button>
-          <Button type="button" onClick={() => setAdding(true)} disabled={employees.length === 0}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setEnrollOpen(true)}
+            disabled={employeesState.length === 0}
+          >
+            <ScanFace className="mr-1 h-4 w-4" />
+            Face Enrolment
+          </Button>
+          <Button type="button" onClick={() => setAdding(true)} disabled={employeesState.length === 0}>
             <Plus className="mr-1 h-4 w-4" />
             Add attendance
           </Button>
@@ -329,9 +363,50 @@ export function AdminAttendanceClient({
       />
       <AddAttendanceDialog
         open={adding}
-        employees={employees}
+        employees={employeesState}
         onClose={() => setAdding(false)}
         onSaved={refresh}
+      />
+
+      {/* Face enrolment — employee picker + enrol dialog */}
+      <Dialog
+        open={enrollOpen && !enrollEmployee}
+        onClose={() => setEnrollOpen(false)}
+        title="Face Enrolment"
+        description="Select an employee to enrol or update their face."
+        size="md"
+      >
+        <ul className="max-h-72 overflow-y-auto divide-y rounded-md border">
+          {employeesState.length === 0 && (
+            <li className="px-3 py-4 text-center text-xs text-muted-foreground">No employees found.</li>
+          )}
+          {employeesState.map((emp) => (
+            <li key={emp.id}>
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-sm hover:bg-muted/40 transition-colors"
+                onClick={() => openEnroll(emp)}
+              >
+                <span className="flex-1 text-left font-medium">{emp.full_name || emp.email}</span>
+                {emp.face_descriptor?.length ? (
+                  <Badge variant="green" className="gap-1 text-[11px]">Enrolled</Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[11px]">Not enrolled</Badge>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="flex justify-end pt-3">
+          <Button variant="outline" size="sm" onClick={() => setEnrollOpen(false)}>Close</Button>
+        </div>
+      </Dialog>
+
+      <FaceEnrollDialog
+        open={enrollOpen && !!enrollEmployee}
+        onClose={() => { setEnrollEmployee(null); setEnrollOpen(false); }}
+        employee={enrollEmployee}
+        onEnrolled={() => void refreshEmployees()}
       />
     </>
   );

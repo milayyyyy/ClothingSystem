@@ -18,7 +18,7 @@ export default async function MyAttendancePage() {
   return (
     <div>
       <PageHeader title="Attendance" description="Time in / time out" />
-      <Card className="mb-6"><CardContent className="p-5"><TimeClock onClock={onClock} lastId={last?.id} userId={user.id} lastTimeIn={last?.time_in} /></CardContent></Card>
+      <Card className="mb-6"><CardContent className="p-5"><TimeClock onClock={onClock} lastId={last?.id} userId={user.id} profileId={user.profile.id} lastTimeIn={last?.time_in} /></CardContent></Card>
       <Card><CardContent className="p-0">
         <table className="w-full text-sm">
           <thead className="bg-muted/40 text-left"><tr><th className="p-3">Date</th><th>Time In</th><th>Time Out</th><th>Hours</th></tr></thead>

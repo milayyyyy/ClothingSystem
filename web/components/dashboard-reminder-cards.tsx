@@ -2,8 +2,7 @@ import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { maintenanceAssigneeNames, type MaintenanceScheduleRow } from "@/lib/maintenance";
-import { AlertTriangle, ListChecks, Wrench } from "lucide-react";
+import { AlertTriangle, ListChecks } from "lucide-react";
 
 export type DashboardLowStockItem = {
   id: string;
@@ -82,13 +81,11 @@ function LowStockList({
 }
 
 export function DashboardReminderCards({
-  maintenance,
   tasks,
   lowStock,
   lowStockReadyMade,
   variant,
 }: {
-  maintenance: MaintenanceScheduleRow[];
   tasks: DashboardTaskReminder[];
   /** Regular inventory low-stock items. */
   lowStock: DashboardLowStockItem[];
@@ -96,7 +93,6 @@ export function DashboardReminderCards({
   lowStockReadyMade?: DashboardLowStockItem[];
   variant: "admin" | "employee";
 }) {
-  const maintHref = variant === "admin" ? "/admin/maintenance" : "/employee/tasks";
   const tasksHref = variant === "admin" ? "/admin/tasks" : "/employee/tasks";
   const invHref = variant === "admin" ? "/admin/inventory" : null;
   const rmHref = variant === "admin" ? "/admin/inventory/ready-made" : null;
@@ -109,49 +105,7 @@ export function DashboardReminderCards({
   ];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {/* Maintenance */}
-      <Card className="flex flex-col anim-in">
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Wrench className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-              Maintenance
-            </CardTitle>
-            <Link href={maintHref} className="shrink-0 text-xs font-medium text-primary hover:underline">
-              Open →
-            </Link>
-          </div>
-          <CardDescription>Active scheduled alerts (not dismissed)</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-1 flex-col gap-2 pt-0">
-          {maintenance.length === 0 ? (
-            <p className="rounded-md bg-muted/50 px-3 py-2 text-sm text-muted-foreground">No active maintenance windows.</p>
-          ) : (
-            <ul className="space-y-2">
-              {maintenance.slice(0, 6).map((m) => (
-                <li key={m.id} className="rounded-md border bg-muted/20 px-3 py-2 text-sm">
-                  <div className="font-medium leading-snug line-clamp-2">{m.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{m.machine_name}</div>
-                  <div className="mt-1 text-[11px] text-muted-foreground">
-                    {formatDate(m.starts_at)} – {formatDate(m.ends_at)}
-                  </div>
-                  {maintenanceAssigneeNames(m) && (
-                    <div className="mt-0.5 text-[11px] text-muted-foreground">
-                      Assigned: <span className="font-medium text-foreground">{maintenanceAssigneeNames(m)}</span>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-          {maintenance.length > 6 && (
-            <Link href={maintHref} className="mt-auto pt-1 text-xs font-medium text-primary hover:underline">
-              View all →
-            </Link>
-          )}
-        </CardContent>
-      </Card>
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
 
       {/* Tasks */}
       <Card className="flex flex-col anim-in">

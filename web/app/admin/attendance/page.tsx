@@ -12,7 +12,7 @@ export default async function AdminAttendancePage() {
       .select("*, user:user_id(full_name, email)")
       .order("time_in", { ascending: false })
       .limit(800),
-    supabase.from("profiles").select("id, full_name, email").eq("role", "employee").order("full_name"),
+    supabase.from("profiles").select("id, full_name, email, face_descriptor").in("role", ["employee", "sub_admin"]).order("full_name"),
   ]);
 
   return (

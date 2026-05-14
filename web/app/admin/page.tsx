@@ -8,7 +8,6 @@ import { peso, formatDate } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/badge";
 import { ShoppingBag, Wallet, TrendingDown, TrendingUp, Package, Receipt, Warehouse } from "lucide-react";
 import Link from "next/link";
-import { fetchActiveMaintenanceAlerts } from "@/lib/maintenance";
 import { fetchReadyMadeDashboardLowStockItems } from "@/lib/ready-made-dashboard-low-stock";
 import { DashboardReminderCards } from "@/components/dashboard-reminder-cards";
 
@@ -18,13 +17,12 @@ export default async function AdminDashboard() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const supabase = createClient();
-  const [{ data: orders }, { data: expenses }, { data: inventory }, { data: tasksRaw }, maintenanceAlerts, readyMadeLow] =
+  const [{ data: orders }, { data: expenses }, { data: inventory }, { data: tasksRaw }, readyMadeLow] =
     await Promise.all([
       supabase.from("orders").select("*").order("created_at", { ascending: false }),
       supabase.from("expenses").select("*"),
       supabase.from("inventory").select("*"),
       supabase.from("tasks").select("id,title,status,priority,due_date").order("due_date", { ascending: true }),
-      fetchActiveMaintenanceAlerts(supabase, user.id),
       fetchReadyMadeDashboardLowStockItems(supabase),
     ]);
 
@@ -94,7 +92,7 @@ export default async function AdminDashboard() {
       </div>
 
       <div className="mt-6">
-        <DashboardReminderCards maintenance={maintenanceAlerts} tasks={tasksReminders} lowStock={lowStock} lowStockReadyMade={readyMadeLow} variant="admin" />
+        <DashboardReminderCards tasks={tasksReminders} lowStock={lowStock} lowStockReadyMade={readyMadeLow} variant="admin" />
       </div>
 
       <Card className="mt-6 anim-in">

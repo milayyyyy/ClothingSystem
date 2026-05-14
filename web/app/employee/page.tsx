@@ -5,7 +5,6 @@ import { StatusBadge } from "@/components/ui/badge";
 import { peso, formatDate } from "@/lib/utils";
 import { redirect } from "next/navigation";
 import { TimeClock } from "./time-clock";
-import { fetchActiveMaintenanceAlerts } from "@/lib/maintenance";
 import { fetchReadyMadeDashboardLowStockItems } from "@/lib/ready-made-dashboard-low-stock";
 import { DashboardReminderCards } from "@/components/dashboard-reminder-cards";
 
@@ -21,7 +20,6 @@ export default async function EmployeeDashboard() {
     { data: salaries },
     { data: attendance },
     { data: tasksAssigned },
-    maintenanceAlerts,
     { data: inventory },
     readyMadeLow,
   ] = await Promise.all([
@@ -33,7 +31,6 @@ export default async function EmployeeDashboard() {
       .select("id,title,status,priority,due_date, assignees:task_assignees!inner(user_id)")
       .eq("assignees.user_id", uid)
       .order("due_date", { ascending: true }),
-    fetchActiveMaintenanceAlerts(supabase, uid),
     supabase.from("inventory").select("*"),
     fetchReadyMadeDashboardLowStockItems(supabase),
   ]);
@@ -64,12 +61,12 @@ export default async function EmployeeDashboard() {
         </CardContent></Card>
         <Card><CardContent className="p-5">
           <div className="text-xs uppercase text-muted-foreground">Attendance</div>
-          <TimeClock onClock={onClock} lastId={lastAttendance?.id} userId={user.id} />
+          <TimeClock onClock={onClock} lastId={lastAttendance?.id} userId={user.id} profileId={user.profile.id} />
         </CardContent></Card>
       </div>
 
       <div className="mt-6">
-        <DashboardReminderCards maintenance={maintenanceAlerts} tasks={tasksReminders} lowStock={lowStock} variant="employee" />
+        <DashboardReminderCards tasks={tasksReminders} lowStock={lowStock} variant="employee" />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">

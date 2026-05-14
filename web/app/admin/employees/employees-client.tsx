@@ -9,12 +9,11 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Pencil, Plus } from "lucide-react";
-import {
-  EMPLOYEE_POSITION_LABEL,
-  EMPLOYEE_POSITION_VALUES,
-  isEmployeePositionValue,
-} from "@/lib/employee-positions";
+import { Pencil, Plus, ScanFace, Settings2, ShieldCheck, Trash2 } from "lucide-react";
+import { FaceEnrollDialog } from "@/components/face-enroll-dialog";
+import { RoleSettingsDialog } from "@/components/role-settings-dialog";
+
+type EmpPosition = { id: string; name: string; sort_order: number };
 
 const selectClass = cn(
   "flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm",
@@ -22,6 +21,7 @@ const selectClass = cn(
 );
 
 type P = any;
+type PositionsMgrProps = { open: boolean; onClose: () => void; onChanged: () => void };
 
 function initials(name?: string | null) {
   if (!name) return "?";
@@ -33,15 +33,44 @@ export function EmployeesClient({ initial }: { initial: P[] }) {
   const [list, setList] = useState<P[]>(initial);
   const [editing, setEditing] = useState<P | null>(null);
   const [adding, setAdding] = useState(false);
+  const [enrollTarget, setEnrollTarget] = useState<P | null>(null);
+  const [positions, setPositions] = useState<EmpPosition[]>([]);
+  const [positionsMgrOpen, setPositionsMgrOpen] = useState(false);
+  const [roleSettingsOpen, setRoleSettingsOpen] = useState(false);
+
+  async function fetchPositions() {
+    const { data } = await supabase
+      .from("employee_positions")
+      .select("id, name, sort_order")
+      .order("sort_order")
+      .order("name");
+    setPositions(data || []);
+  }
+
+  useEffect(() => { void fetchPositions(); }, []);
 
   async function refresh() {
     const { data } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
     setList(data || []);
   }
 
+  function handleEnrolled() {
+    void refresh();
+    if (enrollTarget) {
+      supabase.from("profiles").select("*").eq("id", enrollTarget.id).single()
+        .then(({ data }) => { if (data) setEnrollTarget(data); });
+    }
+  }
+
   return (
     <>
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex items-center justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={() => setRoleSettingsOpen(true)}>
+          <ShieldCheck className="mr-1 h-4 w-4" /> Role Settings
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => setPositionsMgrOpen(true)}>
+          <Settings2 className="mr-1 h-4 w-4" /> Positions
+        </Button>
         <Button onClick={() => setAdding(true)}><Plus className="mr-1 h-4 w-4" /> Add Employee</Button>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -58,21 +87,45 @@ export function EmployeesClient({ initial }: { initial: P[] }) {
                     <div className="text-xs text-muted-foreground">{p.email}</div>
                   </div>
                 </div>
-                <button onClick={() => setEditing(p)} className="text-muted-foreground hover:text-foreground"><Pencil className="h-4 w-4" /></button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setEditing(p)}
+                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title="Edit employee"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
+
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 <Badge variant={p.role === "admin" ? "purple" : "blue"}>{p.role}</Badge>
                 <Badge variant={p.active ? "green" : "red"}>{p.active ? "Active" : "Inactive"}</Badge>
                 {p.position && (
-                  <Badge variant="outline">
-                    {(() => {
-                      const k = String(p.position).trim().toLowerCase();
-                      return isEmployeePositionValue(k) ? EMPLOYEE_POSITION_LABEL[k] : p.position;
-                    })()}
-                  </Badge>
+                  <Badge variant="outline">{p.position}</Badge>
                 )}
               </div>
-              <p className="mt-4 text-xs text-muted-foreground">
+
+              {/* Face enrolment row */}
+              <div className="mt-3 flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
+                <div className="flex items-center gap-2 text-xs">
+                  <ScanFace className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-muted-foreground">Face ID</span>
+                  {p.face_descriptor?.length ? (
+                    <Badge variant="green" className="text-[10px] px-1.5 py-0">Enrolled</Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">Not enrolled</Badge>
+                  )}
+                </div>
+                <button
+                  onClick={() => setEnrollTarget(p)}
+                  className="text-xs font-medium text-primary hover:underline"
+                >
+                  {p.face_descriptor?.length ? "Re-enrol" : "Enrol"}
+                </button>
+              </div>
+
+              <p className="mt-3 text-xs text-muted-foreground">
                 Pay type, rate, and allowance are set on the{" "}
                 <Link href="/admin/salary" className="font-medium text-primary underline underline-offset-2">
                   Salary
@@ -83,19 +136,154 @@ export function EmployeesClient({ initial }: { initial: P[] }) {
           </Card>
         ))}
       </div>
-      <EditEmployee open={!!editing} onClose={() => setEditing(null)} employee={editing} onSaved={refresh} />
-      <AddEmployee open={adding} onClose={() => setAdding(false)} onSaved={refresh} />
+
+      <RoleSettingsDialog
+        open={roleSettingsOpen}
+        onClose={() => setRoleSettingsOpen(false)}
+      />
+      <PositionsManagerDialog
+        open={positionsMgrOpen}
+        onClose={() => setPositionsMgrOpen(false)}
+        onChanged={fetchPositions}
+      />
+      <EditEmployee open={!!editing} onClose={() => setEditing(null)} employee={editing} positions={positions} onSaved={refresh} />
+      <AddEmployee open={adding} onClose={() => setAdding(false)} positions={positions} onSaved={refresh} />
+      <FaceEnrollDialog
+        open={!!enrollTarget}
+        onClose={() => setEnrollTarget(null)}
+        employee={enrollTarget}
+        onEnrolled={handleEnrolled}
+      />
     </>
   );
 }
 
-function AddEmployee({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+// ── Positions Manager ─────────────────────────────────────────────────────
+function PositionsManagerDialog({ open, onClose, onChanged }: PositionsMgrProps) {
+  const supabase = createClient();
+  const [positions, setPositions] = useState<EmpPosition[]>([]);
+  const [newName, setNewName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    const { data } = await supabase.from("employee_positions").select("id, name, sort_order").order("sort_order").order("name");
+    setPositions(data || []);
+  }
+
+  useEffect(() => { if (open) load(); }, [open]);
+
+  async function addPosition(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    const maxOrder = positions.reduce((m, p) => Math.max(m, p.sort_order), 0);
+    const { error } = await supabase.from("employee_positions").insert({ name: trimmed, sort_order: maxOrder + 1 });
+    setSaving(false);
+    if (error) { alert(error.message); return; }
+    setNewName("");
+    await load();
+    onChanged();
+  }
+
+  async function saveEdit(id: string) {
+    const trimmed = editingName.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    const { error } = await supabase.from("employee_positions").update({ name: trimmed }).eq("id", id);
+    setSaving(false);
+    if (error) { alert(error.message); return; }
+    setEditingId(null);
+    setEditingName("");
+    await load();
+    onChanged();
+  }
+
+  async function deletePosition(id: string) {
+    if (!confirm("Delete this position? Employees using it will keep their current position text.")) return;
+    const { error } = await supabase.from("employee_positions").delete().eq("id", id);
+    if (error) { alert(error.message); return; }
+    await load();
+    onChanged();
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Positions" description="Manage employee job positions." size="xl">
+      <div className="space-y-3">
+        <ul className="max-h-64 overflow-y-auto divide-y rounded-md border">
+          {positions.length === 0 && (
+            <li className="px-3 py-4 text-center text-muted-foreground text-xs">No positions yet.</li>
+          )}
+          {positions.map((pos) => (
+            <li key={pos.id} className="flex items-center gap-2 px-3 py-2.5 text-sm">
+              {editingId === pos.id ? (
+                <>
+                  <Input
+                    className="h-7 flex-1 text-sm"
+                    value={editingName}
+                    onChange={(e) => setEditingName(e.target.value)}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); void saveEdit(pos.id); }
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                  />
+                  <Button size="sm" className="h-7 text-xs" disabled={saving} onClick={() => void saveEdit(pos.id)}>Save</Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditingId(null)}>Cancel</Button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 font-medium">{pos.name}</span>
+                  <button
+                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title="Edit"
+                    onClick={() => { setEditingId(pos.id); setEditingName(pos.name); }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    className="rounded p-1 text-destructive hover:bg-destructive/10"
+                    title="Delete"
+                    onClick={() => void deletePosition(pos.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+
+        <form onSubmit={addPosition} className="flex gap-2">
+          <Input
+            placeholder="New position (e.g. Manager)"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            className="flex-1"
+          />
+          <Button type="submit" disabled={saving || !newName.trim()}>
+            <Plus className="mr-1 h-4 w-4" /> Add
+          </Button>
+        </form>
+
+        <div className="flex justify-end pt-1">
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+// ── Add / Edit Employee ───────────────────────────────────────────────────
+function AddEmployee({ open, onClose, positions, onSaved }: { open: boolean; onClose: () => void; positions: EmpPosition[]; onSaved: () => void }) {
   const [form, setForm] = useState<any>({
     email: "",
     password: "",
     full_name: "",
     phone: "",
-    position: "sales",
+    position: "",
     role: "employee",
   });
   const [err, setErr] = useState<string | null>(null);
@@ -149,15 +337,18 @@ function AddEmployee({ open, onClose, onSaved }: { open: boolean; onClose: () =>
         <div>
           <Label>Position</Label>
           <select
-            required
             className={selectClass}
             value={form.position}
             onChange={(e) => set("position", e.target.value)}
           >
-            {EMPLOYEE_POSITION_VALUES.map((v) => (
-              <option key={v} value={v}>{EMPLOYEE_POSITION_LABEL[v]}</option>
+            <option value="">— Select position —</option>
+            {positions.map((p) => (
+              <option key={p.id} value={p.name}>{p.name}</option>
             ))}
           </select>
+          {positions.length === 0 && (
+            <p className="mt-1 text-xs text-muted-foreground">No positions yet. Click <b>Positions</b> to add some.</p>
+          )}
         </div>
         <div>
           <Label>Role</Label>
@@ -183,34 +374,24 @@ function AddEmployee({ open, onClose, onSaved }: { open: boolean; onClose: () =>
   );
 }
 
-function EditEmployee({ open, onClose, employee, onSaved }: { open: boolean; onClose: () => void; employee: P | null; onSaved: () => void }) {
+function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: boolean; onClose: () => void; employee: P | null; positions: EmpPosition[]; onSaved: () => void }) {
   const supabase = createClient();
   const [form, setForm] = useState<any>({});
   function set(k: string, v: any) { setForm((f: any) => ({ ...f, [k]: v })); }
 
   useEffect(() => {
     if (!open || !employee) return;
-    const raw = String(employee.position ?? "").trim();
-    const key = raw.toLowerCase();
-    const position = raw
-      ? (isEmployeePositionValue(key) ? key : raw)
-      : "sales";
-    setForm({
-      ...employee,
-      position,
-    });
+    setForm({ ...employee, position: employee.position ?? "" });
   }, [open, employee]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    const posRaw = String(form.position || "").trim().toLowerCase();
-    const position = isEmployeePositionValue(posRaw) ? posRaw : String(form.position || "").trim() || null;
     await supabase
       .from("profiles")
       .update({
         full_name: form.full_name,
         phone: form.phone,
-        position,
+        position: form.position || null,
         role: form.role,
         active: form.active,
       })
@@ -221,10 +402,9 @@ function EditEmployee({ open, onClose, employee, onSaved }: { open: boolean; onC
 
   if (!employee) return null;
 
-  const posRaw = String(form.position || "").trim();
-  const posKey = posRaw.toLowerCase();
-  const isStandardPosition = isEmployeePositionValue(posKey);
-  const positionSelectValue = isStandardPosition ? posKey : (posRaw || "sales");
+  // If employee has a position not in the current list, keep it as a legacy option
+  const positionInList = positions.some((p) => p.name === form.position);
+  const hasLegacy = form.position && !positionInList;
 
   return (
     <Dialog open={open} onClose={onClose} title="Edit Employee">
@@ -241,19 +421,15 @@ function EditEmployee({ open, onClose, employee, onSaved }: { open: boolean; onC
           <Label>Position</Label>
           <select
             className={selectClass}
-            value={positionSelectValue}
+            value={form.position || ""}
             onChange={(e) => set("position", e.target.value)}
           >
-            {EMPLOYEE_POSITION_VALUES.map((v) => (
-              <option key={v} value={v}>
-                {EMPLOYEE_POSITION_LABEL[v]}
-              </option>
+            <option value="">— Select position —</option>
+            {positions.map((p) => (
+              <option key={p.id} value={p.name}>{p.name}</option>
             ))}
-            {!isStandardPosition && posRaw && <option value={posRaw}>{posRaw} (legacy)</option>}
+            {hasLegacy && <option value={form.position}>{form.position} (legacy)</option>}
           </select>
-          {!isStandardPosition && posRaw && (
-            <p className="text-xs text-muted-foreground">Choose Sales, Artist, Staff, or Sewer to align with roles.</p>
-          )}
         </div>
         <div>
           <Label>Role</Label>
