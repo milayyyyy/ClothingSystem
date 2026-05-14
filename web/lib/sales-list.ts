@@ -23,6 +23,8 @@ export type UnifiedSaleListRow = {
   customerOrTitle: string;
   storeOrNotes: string;
   designRef: string;
+  /** Human-readable description: notes, design ref, or deposit label */
+  description: string;
   /** BigSeller-specific identifiers */
   waybillNo: string;
   externalOrderNo: string;
@@ -75,6 +77,11 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
       (channel === "online" && !isBigSeller);
     const orderTotal = Number(o.total || 0);
 
+    const notes = String(o.notes || "").trim();
+    const designRef = String(o.design_ref || "").trim();
+    // Build description: prefer notes, fall back to design_ref
+    const baseDesc = notes || designRef;
+
     if (recognized) {
       // Completed sale — show full total
       out.push({
@@ -87,7 +94,8 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
         orderNo: o.order_no,
         customerOrTitle: String(o.customer_name || "—"),
         storeOrNotes: storeOrPlatform(o),
-        designRef: String(o.design_ref || ""),
+        designRef,
+        description: baseDesc,
         waybillNo: String(o.waybill_no || ""),
         externalOrderNo: String(o.external_order_no || ""),
         skuCode: String(o.sku_code || ""),
@@ -105,7 +113,8 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
         orderNo: o.order_no,
         customerOrTitle: String(o.customer_name || "—"),
         storeOrNotes: storeOrPlatform(o),
-        designRef: String(o.design_ref || ""),
+        designRef,
+        description: baseDesc,
         waybillNo: String(o.waybill_no || ""),
         externalOrderNo: String(o.external_order_no || ""),
         skuCode: String(o.sku_code || ""),

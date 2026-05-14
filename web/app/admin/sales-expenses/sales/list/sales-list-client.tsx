@@ -54,6 +54,7 @@ export function SalesListClient({ orders }: Props) {
           r.customerOrTitle,
           r.storeOrNotes,
           r.designRef,
+          r.description,
           r.waybillNo,
           r.externalOrderNo,
           r.skuCode,
@@ -189,6 +190,7 @@ export function SalesListClient({ orders }: Props) {
                 <th className="font-medium">Customer</th>
                 <th className="font-medium">Channel</th>
                 <th className="font-medium">Store / platform</th>
+                <th className="font-medium">Description</th>
                 <th className="px-4 text-right font-medium">Amount</th>
                 <th className="w-10 px-2 font-medium"></th>
               </tr>
@@ -199,7 +201,7 @@ export function SalesListClient({ orders }: Props) {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                     No rows match. Widen the date range or clear filters.
                   </td>
                 </tr>
@@ -257,8 +259,15 @@ function SalesRow({ row }: { row: UnifiedSaleListRow }) {
           )}
         </div>
       </td>
-      <td className="max-w-[180px] truncate py-3 text-muted-foreground" title={row.storeOrNotes}>
+      <td className="max-w-[160px] truncate py-3 text-muted-foreground" title={row.storeOrNotes}>
         {row.storeOrNotes}
+      </td>
+      <td className="max-w-[220px] py-3 text-xs text-muted-foreground" title={row.description}>
+        {row.description ? (
+          <span className="line-clamp-2">{row.description}</span>
+        ) : (
+          <span className="italic opacity-40">—</span>
+        )}
       </td>
       <td className="px-4 py-3 text-right">
         <div className="font-medium">{peso(row.amount)}</div>
