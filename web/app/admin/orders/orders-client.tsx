@@ -1863,6 +1863,7 @@ function OrderForm({
     }
   }
 
+  const isWalkinOnlineCreate = !order && (form.kind === "local" || form.kind === "online");
   const total = Number(form.quantity || 0) * Number(form.unit_price || 0);
   const balance = total - Number(form.down_payment || 0);
 
@@ -2055,26 +2056,35 @@ function OrderForm({
             ))}
           </div>
         </div>
-        <div>
-          <Label>Quantity</Label>
-          <Input type="number" min={1} value={form.quantity} onChange={(e) => set("quantity", Number(e.target.value))} />
-        </div>
-        <div>
-          <Label>Unit price (₱)</Label>
-          <Input type="number" min={0} step="0.01" value={form.unit_price} onChange={(e) => set("unit_price", Number(e.target.value))} />
-        </div>
-        <div>
-          <Label>Down payment (₱)</Label>
-          <Input type="number" min={0} step="0.01" value={form.down_payment} onChange={(e) => set("down_payment", Number(e.target.value))} />
-        </div>
+        {/* Quantity, Unit price, Down payment, Design reference are added after creation for Walk-in & Online orders */}
+        {!(isWalkinOnlineCreate) && (
+          <div>
+            <Label>Quantity</Label>
+            <Input type="number" min={1} value={form.quantity} onChange={(e) => set("quantity", Number(e.target.value))} />
+          </div>
+        )}
+        {!(isWalkinOnlineCreate) && (
+          <div>
+            <Label>Unit price (₱)</Label>
+            <Input type="number" min={0} step="0.01" value={form.unit_price} onChange={(e) => set("unit_price", Number(e.target.value))} />
+          </div>
+        )}
+        {!(isWalkinOnlineCreate) && (
+          <div>
+            <Label>Down payment (₱)</Label>
+            <Input type="number" min={0} step="0.01" value={form.down_payment} onChange={(e) => set("down_payment", Number(e.target.value))} />
+          </div>
+        )}
         <div>
           <Label>Due date</Label>
           <Input type="date" value={form.due_date || ""} onChange={(e) => set("due_date", e.target.value)} />
         </div>
-        <div className="col-span-2">
-          <Label>Design reference</Label>
-          <Input value={form.design_ref || ""} onChange={(e) => set("design_ref", e.target.value)} />
-        </div>
+        {!(isWalkinOnlineCreate) && (
+          <div className="col-span-2">
+            <Label>Design reference</Label>
+            <Input value={form.design_ref || ""} onChange={(e) => set("design_ref", e.target.value)} />
+          </div>
+        )}
         <div className="col-span-2">
           <Label>Notes</Label>
           <textarea className="min-h-[60px] w-full rounded-md border bg-transparent px-3 py-2 text-sm" value={form.notes || ""} onChange={(e) => set("notes", e.target.value)} />
@@ -2090,9 +2100,11 @@ function OrderForm({
           </div>
         )}
 
-        <div className="col-span-2 rounded-md bg-muted/40 p-3 text-sm">
-          Total: <b>{peso(total)}</b> &nbsp;·&nbsp; Balance: <b>{peso(balance)}</b>
-        </div>
+        {!isWalkinOnlineCreate && (
+          <div className="col-span-2 rounded-md bg-muted/40 p-3 text-sm">
+            Total: <b>{peso(total)}</b> &nbsp;·&nbsp; Balance: <b>{peso(balance)}</b>
+          </div>
+        )}
         <div className="col-span-2 flex justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
