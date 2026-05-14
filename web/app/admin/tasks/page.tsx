@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient, requireStaff } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/page-header";
@@ -15,7 +16,18 @@ export default async function TasksPage() {
   ]);
   return (
     <div>
-      <PageHeader title="Tasks" description="Assign work to staff members" />
+      <PageHeader
+        title="Tasks"
+        description="Assign work to staff members"
+        action={
+          <Link
+            href="/admin/maintenance"
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            🔧 Machine Maintenance
+          </Link>
+        }
+      />
       <TasksClient userId={user.id} initial={tasks || []} people={people || []} />
     </div>
   );

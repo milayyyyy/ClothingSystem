@@ -58,7 +58,6 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/attendance", label: "Attendance", icon: Clock },
     { href: "/admin/salary", label: "Salary", icon: Wallet },
     { href: "/admin/tasks", label: "Tasks", icon: ListChecks },
-    { href: "/admin/maintenance", label: "Machine maintenance", icon: Wrench },
     { href: "/admin/stores", label: "Stores", icon: Warehouse },
   ]},
   { title: "Audit", items: [
