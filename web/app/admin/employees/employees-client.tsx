@@ -9,7 +9,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Camera, Pencil, Plus, ScanFace, Settings2, ShieldCheck, Trash2 } from "lucide-react";
+import { Camera, Eye, EyeOff, Pencil, Plus, ScanFace, Settings2, ShieldCheck, Trash2 } from "lucide-react";
 import { FaceEnrollDialog } from "@/components/face-enroll-dialog";
 import { RoleSettingsDialog } from "@/components/role-settings-dialog";
 
@@ -425,6 +425,7 @@ function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: b
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [newPassword, setNewPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [pwBusy, setPwBusy] = useState(false);
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
   function set(k: string, v: any) { setForm((f: any) => ({ ...f, [k]: v })); }
@@ -435,6 +436,7 @@ function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: b
     setAvatarFile(null);
     setAvatarPreview(null);
     setNewPassword("");
+    setShowPw(false);
     setPwMsg(null);
   }, [open, employee]);
 
@@ -566,15 +568,26 @@ function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: b
         <div className="col-span-2 rounded-lg border border-dashed p-3 space-y-2">
           <p className="text-xs font-medium text-foreground">Reset Password</p>
           <div className="flex gap-2">
-            <Input
-              type="password"
-              placeholder="New password (min 6 chars)"
-              value={newPassword}
-              onChange={(e) => { setNewPassword(e.target.value); setPwMsg(null); }}
-              className="flex-1"
-              minLength={6}
-              autoComplete="new-password"
-            />
+            <div className="relative flex-1">
+              <Input
+                type={showPw ? "text" : "password"}
+                placeholder="New password (min 6 chars)"
+                value={newPassword}
+                onChange={(e) => { setNewPassword(e.target.value); setPwMsg(null); }}
+                className="pr-10"
+                minLength={6}
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                tabIndex={-1}
+                aria-label={showPw ? "Hide password" : "Show password"}
+              >
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
             <Button
               type="button"
               variant="outline"
