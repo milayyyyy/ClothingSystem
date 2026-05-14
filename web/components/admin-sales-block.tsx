@@ -25,8 +25,8 @@ export function AdminSalesBlock({
   orders: any[];
   compactHeader?: boolean;
 }) {
-  const completedRows = orders.filter((o) => isSalesRecognized(o.status));
-  const pendingRows = orders.filter((o) => isPendingPipelineOrder(o.status));
+  const completedRows = orders.filter((o) => isSalesRecognized(o));
+  const pendingRows = orders.filter((o) => isPendingPipelineOrder(o));
   const rows = completedRows;
 
   const pendingTotal = pendingRows.reduce((s, o) => s + Number(o.total || 0), 0);

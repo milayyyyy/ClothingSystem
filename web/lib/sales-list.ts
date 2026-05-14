@@ -46,7 +46,7 @@ function detectBigSeller(o: any): boolean {
 export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
   const out: UnifiedSaleListRow[] = [];
   for (const o of orders || []) {
-    if (!isSalesRecognized(o.status)) continue;
+    if (!isSalesRecognized(o)) continue;  // checks both status and stage
     const iso = String(o.updated_at || o.created_at || "");
     const dateKey = localDateKeyFromIso(iso);
     const atMs = new Date(iso || o.created_at).getTime();

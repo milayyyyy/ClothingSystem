@@ -2,8 +2,13 @@ export type SalesChannel = "local" | "online" | "sublimation" | "services";
 
 export const SALES_CHANNELS: readonly SalesChannel[] = ["local", "online", "sublimation", "services"];
 
-/** Order is finished enough to count in revenue / channel sales (matches Reports “completed”). */
+/** Legacy order_status enum values that count as a completed sale. */
 const RECOGNIZED_SALES_STATUSES = new Set(["delivered", "ready"]);
+
+/** Pipeline `stage` values that count as a completed sale.
+ *  The order forward/bulk-forward flow only writes `stage`, never `status`,
+ *  so we must check both fields. */
+const RECOGNIZED_SALES_STAGES = new Set(["completed", "for_pickup"]);
 
 export function parseSalesChannel(raw: string | null | undefined): SalesChannel {
   const s = String(raw || "local").toLowerCase().trim();
@@ -19,20 +24,44 @@ export function isOrderCancelled(status: string | null | undefined) {
   return String(status || "").toLowerCase() === "cancelled";
 }
 
-/** True when this order’s value counts toward completed sales totals. */
-export function isSalesRecognized(status: string | null | undefined) {
-  return RECOGNIZED_SALES_STATUSES.has(String(status || "").toLowerCase());
+/** True when this order counts toward completed sales totals.
+ *  Accepts either a raw status string or a full order object so callers
+ *  do not need to know which field to check. */
+export function isSalesRecognized(
+  statusOrOrder: string | null | undefined | { status?: string | null; stage?: string | null },
+  stage?: string | null,
+): boolean {
+  if (statusOrOrder !== null && typeof statusOrOrder === "object") {
+    const o = statusOrOrder as { status?: string | null; stage?: string | null };
+    if (RECOGNIZED_SALES_STATUSES.has(String(o.status || "").toLowerCase())) return true;
+    if (RECOGNIZED_SALES_STAGES.has(String(o.stage || "").toLowerCase())) return true;
+    return false;
+  }
+  const s = String(statusOrOrder || "").toLowerCase();
+  if (RECOGNIZED_SALES_STATUSES.has(s)) return true;
+  if (stage != null && RECOGNIZED_SALES_STAGES.has(String(stage || "").toLowerCase())) return true;
+  return false;
 }
 
-/** In-progress pipeline: not cancelled and not yet recognized as completed sale. */
-export function isPendingPipelineOrder(status: string | null | undefined) {
-  if (isOrderCancelled(status)) return false;
-  return !isSalesRecognized(status);
+/** In-progress pipeline: not cancelled and not yet a completed sale. */
+export function isPendingPipelineOrder(
+  statusOrOrder: string | null | undefined | { status?: string | null; stage?: string | null },
+) {
+  if (statusOrOrder !== null && typeof statusOrOrder === "object") {
+    const o = statusOrOrder as { status?: string | null; stage?: string | null };
+    if (isOrderCancelled(o.status)) return false;
+    return !isSalesRecognized(o);
+  }
+  const s = statusOrOrder as string | null | undefined;
+  if (isOrderCancelled(s)) return false;
+  return !isSalesRecognized(s);
 }
 
-/** @alias for “counts in completed sales aggregates” */
-export function countsTowardSales(status: string | null | undefined) {
-  return isSalesRecognized(status);
+/** @alias */
+export function countsTowardSales(
+  statusOrOrder: string | null | undefined | { status?: string | null; stage?: string | null },
+) {
+  return isSalesRecognized(statusOrOrder);
 }
 
 export function storeOrPlatform(o: { source?: string | null }) {
