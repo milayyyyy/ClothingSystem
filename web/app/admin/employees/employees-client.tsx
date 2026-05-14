@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Pencil, Plus, ScanFace, Settings2, ShieldCheck, Trash2 } from "lucide-react";
+import { Camera, Pencil, Plus, ScanFace, Settings2, ShieldCheck, Trash2 } from "lucide-react";
 import { FaceEnrollDialog } from "@/components/face-enroll-dialog";
 import { RoleSettingsDialog } from "@/components/role-settings-dialog";
 
@@ -79,32 +79,54 @@ export function EmployeesClient({ initial }: { initial: P[] }) {
             <CardContent className="p-5">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground font-semibold">
-                    {initials(p.full_name || p.email)}
+                  {/* Avatar */}
+                  <div className="relative h-12 w-12 shrink-0">
+                    {p.avatar_url ? (
+                      <img src={p.avatar_url} alt={p.full_name || "avatar"} className="h-12 w-12 rounded-full object-cover" />
+                    ) : (
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground font-semibold">
+                        {initials(p.full_name || p.email)}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <div className="font-medium">{p.full_name || "—"}</div>
                     <div className="text-xs text-muted-foreground">{p.email}</div>
+                    {p.phone && <div className="text-xs text-muted-foreground">{p.phone}</div>}
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setEditing(p)}
-                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    title="Edit employee"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                </div>
+                <button
+                  onClick={() => setEditing(p)}
+                  className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  title="Edit employee"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 <Badge variant={p.role === "admin" ? "purple" : "blue"}>{p.role}</Badge>
                 <Badge variant={p.active ? "green" : "red"}>{p.active ? "Active" : "Inactive"}</Badge>
-                {p.position && (
-                  <Badge variant="outline">{p.position}</Badge>
-                )}
+                {p.position && <Badge variant="outline">{p.position}</Badge>}
               </div>
+
+              {/* DOB & employment start */}
+              {(p.date_of_birth || p.employment_start) && (
+                <div className="mt-3 grid grid-cols-2 gap-1 text-xs text-muted-foreground">
+                  {p.date_of_birth && (
+                    <div>
+                      <span className="font-medium text-foreground">Born </span>
+                      {new Date(p.date_of_birth).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" })}
+                    </div>
+                  )}
+                  {p.employment_start && (
+                    <div>
+                      <span className="font-medium text-foreground">Since </span>
+                      {new Date(p.employment_start).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Face enrolment row */}
               <div className="mt-3 flex items-center justify-between rounded-md border bg-muted/30 px-3 py-2">
@@ -278,77 +300,98 @@ function PositionsManagerDialog({ open, onClose, onChanged }: PositionsMgrProps)
 
 // ── Add / Edit Employee ───────────────────────────────────────────────────
 function AddEmployee({ open, onClose, positions, onSaved }: { open: boolean; onClose: () => void; positions: EmpPosition[]; onSaved: () => void }) {
-  const [form, setForm] = useState<any>({
-    email: "",
-    password: "",
-    full_name: "",
-    phone: "",
-    position: "",
-    role: "employee",
-  });
+  const supabase = createClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const emptyForm = { email: "", password: "", full_name: "", phone: "", position: "", role: "employee", date_of_birth: "", employment_start: "" };
+  const [form, setForm] = useState<any>(emptyForm);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  function set(k: string, v: any) {
-    setForm((f: any) => ({ ...f, [k]: v }));
+  function set(k: string, v: any) { setForm((f: any) => ({ ...f, [k]: v })); }
+
+  function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
   }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     setBusy(true);
-    const payload = {
-      email: form.email,
-      password: form.password,
-      full_name: form.full_name,
-      phone: form.phone,
-      position: form.position,
-      role: form.role,
-    };
     const res = await fetch("/api/admin/create-employee", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        email: form.email, password: form.password, full_name: form.full_name,
+        phone: form.phone, position: form.position, role: form.role,
+        date_of_birth: form.date_of_birth || null,
+        employment_start: form.employment_start || null,
+      }),
     });
     const j = await res.json();
-    setBusy(false);
-    if (!res.ok) {
-      setErr([j.error, j.hint].filter(Boolean).join(" ") || "Failed");
-      return;
+    if (!res.ok) { setBusy(false); setErr([j.error, j.hint].filter(Boolean).join(" ") || "Failed"); return; }
+
+    // Upload avatar if provided
+    if (avatarFile && j.profileId) {
+      const ext = avatarFile.name.split(".").pop();
+      const path = `${j.profileId}.${ext}`;
+      const { data: upData } = await supabase.storage.from("avatars").upload(path, avatarFile, { upsert: true });
+      if (upData) {
+        const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
+        await supabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", j.profileId);
+      }
     }
+
+    setBusy(false);
     onClose();
     onSaved();
-    setForm({
-      email: "",
-      password: "",
-      full_name: "",
-      phone: "",
-      position: "sales",
-      role: "employee",
-    });
+    setForm(emptyForm);
+    setAvatarFile(null);
+    setAvatarPreview(null);
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Add Employee">
+    <Dialog open={open} onClose={onClose} title="Add Employee" size="lg">
       <form onSubmit={save} className="grid grid-cols-2 gap-3">
+        {/* Avatar picker */}
+        <div className="col-span-2 flex items-center gap-4">
+          <div className="relative h-16 w-16 shrink-0">
+            {avatarPreview ? (
+              <img src={avatarPreview} className="h-16 w-16 rounded-full object-cover" alt="preview" />
+            ) : (
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-muted-foreground text-lg font-semibold">
+                {initials(form.full_name) || "?"}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
+            >
+              <Camera className="h-3 w-3" />
+            </button>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            <p className="font-medium text-foreground">Profile photo</p>
+            <p>JPG, PNG or WebP · max 2 MB</p>
+            {avatarFile && <p className="text-primary">{avatarFile.name}</p>}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={pickFile} />
+        </div>
+
         <div className="col-span-2"><Label>Full name</Label><Input required value={form.full_name} onChange={(e) => set("full_name", e.target.value)} /></div>
         <div><Label>Email</Label><Input type="email" required value={form.email} onChange={(e) => set("email", e.target.value)} /></div>
         <div><Label>Password</Label><Input type="password" required minLength={6} value={form.password} onChange={(e) => set("password", e.target.value)} /></div>
         <div><Label>Phone</Label><Input value={form.phone} onChange={(e) => set("phone", e.target.value)} /></div>
         <div>
           <Label>Position</Label>
-          <select
-            className={selectClass}
-            value={form.position}
-            onChange={(e) => set("position", e.target.value)}
-          >
+          <select className={selectClass} value={form.position} onChange={(e) => set("position", e.target.value)}>
             <option value="">— Select position —</option>
-            {positions.map((p) => (
-              <option key={p.id} value={p.name}>{p.name}</option>
-            ))}
+            {positions.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
           </select>
-          {positions.length === 0 && (
-            <p className="mt-1 text-xs text-muted-foreground">No positions yet. Click <b>Positions</b> to add some.</p>
-          )}
         </div>
         <div>
           <Label>Role</Label>
@@ -357,17 +400,17 @@ function AddEmployee({ open, onClose, positions, onSaved }: { open: boolean; onC
             <option value="admin">Admin</option>
           </select>
         </div>
+        <div><Label>Date of birth</Label><Input type="date" value={form.date_of_birth} onChange={(e) => set("date_of_birth", e.target.value)} /></div>
+        <div><Label>Start of employment</Label><Input type="date" value={form.employment_start} onChange={(e) => set("employment_start", e.target.value)} /></div>
+
         <p className="col-span-2 text-xs text-muted-foreground">
-          After creating this person, set their salary type, rate, and allowance under{" "}
-          <Link href="/admin/salary" className="font-medium text-primary underline underline-offset-2">
-            Salary
-          </Link>
-          .
+          After creating, set salary type and rate on the{" "}
+          <Link href="/admin/salary" className="font-medium text-primary underline underline-offset-2">Salary</Link> page.
         </p>
         {err && <p className="col-span-2 text-sm text-destructive">{err}</p>}
         <div className="col-span-2 flex justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? "Creating..." : "Create"}</Button>
+          <Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create"}</Button>
         </div>
       </form>
     </Dialog>
@@ -376,58 +419,100 @@ function AddEmployee({ open, onClose, positions, onSaved }: { open: boolean; onC
 
 function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: boolean; onClose: () => void; employee: P | null; positions: EmpPosition[]; onSaved: () => void }) {
   const supabase = createClient();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<any>({});
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   function set(k: string, v: any) { setForm((f: any) => ({ ...f, [k]: v })); }
 
   useEffect(() => {
     if (!open || !employee) return;
-    setForm({ ...employee, position: employee.position ?? "" });
+    setForm({ ...employee, position: employee.position ?? "", date_of_birth: employee.date_of_birth ?? "", employment_start: employee.employment_start ?? "" });
+    setAvatarFile(null);
+    setAvatarPreview(null);
   }, [open, employee]);
+
+  function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    await supabase
-      .from("profiles")
-      .update({
-        full_name: form.full_name,
-        phone: form.phone,
-        position: form.position || null,
-        role: form.role,
-        active: form.active,
-      })
-      .eq("id", form.id);
+    setBusy(true);
+    let avatar_url = form.avatar_url;
+
+    if (avatarFile) {
+      const ext = avatarFile.name.split(".").pop();
+      const path = `${form.id}.${ext}`;
+      const { data: upData } = await supabase.storage.from("avatars").upload(path, avatarFile, { upsert: true });
+      if (upData) {
+        const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(path);
+        avatar_url = publicUrl;
+      }
+    }
+
+    await supabase.from("profiles").update({
+      full_name: form.full_name,
+      phone: form.phone,
+      position: form.position || null,
+      role: form.role,
+      active: form.active,
+      date_of_birth: form.date_of_birth || null,
+      employment_start: form.employment_start || null,
+      avatar_url,
+    }).eq("id", form.id);
+
+    setBusy(false);
     onClose();
     onSaved();
   }
 
   if (!employee) return null;
 
-  // If employee has a position not in the current list, keep it as a legacy option
   const positionInList = positions.some((p) => p.name === form.position);
   const hasLegacy = form.position && !positionInList;
+  const currentAvatar = avatarPreview || form.avatar_url;
 
   return (
-    <Dialog open={open} onClose={onClose} title="Edit Employee">
+    <Dialog open={open} onClose={onClose} title="Edit Employee" size="lg">
       <form onSubmit={save} className="grid grid-cols-2 gap-3">
-        <div className="col-span-2">
-          <Label>Full name</Label>
-          <Input value={form.full_name || ""} onChange={(e) => set("full_name", e.target.value)} />
+        {/* Avatar */}
+        <div className="col-span-2 flex items-center gap-4">
+          <div className="relative h-16 w-16 shrink-0">
+            {currentAvatar ? (
+              <img src={currentAvatar} className="h-16 w-16 rounded-full object-cover" alt="avatar" />
+            ) : (
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-primary-foreground text-lg font-semibold">
+                {initials(form.full_name || employee.email)}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="absolute bottom-0 right-0 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
+            >
+              <Camera className="h-3 w-3" />
+            </button>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            <p className="font-medium text-foreground">Profile photo</p>
+            <p>JPG, PNG or WebP · max 2 MB</p>
+            {avatarFile && <p className="text-primary">{avatarFile.name}</p>}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={pickFile} />
         </div>
-        <div>
-          <Label>Phone</Label>
-          <Input value={form.phone || ""} onChange={(e) => set("phone", e.target.value)} />
-        </div>
+
+        <div className="col-span-2"><Label>Full name</Label><Input value={form.full_name || ""} onChange={(e) => set("full_name", e.target.value)} /></div>
+        <div><Label>Phone</Label><Input value={form.phone || ""} onChange={(e) => set("phone", e.target.value)} /></div>
         <div>
           <Label>Position</Label>
-          <select
-            className={selectClass}
-            value={form.position || ""}
-            onChange={(e) => set("position", e.target.value)}
-          >
+          <select className={selectClass} value={form.position || ""} onChange={(e) => set("position", e.target.value)}>
             <option value="">— Select position —</option>
-            {positions.map((p) => (
-              <option key={p.id} value={p.name}>{p.name}</option>
-            ))}
+            {positions.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
             {hasLegacy && <option value={form.position}>{form.position} (legacy)</option>}
           </select>
         </div>
@@ -445,16 +530,16 @@ function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: b
             <option value="0">Inactive</option>
           </select>
         </div>
+        <div><Label>Date of birth</Label><Input type="date" value={form.date_of_birth || ""} onChange={(e) => set("date_of_birth", e.target.value)} /></div>
+        <div><Label>Start of employment</Label><Input type="date" value={form.employment_start || ""} onChange={(e) => set("employment_start", e.target.value)} /></div>
+
         <p className="col-span-2 text-xs text-muted-foreground">
           Salary type, rate, and allowance are edited on the{" "}
-          <Link href="/admin/salary" className="font-medium text-primary underline underline-offset-2">
-            Salary
-          </Link>{" "}
-          page.
+          <Link href="/admin/salary" className="font-medium text-primary underline underline-offset-2">Salary</Link> page.
         </p>
         <div className="col-span-2 flex justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-          <Button type="submit">Save</Button>
+          <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
         </div>
       </form>
     </Dialog>
