@@ -7,13 +7,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Table2 } from "lucide-react";
 import { peso } from "@/lib/utils";
-import { formatSalesDateTime, orderTypeLabel, type SalesChannel } from "@/lib/sales";
-import { defaultSalesListDateRange, unifiedRowsFromOrders, type UnifiedSaleListRow } from "@/lib/sales-list";
+import { formatSalesDateTime, orderTypeLabel } from "@/lib/sales";
+import {
+  defaultSalesListDateRange,
+  rowMatchesTab,
+  unifiedRowsFromOrders,
+  type SalesTab,
+  type UnifiedSaleListRow,
+} from "@/lib/sales-list";
 
 type Props = { orders: any[] };
 
-const CHANNELS: Array<"all" | SalesChannel> = ["all", "local", "online", "sublimation", "services"];
+const TABS: Array<{ key: SalesTab; label: string }> = [
+  { key: "all",          label: "All" },
+  { key: "walkin_online", label: "Walk-in & Online" },
+  { key: "bigseller",   label: "BigSeller" },
+  { key: "services",    label: "Services" },
+  { key: "sublimation", label: "Sublimation" },
+];
 
 function inDateRange(dateKey: string, from: string, to: string, allTime: boolean) {
   if (allTime) return true;
@@ -27,7 +40,7 @@ export function SalesListClient({ orders }: Props) {
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
   const [allTime, setAllTime] = useState(false);
-  const [channel, setChannel] = useState<"all" | SalesChannel>("all");
+  const [tab, setTab] = useState<SalesTab>("all");
   const [search, setSearch] = useState("");
 
   const baseRows = useMemo(() => unifiedRowsFromOrders(orders), [orders]);
@@ -36,14 +49,22 @@ export function SalesListClient({ orders }: Props) {
     const q = search.trim().toLowerCase();
     return baseRows.filter((r) => {
       if (!inDateRange(r.dateKey, from, to, allTime)) return false;
-      if (channel !== "all" && r.channel !== channel) return false;
+      if (!rowMatchesTab(r, tab)) return false;
       if (q) {
         const blob = [r.customerOrTitle, r.storeOrNotes, r.orderNo != null ? String(r.orderNo) : ""].join(" ").toLowerCase();
         if (!blob.includes(q)) return false;
       }
       return true;
     });
-  }, [baseRows, from, to, allTime, channel, search]);
+  }, [baseRows, from, to, allTime, tab, search]);
+
+  /** Per-tab totals for the summary bar */
+  const tabTotals = useMemo(() => {
+    const inRange = baseRows.filter((r) => inDateRange(r.dateKey, from, to, allTime));
+    return Object.fromEntries(
+      TABS.map(({ key }) => [key, inRange.filter((r) => rowMatchesTab(r, key)).reduce((s, r) => s + r.amount, 0)]),
+    ) as Record<SalesTab, number>;
+  }, [baseRows, from, to, allTime]);
 
   const total = filtered.reduce((s, r) => s + r.amount, 0);
 
@@ -69,79 +90,39 @@ export function SalesListClient({ orders }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* Date range controls */}
       <Card>
         <CardContent className="space-y-4 p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-muted-foreground">Quick range</span>
-            <Button type="button" size="sm" variant="outline" onClick={() => applyPreset("month")}>
-              This month
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => applyPreset("30")}>
-              Last 30 days
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => applyPreset("7")}>
-              Last 7 days
-            </Button>
-            <Button type="button" size="sm" variant={allTime ? "default" : "outline"} onClick={() => applyPreset("all")}>
-              All time
-            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyPreset("month")}>This month</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyPreset("30")}>Last 30 days</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => applyPreset("7")}>Last 7 days</Button>
+            <Button type="button" size="sm" variant={allTime ? "default" : "outline"} onClick={() => applyPreset("all")}>All time</Button>
           </div>
 
           <div className="grid gap-4 border-t pt-4 sm:grid-cols-2 lg:grid-cols-3">
             <div className={allTime ? "pointer-events-none opacity-50" : ""}>
               <Label htmlFor="sl-from">From</Label>
               <Input
-                id="sl-from"
-                type="date"
-                value={from}
-                onChange={(e) => {
-                  setAllTime(false);
-                  setFrom(e.target.value);
-                }}
-                className="mt-1"
-                disabled={allTime}
+                id="sl-from" type="date" value={from} className="mt-1" disabled={allTime}
+                onChange={(e) => { setAllTime(false); setFrom(e.target.value); }}
               />
             </div>
             <div className={allTime ? "pointer-events-none opacity-50" : ""}>
               <Label htmlFor="sl-to">To</Label>
               <Input
-                id="sl-to"
-                type="date"
-                value={to}
-                onChange={(e) => {
-                  setAllTime(false);
-                  setTo(e.target.value);
-                }}
-                className="mt-1"
-                disabled={allTime}
+                id="sl-to" type="date" value={to} className="mt-1" disabled={allTime}
+                onChange={(e) => { setAllTime(false); setTo(e.target.value); }}
               />
             </div>
             <div>
-              <Label htmlFor="sl-ch">Channel</Label>
-              <select
-                id="sl-ch"
-                className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
-                value={channel}
-                onChange={(e) => setChannel(e.target.value as typeof channel)}
-              >
-                {CHANNELS.map((c) => (
-                  <option key={c} value={c}>
-                    {c === "all" ? "All channels" : orderTypeLabel(c)}
-                  </option>
-                ))}
-              </select>
+              <Label htmlFor="sl-search">Search</Label>
+              <Input
+                id="sl-search" placeholder="Customer, order #…" value={search}
+                onChange={(e) => setSearch(e.target.value)} className="mt-1"
+              />
             </div>
-          </div>
-
-          <div>
-            <Label htmlFor="sl-search">Search</Label>
-            <Input
-              id="sl-search"
-              placeholder="Customer, order #, store / platform…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="mt-1 max-w-md"
-            />
           </div>
 
           <p className="text-xs text-muted-foreground">
@@ -151,18 +132,47 @@ export function SalesListClient({ orders }: Props) {
         </CardContent>
       </Card>
 
+      {/* Channel tabs with mini-totals */}
+      <div className="overflow-x-auto">
+        <div className="flex min-w-max gap-1 rounded-lg border bg-muted/30 p-1">
+          {TABS.map(({ key, label }) => {
+            const active = tab === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={
+                  "flex flex-col items-center rounded-md px-4 py-2 text-xs font-medium transition-colors " +
+                  (active
+                    ? "bg-background shadow text-foreground"
+                    : "text-muted-foreground hover:bg-background/60 hover:text-foreground")
+                }
+              >
+                <span>{label}</span>
+                <span className={`mt-0.5 font-semibold ${active ? "text-primary" : "text-muted-foreground"}`}>
+                  {peso(tabTotals[key] ?? 0)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Summary line */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <span className="text-muted-foreground">
-          Showing <span className="font-medium text-foreground">{filtered.length}</span> line{filtered.length !== 1 ? "s" : ""}
+          Showing <span className="font-medium text-foreground">{filtered.length}</span> row{filtered.length !== 1 ? "s" : ""}
         </span>
         <span>
           Filtered total: <span className="font-semibold text-foreground">{peso(total)}</span>
         </span>
       </div>
 
+      {/* Table */}
       <Card>
-        <CardContent className="p-0 overflow-x-auto">
-          <table className="w-full min-w-[880px] text-sm">
+        <CardContent className="overflow-x-auto p-0">
+          <table className="w-full min-w-[780px] text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 font-medium">Date</th>
@@ -171,6 +181,7 @@ export function SalesListClient({ orders }: Props) {
                 <th className="font-medium">Channel</th>
                 <th className="font-medium">Store / platform</th>
                 <th className="px-4 text-right font-medium">Amount</th>
+                <th className="w-10 px-2 font-medium"></th>
               </tr>
             </thead>
             <tbody>
@@ -179,7 +190,7 @@ export function SalesListClient({ orders }: Props) {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
                     No rows match. Widen the date range or clear filters.
                   </td>
                 </tr>
@@ -194,18 +205,25 @@ export function SalesListClient({ orders }: Props) {
 
 function SalesRow({ row }: { row: UnifiedSaleListRow }) {
   const ch =
-    row.channel === "online"
+    row.isBigSeller
       ? "purple"
-      : row.channel === "sublimation"
-        ? "teal"
-        : row.channel === "services"
-          ? "amber"
-          : "blue";
+      : row.channel === "online"
+        ? "purple"
+        : row.channel === "sublimation"
+          ? "teal"
+          : row.channel === "services"
+            ? "amber"
+            : "blue";
+
+  const channelLabel = row.isBigSeller
+    ? "BigSeller"
+    : orderTypeLabel(row.channel);
+
   const dateLabel = formatSalesDateTime(new Date(row.atMs).toISOString());
 
   return (
     <tr className="border-t hover:bg-muted/30">
-      <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{dateLabel}</td>
+      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{dateLabel}</td>
       <td className="py-3 font-mono text-xs">
         {row.orderNo != null ? (
           <Link href="/admin/orders" className="text-primary hover:underline">
@@ -215,16 +233,27 @@ function SalesRow({ row }: { row: UnifiedSaleListRow }) {
           "—"
         )}
       </td>
-      <td className="max-w-[220px] truncate py-3 font-medium" title={row.customerOrTitle}>
+      <td className="max-w-[200px] truncate py-3 font-medium" title={row.customerOrTitle}>
         {row.customerOrTitle}
       </td>
       <td className="py-3">
-        <Badge variant={ch as "purple" | "teal" | "blue" | "amber"}>{orderTypeLabel(row.channel)}</Badge>
+        <Badge variant={ch as "purple" | "teal" | "blue" | "amber"}>{channelLabel}</Badge>
       </td>
-      <td className="max-w-[200px] truncate py-3 text-muted-foreground" title={row.storeOrNotes}>
+      <td className="max-w-[180px] truncate py-3 text-muted-foreground" title={row.storeOrNotes}>
         {row.storeOrNotes}
       </td>
       <td className="px-4 py-3 text-right font-medium">{peso(row.amount)}</td>
+      <td className="px-2 py-3 text-center">
+        {row.hasTeamsSheet && row.orderId && (
+          <Link
+            href={`/admin/orders/${row.orderId}/teams`}
+            className="inline-flex rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            title="View teams & jerseys sheet"
+          >
+            <Table2 className="h-4 w-4" />
+          </Link>
+        )}
+      </td>
     </tr>
   );
 }

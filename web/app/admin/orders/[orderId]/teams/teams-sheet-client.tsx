@@ -438,16 +438,24 @@ function buildUniqueLines(rows: FlatRow[]): JerseyLineType[] {
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
+function backHrefForKind(kind: string): string {
+  if (kind === "sublimation") return "/admin/orders?type=sublimation";
+  if (kind === "services") return "/admin/orders?type=services";
+  return "/admin/orders?type=walkin_online";
+}
+
 export function TeamsSheetClient({
   orderId,
   orderNo,
   customerName,
+  orderKind = "local",
   initialDownPayment = 0,
   initialLinePrices = {},
 }: {
   orderId: string;
   orderNo: number;
   customerName: string | null;
+  orderKind?: string;
   initialDownPayment?: number;
   initialUnitPrice?: number;
   initialQuantity?: number;
@@ -628,7 +636,7 @@ export function TeamsSheetClient({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link
-            href="/admin/orders?type=walkin_online"
+            href={backHrefForKind(orderKind)}
             className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             ← Back to orders
