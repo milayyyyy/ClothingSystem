@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { peso, formatDate, cn } from "@/lib/utils";
 import { defaultSalesListDateRange } from "@/lib/sales-list";
-import { Plus, Trash2, FileImage, Pencil } from "lucide-react";
+import { FileImage, Pencil, Plus, Trash2 } from "lucide-react";
 
 const CATS = [
   "Materials", "Fabrics", "Salary", "Employee Expenses", "Marketing",
@@ -98,6 +98,9 @@ export function ExpensesClient({
   const [list, setList] = useState<ExpenseRow[]>(initial);
   const [open, setOpen] = useState(false);
   const [editRow, setEditRow] = useState<ExpenseRow | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const headerCheckRef = useRef<HTMLInputElement>(null);
 
   const defaults = useMemo(() => defaultSalesListDateRange(), []);
   const [from, setFrom] = useState(defaults.from);
@@ -187,6 +190,48 @@ export function ExpensesClient({
   async function refresh() {
     const { data } = await supabase.from("expenses").select("*").order("expense_date", { ascending: false });
     setList((data as ExpenseRow[]) || []);
+    setSelectedIds(new Set());
+  }
+
+  // Keep header checkbox in sync (indeterminate state)
+  useEffect(() => {
+    const el = headerCheckRef.current;
+    if (!el) return;
+    const sel = selectedIds.size;
+    const total = filtered.length;
+    el.indeterminate = sel > 0 && sel < total;
+    el.checked = total > 0 && sel === total;
+  }, [selectedIds, filtered]);
+
+  function toggleRow(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map((e) => e.id)));
+    }
+  }
+
+  async function bulkDelete() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} selected expense${selectedIds.size > 1 ? "s" : ""}? This cannot be undone.`)) return;
+    setBulkBusy(true);
+    const ids = Array.from(selectedIds);
+    // Remove receipts for those that have one
+    const withReceipts = filtered.filter((e) => ids.includes(e.id) && e.receipt_path);
+    if (withReceipts.length > 0) {
+      await supabase.storage.from(RECEIPT_BUCKET).remove(withReceipts.map((e) => e.receipt_path!));
+    }
+    await supabase.from("expenses").delete().in("id", ids);
+    setBulkBusy(false);
+    await refresh();
   }
 
   async function openReceipt(path: string) {
@@ -342,15 +387,38 @@ export function ExpensesClient({
         </CardContent>
       </Card>
 
-      <div className="mb-3 flex justify-end">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div>
+          {selectedIds.size > 0 && (
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={bulkBusy}
+              onClick={() => void bulkDelete()}
+            >
+              <Trash2 className="mr-1 h-4 w-4" />
+              {bulkBusy ? "Deleting…" : `Delete selected (${selectedIds.size})`}
+            </Button>
+          )}
+        </div>
         <Button onClick={() => setOpen(true)}>
           <Plus className="mr-1 h-4 w-4" /> Add Expense
         </Button>
       </div>
 
       <Card><CardContent className="p-0 overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full min-w-[780px] text-sm">
           <thead className="bg-muted/40 text-left"><tr>
+            <th className="w-10 p-2 pl-3">
+              <input
+                ref={headerCheckRef}
+                type="checkbox"
+                className="h-4 w-4 rounded border-input"
+                onChange={toggleAll}
+                disabled={filtered.length === 0}
+                aria-label="Select all"
+              />
+            </th>
             <th className="p-3">Date</th>
             <th className="p-3">Category</th>
             <th className="p-3">Description</th>
@@ -358,43 +426,55 @@ export function ExpensesClient({
             <th className="p-3">Supplier</th>
             <th className="p-3">Finance account</th>
             <th className="p-3">Receipt</th>
-            <th className="p-3 w-28 text-right">Actions</th>
+            <th className="p-3 w-24 text-right">Actions</th>
           </tr></thead>
           <tbody>
-            {filtered.map((e) => (
-              <tr key={e.id} className="border-t hover:bg-muted/30">
-                <td className="p-3 whitespace-nowrap">{formatDate(e.expense_date)}</td>
-                <td className="p-3"><Badge variant="outline">{e.category}</Badge></td>
-                <td className="p-3 max-w-[200px]"><span className="line-clamp-2">{e.description || "—"}</span></td>
-                <td className="p-3 whitespace-nowrap">{peso(e.amount)}</td>
-                <td className="p-3 text-muted-foreground">{(e.supplier_id && supplierNameById[e.supplier_id]) || "—"}</td>
-                <td className="p-3 text-muted-foreground">
-                  {e.finance_account_id && accountById[e.finance_account_id]
-                    ? formatAccountOption(accountById[e.finance_account_id]!)
-                    : e.paid_through || "—"}
-                </td>
-                <td className="p-3">
-                  {e.receipt_path ? (
-                    <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={() => openReceipt(e.receipt_path!)}>
-                      <FileImage className="h-3.5 w-3.5" />
-                      View
-                    </Button>
-                  ) : (
-                    <span className="text-muted-foreground/60">—</span>
-                  )}
-                </td>
-                <td className="p-3 text-right">
-                  <div className="flex justify-end gap-0.5">
-                    <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setEditRow(e)} aria-label="Edit expense">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive" onClick={() => remove(e)} aria-label="Delete expense">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {filtered.map((e) => {
+              const isSelected = selectedIds.has(e.id);
+              return (
+                <tr key={e.id} className={`border-t ${isSelected ? "bg-primary/5" : "hover:bg-muted/30"}`}>
+                  <td className="p-2 pl-3 align-middle">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-input"
+                      checked={isSelected}
+                      onChange={() => toggleRow(e.id)}
+                      aria-label="Select row"
+                    />
+                  </td>
+                  <td className="p-3 whitespace-nowrap">{formatDate(e.expense_date)}</td>
+                  <td className="p-3"><Badge variant="outline">{e.category}</Badge></td>
+                  <td className="p-3 max-w-[200px]"><span className="line-clamp-2">{e.description || "—"}</span></td>
+                  <td className="p-3 whitespace-nowrap">{peso(e.amount)}</td>
+                  <td className="p-3 text-muted-foreground">{(e.supplier_id && supplierNameById[e.supplier_id]) || "—"}</td>
+                  <td className="p-3 text-muted-foreground">
+                    {e.finance_account_id && accountById[e.finance_account_id]
+                      ? formatAccountOption(accountById[e.finance_account_id]!)
+                      : e.paid_through || "—"}
+                  </td>
+                  <td className="p-3">
+                    {e.receipt_path ? (
+                      <Button type="button" variant="outline" size="sm" className="h-8 gap-1" onClick={() => openReceipt(e.receipt_path!)}>
+                        <FileImage className="h-3.5 w-3.5" />
+                        View
+                      </Button>
+                    ) : (
+                      <span className="text-muted-foreground/60">—</span>
+                    )}
+                  </td>
+                  <td className="p-3 text-right">
+                    <div className="flex justify-end gap-0.5">
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setEditRow(e)} aria-label="Edit expense">
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive" onClick={() => remove(e)} aria-label="Delete expense">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
             {filtered.length === 0 && (
               <tr>
                 <td colSpan={9} className="p-6 text-center text-muted-foreground">
