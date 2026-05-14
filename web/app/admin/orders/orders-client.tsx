@@ -1465,14 +1465,16 @@ export function OrdersClient({
                         <span className="text-xs text-muted-foreground">
                           {k.label.replace(/\s+Order\s*$/i, "").trim() || k.label}
                         </span>
-                        {getOrderKind(o) === "services" && o.job_type?.name && (
-                          <div className="mt-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                            {o.job_type.name}
-                          </div>
-                        )}
                       </td>
                       <td>
-                        <Badge variant={orderStatusHighlightVariant(o) as any}>{stageLabel}</Badge>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge variant={orderStatusHighlightVariant(o) as any}>{stageLabel}</Badge>
+                          {getOrderKind(o) === "services" && o.job_type?.name && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+                              {o.job_type.name}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>{o.quantity}</td>
                       <td>{peso(o.total)}</td>
