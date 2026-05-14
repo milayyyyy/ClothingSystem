@@ -627,6 +627,8 @@ export function SalaryClient({
   const supabase = createClient();
   const router = useRouter();
   const [list, setList] = useState(salaries);
+  const [liveAttendance, setLiveAttendance] = useState(attendance);
+  const [loadingPeriod, setLoadingPeriod] = useState(false);
   const [payRow, setPayRow] = useState<MonthPayPreviewRow | null>(null);
   const [periodStartStr, setPeriodStartStr] = useState(() => {
     const stored = loadStoredPayrollPeriod();
@@ -640,6 +642,36 @@ export function SalaryClient({
   useEffect(() => {
     setList(salaries);
   }, [salaries]);
+
+  useEffect(() => {
+    setLiveAttendance(attendance);
+  }, [attendance]);
+
+  /** Re-fetch attendance and salaries from Supabase whenever the period changes. */
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoadingPeriod(true);
+      const [{ data: attData }, { data: salData }] = await Promise.all([
+        supabase
+          .from("attendance")
+          .select("user_id, time_in, time_out, payroll_paid")
+          .order("time_in", { ascending: false }),
+        supabase
+          .from("salaries")
+          .select("*")
+          .order("paid_at", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false }),
+      ]);
+      if (cancelled) return;
+      if (attData) setLiveAttendance(attData);
+      if (salData) setList(salData);
+      setLoadingPeriod(false);
+    }
+    void load();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodStartStr, periodEndStr]);
 
   useEffect(() => {
     try {
@@ -681,12 +713,12 @@ export function SalaryClient({
   /** Shifts not yet settled in payroll — preview counts these for the selected date range (inclusive). */
   const attendanceUnpaidInPeriod = useMemo(
     () =>
-      attendance.filter((a: { payroll_paid?: boolean | null; time_in: string }) => {
+      liveAttendance.filter((a: { payroll_paid?: boolean | null; time_in: string }) => {
         if (a.payroll_paid === true) return false;
         const t = new Date(a.time_in);
         return t >= periodStart && t <= periodEnd;
       }),
-    [attendance, periodStart, periodEnd],
+    [liveAttendance, periodStart, periodEnd],
   );
   const previewRows = useMemo(() => {
     const distinctDays = (uid: string) =>
@@ -935,7 +967,12 @@ export function SalaryClient({
 
       <Card className="mb-6">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Employee salary computation</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-base">Employee salary computation</CardTitle>
+            {loadingPeriod && (
+              <span className="text-xs text-muted-foreground animate-pulse">Refreshing…</span>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground">
             <span className="font-medium text-foreground">{periodRangeLabel}</span> — only shifts in this date range that are{" "}
             <strong>not yet marked paid in payroll</strong> count toward the unpaid columns here (see Attendance). The{" "}
@@ -971,12 +1008,12 @@ export function SalaryClient({
                   </td>
                   <td className="p-2">{salaryTypeLabel(r.type)}</td>
                   <td className="p-2 text-right tabular-nums">{r.displayDays}</td>
-                  <td className="p-2 text-right tabular-nums text-muted-foreground">{!r.settledSnapshot && r.type === "hourly" ? r.rawH.toFixed(2) : "—"}</td>
-                  <td className="p-2 text-right tabular-nums text-muted-foreground">{!r.settledSnapshot && r.type === "hourly" ? r.paidH.toFixed(2) : "—"}</td>
-                  <td className="p-2 text-right tabular-nums text-muted-foreground">{!r.settledSnapshot && r.type === "hourly" ? r.regH.toFixed(2) : "—"}</td>
-                  <td className="p-2 text-right tabular-nums text-muted-foreground">{!r.settledSnapshot && r.type === "hourly" ? r.otH.toFixed(2) : "—"}</td>
-                  <td className="p-2 text-right tabular-nums">{r.settledSnapshot ? "—" : peso(r.base)}</td>
-                  <td className="p-2 text-right tabular-nums">{r.settledSnapshot ? "—" : peso(r.allowance)}</td>
+                  <td className="p-2 text-right tabular-nums">{r.type === "hourly" ? r.rawH.toFixed(2) : "—"}</td>
+                  <td className="p-2 text-right tabular-nums">{r.type === "hourly" ? r.paidH.toFixed(2) : "—"}</td>
+                  <td className="p-2 text-right tabular-nums">{r.type === "hourly" ? r.regH.toFixed(2) : "—"}</td>
+                  <td className="p-2 text-right tabular-nums">{r.type === "hourly" ? r.otH.toFixed(2) : "—"}</td>
+                  <td className="p-2 text-right tabular-nums">{peso(r.base)}</td>
+                  <td className="p-2 text-right tabular-nums">{peso(r.allowance)}</td>
                   <td
                     className="p-2 text-right font-semibold tabular-nums"
                     title={r.settledSnapshot && r.displayTotal > 0 ? `Last recorded net pay for this period: ${peso(r.displayTotal)}` : undefined}
