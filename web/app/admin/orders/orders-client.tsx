@@ -1484,7 +1484,7 @@ export function OrdersClient({
                       </td>
                       <td className="text-xs">{formatDate(o.due_date)}</td>
                       <td className="pr-3 text-right">
-                        {(isSub || k.v === "local" || k.v === "online") && (
+                        {(isSub || k.v === "local" || k.v === "online" || k.v === "services") && (
                           <Link
                             href={`/admin/orders/${o.id}/teams`}
                             className="mr-1 inline-flex rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -2228,7 +2228,7 @@ function OrderForm({
           <textarea className="min-h-[60px] w-full rounded-md border bg-transparent px-3 py-2 text-sm" value={form.notes || ""} onChange={(e) => set("notes", e.target.value)} />
         </div>
 
-        {(getOrderKind(form) === "sublimation" || getOrderKind(form) === "local" || getOrderKind(form) === "online") && order?.id && (
+        {(getOrderKind(form) === "sublimation" || getOrderKind(form) === "local" || getOrderKind(form) === "online" || getOrderKind(form) === "services") && order?.id && (
           <div className="col-span-2 rounded-md border border-dashed bg-muted/15 px-3 py-2 text-sm text-muted-foreground">
             Teams &amp; jerseys: use the{" "}
             <Link className="font-medium text-primary underline-offset-4 hover:underline" href={`/admin/orders/${order.id}/teams`}>
