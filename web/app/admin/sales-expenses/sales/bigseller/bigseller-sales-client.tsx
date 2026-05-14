@@ -6,56 +6,42 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Dialog } from "@/components/ui/dialog";
 import { peso } from "@/lib/utils";
 
 type Order = any;
 type FinanceAccount = { id: string; name: string; kind: string; balance?: number | null };
 
 // ---------------------------------------------------------------------------
-// Withdrawal dialog
+// Inline withdrawal row
 // ---------------------------------------------------------------------------
-function WithdrawalDialog({
-  open,
+function InlineWithdrawRow({
   order,
   financeAccounts,
-  onClose,
+  onCancel,
   onRecorded,
 }: {
-  open: boolean;
-  order: Order | null;
+  order: Order;
   financeAccounts: FinanceAccount[];
-  onClose: () => void;
-  onRecorded: (updatedOrder: Order) => void;
+  onCancel: () => void;
+  onRecorded: (updated: Order) => void;
 }) {
   const supabase = createClient();
-  const total = Number(order?.total || 0);
-  const withdrawn = Number(order?.down_payment || 0);
+  const total = Number(order.total || 0);
+  const withdrawn = Number(order.down_payment || 0);
   const pending = Math.max(0, total - withdrawn);
 
-  const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState("");
+  const [amount, setAmount] = useState(String(pending > 0 ? pending : ""));
+  const [accountId, setAccountId] = useState(financeAccounts[0]?.id ?? "");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  function reset() {
-    setAmount(pending > 0 ? String(pending) : "");
-    setAccountId(financeAccounts[0]?.id ?? "");
-    setNotes("");
-    setMsg(null);
-  }
-
-  useMemo(() => { if (open) reset(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
-    if (!order) return;
+  async function save() {
     const amt = Number(amount);
-    if (!amt || amt <= 0) { setMsg("Enter a valid withdrawal amount."); return; }
-    if (!accountId) { setMsg("Select a finance account."); return; }
+    if (!amt || amt <= 0) { setErr("Enter a valid amount."); return; }
+    if (!accountId) { setErr("Select a finance account."); return; }
     setSaving(true);
-    setMsg(null);
+    setErr(null);
     try {
       const newWithdrawn = withdrawn + amt;
       const { error: oe } = await supabase
@@ -76,100 +62,86 @@ function WithdrawalDialog({
         notes: `bigseller_order:${order.id}`,
       });
       if (te) throw te;
-
       onRecorded({ ...order, down_payment: newWithdrawn });
-    } catch (err: unknown) {
-      setMsg("Error: " + (err instanceof Error ? err.message : String(err)));
-    } finally {
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
       setSaving(false);
     }
   }
 
-  if (!order) return null;
+  const amtNum = Number(amount);
+  const afterPending = Math.max(0, pending - amtNum);
 
   return (
-    <Dialog open={open} onClose={onClose} title="Record withdrawal" size="md">
-      <div className="space-y-4">
-        {/* Order summary */}
-        <div className="rounded-md bg-muted/40 p-3 text-sm">
-          <div className="font-semibold">
-            #{order.order_no}
-            {order.external_order_no && <span className="ml-1.5 font-normal text-muted-foreground">· {order.external_order_no}</span>}
+    <tr className="border-t bg-amber-50/60 dark:bg-amber-900/10">
+      <td colSpan={9} className="px-4 py-3">
+        <div className="flex flex-wrap items-end gap-3">
+          {/* Context */}
+          <div className="text-sm">
+            <span className="font-semibold">#{order.order_no}</span>
+            <span className="ml-2 text-muted-foreground">
+              Pending: <span className="font-semibold text-amber-700 dark:text-amber-400">{peso(pending)}</span>
+            </span>
           </div>
-          <div className="mt-0.5 text-xs text-muted-foreground">
-            {order.customer_name}{order.store?.name ? ` · ${order.store.name}` : ""}
+
+          {/* Amount */}
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">Withdrawal amount (₱)</Label>
+            <Input
+              type="number"
+              min={0.01}
+              step="0.01"
+              value={amount}
+              onChange={(e) => { setAmount(e.target.value); setErr(null); }}
+              className="h-8 w-36 text-sm"
+              autoFocus
+            />
+            {amtNum > 0 && afterPending > 0 && (
+              <span className="text-[11px] text-amber-600">{peso(afterPending)} will remain pending</span>
+            )}
           </div>
-          <div className="mt-2 flex flex-wrap gap-4 text-xs">
-            <span>Sale total: <span className="font-semibold text-foreground">{peso(total)}</span></span>
-            <span>Already withdrawn: <span className="font-medium text-green-600">{peso(withdrawn)}</span></span>
-            <span>Pending: <span className="font-semibold text-amber-600">{peso(pending)}</span></span>
+
+          {/* Finance account */}
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">Finance account</Label>
+            <select
+              className="h-8 rounded-md border bg-background px-2 text-sm"
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+            >
+              {financeAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name} ({a.kind})
+                </option>
+              ))}
+            </select>
           </div>
+
+          {/* Notes */}
+          <div className="flex flex-col gap-1">
+            <Label className="text-xs">Notes <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g. Shopee payout ref #…"
+              className="h-8 w-48 text-sm"
+            />
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-end gap-2 pb-0.5">
+            <Button size="sm" disabled={saving} onClick={save} className="h-8">
+              {saving ? "Saving…" : "Confirm withdrawal"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={onCancel} className="h-8">
+              Cancel
+            </Button>
+          </div>
+
+          {err && <p className="w-full text-xs text-destructive">{err}</p>}
         </div>
-
-        {pending <= 0 ? (
-          <>
-            <p className="text-sm text-green-600 dark:text-green-400">All earnings already withdrawn.</p>
-            <div className="flex justify-end">
-              <Button variant="outline" onClick={onClose}>Close</Button>
-            </div>
-          </>
-        ) : (
-          <form onSubmit={save} className="space-y-3">
-            <div>
-              <Label>Withdrawal amount (₱)</Label>
-              <Input
-                type="number"
-                min={0.01}
-                step="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="mt-1"
-                required
-              />
-              {Number(amount) > 0 && Number(amount) < pending && (
-                <p className="mt-1 text-xs text-amber-600">
-                  Partial withdrawal — {peso(pending - Number(amount))} will remain pending.
-                </p>
-              )}
-            </div>
-
-            <div>
-              <Label>Finance account (where the money went)</Label>
-              <select
-                className="mt-1 h-9 w-full rounded-md border bg-transparent px-3 text-sm"
-                value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-                required
-              >
-                <option value="">— select account —</option>
-                {financeAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name} ({a.kind}){a.balance != null ? ` — ₱${Number(a.balance).toLocaleString()}` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <Label>Notes <span className="text-xs font-normal text-muted-foreground">(optional)</span></Label>
-              <Input
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g. Shopee payout ref #12345"
-                className="mt-1"
-              />
-            </div>
-
-            {msg && <p className="text-sm text-destructive">{msg}</p>}
-
-            <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-              <Button type="submit" disabled={saving}>{saving ? "Saving…" : "Record withdrawal"}</Button>
-            </div>
-          </form>
-        )}
-      </div>
-    </Dialog>
+      </td>
+    </tr>
   );
 }
 
@@ -187,7 +159,7 @@ export function BigSellerSalesClient({
   const [search, setSearch] = useState("");
   const [storeFilter, setStoreFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "partial" | "withdrawn">("all");
-  const [withdrawOrder, setWithdrawOrder] = useState<Order | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const stores = useMemo(() => {
     const s = new Set<string>();
@@ -205,20 +177,19 @@ export function BigSellerSalesClient({
       if (statusFilter === "partial" && (withdrawn <= 0 || withdrawn >= total)) return false;
       if (statusFilter === "withdrawn" && withdrawn < total) return false;
       if (q) {
-        const blob = [
-          o.order_no, o.customer_name, o.external_order_no, o.waybill_no, o.sku_code, o.store?.name
-        ].join(" ").toLowerCase();
+        const blob = [o.order_no, o.customer_name, o.external_order_no, o.waybill_no, o.sku_code, o.store?.name]
+          .join(" ").toLowerCase();
         if (!blob.includes(q)) return false;
       }
       return true;
     });
   }, [orders, search, storeFilter, statusFilter]);
 
-  // Summary stats (all orders, not filtered)
-  const completedOrders = useMemo(() => orders.filter((o) => {
-    const stage = String(o.stage || "").toLowerCase();
-    return stage === "completed" || stage === "for_pickup";
-  }), [orders]);
+  const completedOrders = useMemo(() =>
+    orders.filter((o) => {
+      const s = String(o.stage || "").toLowerCase();
+      return s === "completed" || s === "for_pickup";
+    }), [orders]);
 
   const totals = useMemo(() => {
     const saleTotal = completedOrders.reduce((s, o) => s + Number(o.total || 0), 0);
@@ -226,21 +197,13 @@ export function BigSellerSalesClient({
     return { saleTotal, totalWithdrawn, pending: saleTotal - totalWithdrawn };
   }, [completedOrders]);
 
-  function handleRecorded(updatedOrder: Order) {
-    setOrders((prev) => prev.map((o) => o.id === updatedOrder.id ? updatedOrder : o));
-    setWithdrawOrder(null);
+  function handleRecorded(updated: Order) {
+    setOrders((prev) => prev.map((o) => o.id === updated.id ? updated : o));
+    setExpandedId(null);
   }
 
   return (
     <>
-      <WithdrawalDialog
-        open={!!withdrawOrder}
-        order={withdrawOrder}
-        financeAccounts={financeAccounts}
-        onClose={() => setWithdrawOrder(null)}
-        onRecorded={handleRecorded}
-      />
-
       {/* Summary cards */}
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border bg-card p-4">
@@ -275,21 +238,29 @@ export function BigSellerSalesClient({
           </div>
           <div>
             <Label>Store / platform</Label>
-            <select className="mt-1 h-9 rounded-md border bg-transparent px-3 text-sm" value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)}>
+            <select
+              className="mt-1 h-9 rounded-md border bg-transparent px-3 text-sm"
+              value={storeFilter}
+              onChange={(e) => setStoreFilter(e.target.value)}
+            >
               <option value="all">All stores</option>
               {stores.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div>
             <Label>Withdrawal status</Label>
-            <select className="mt-1 h-9 rounded-md border bg-transparent px-3 text-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
+            <select
+              className="mt-1 h-9 rounded-md border bg-transparent px-3 text-sm"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as "all" | "pending" | "partial" | "withdrawn")}
+            >
               <option value="all">All</option>
               <option value="pending">Not yet withdrawn</option>
               <option value="partial">Partially withdrawn</option>
               <option value="withdrawn">Fully withdrawn</option>
             </select>
           </div>
-          <div className="text-xs text-muted-foreground self-end pb-1">
+          <div className="self-end pb-1 text-xs text-muted-foreground">
             {filtered.length} of {orders.length} orders
           </div>
         </CardContent>
@@ -298,7 +269,7 @@ export function BigSellerSalesClient({
       {/* Table */}
       <Card>
         <CardContent className="overflow-x-auto p-0">
-          <table className="w-full min-w-[900px] text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 text-left font-medium">#</th>
@@ -319,11 +290,16 @@ export function BigSellerSalesClient({
                 const pending = Math.max(0, total - withdrawn);
                 const stage = String(o.stage || "").toLowerCase();
                 const isCompleted = stage === "completed" || stage === "for_pickup";
-                const fullyWithdrawn = withdrawn >= total && total > 0;
+                const fullyWithdrawn = total > 0 && withdrawn >= total;
                 const partiallyWithdrawn = withdrawn > 0 && withdrawn < total;
+                const isExpanded = expandedId === o.id;
 
-                return (
-                  <tr key={o.id} className={`border-t hover:bg-muted/20 ${fullyWithdrawn ? "opacity-60" : ""}`}>
+                return [
+                  // Main data row
+                  <tr
+                    key={o.id}
+                    className={`border-t hover:bg-muted/20 ${fullyWithdrawn ? "opacity-60" : ""} ${isExpanded ? "bg-amber-50/40 dark:bg-amber-900/10" : ""}`}
+                  >
                     <td className="px-4 py-2.5 font-mono text-xs">
                       #{o.order_no}
                       {o.sku_code && <div className="text-[10px] text-muted-foreground">{o.sku_code}</div>}
@@ -355,27 +331,53 @@ export function BigSellerSalesClient({
                       )}
                     </td>
                     <td className="px-3 py-2.5">
-                      {!fullyWithdrawn && isCompleted && (
+                      {isCompleted && !fullyWithdrawn && !isExpanded && (
                         <Button
                           size="sm"
                           variant={partiallyWithdrawn ? "outline" : "default"}
                           className="h-7 text-xs"
-                          onClick={() => setWithdrawOrder(o)}
+                          onClick={() => setExpandedId(o.id)}
                         >
-                          {partiallyWithdrawn ? "Add withdrawal" : "Withdraw"}
+                          {partiallyWithdrawn ? "+ Withdraw" : "Withdraw"}
                         </Button>
                       )}
-                      {fullyWithdrawn && (
-                        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setWithdrawOrder(o)}>
-                          Edit
+                      {isCompleted && fullyWithdrawn && !isExpanded && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-muted-foreground"
+                          onClick={() => setExpandedId(o.id)}
+                        >
+                          + Add more
+                        </Button>
+                      )}
+                      {isExpanded && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs"
+                          onClick={() => setExpandedId(null)}
+                        >
+                          ✕
                         </Button>
                       )}
                       {!isCompleted && (
                         <span className="text-xs text-muted-foreground">Not completed</span>
                       )}
                     </td>
-                  </tr>
-                );
+                  </tr>,
+
+                  // Inline withdrawal row (expands beneath)
+                  isExpanded && (
+                    <InlineWithdrawRow
+                      key={`${o.id}-withdraw`}
+                      order={o}
+                      financeAccounts={financeAccounts}
+                      onCancel={() => setExpandedId(null)}
+                      onRecorded={handleRecorded}
+                    />
+                  ),
+                ];
               })}
               {filtered.length === 0 && (
                 <tr>
