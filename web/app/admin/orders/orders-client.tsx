@@ -11,7 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { peso, formatDate, formatDateTime, formatSupabaseError } from "@/lib/utils";
 import { parseBigSellerPrintedTimeFromPdfText } from "@/lib/bigseller-printed-time";
-import { Eye, FileUp, Pencil, Plus, Settings2, Table2, Trash2, ArrowRight } from "lucide-react";
+import { ChevronDown, Eye, FileUp, Pencil, Plus, Settings2, Table2, Trash2, ArrowRight } from "lucide-react";
 import { BIGSELLER_KNOWN_STORES_SORTED } from "@/lib/bigseller-store-labels";
 import { ADMIN_ORDERS_SELECT } from "@/lib/admin-orders-select";
 import {
@@ -1000,6 +1000,7 @@ export function OrdersClient({
   const [bulkForwardTarget, setBulkForwardTarget] = useState("");
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
   const [jobTypesMgrOpen, setJobTypesMgrOpen] = useState(false);
+  const [dupOpen, setDupOpen] = useState(false);
   const [financeAccounts, setFinanceAccounts] = useState<FinanceAccount[]>([]);
   const [paymentOrder, setPaymentOrder] = useState<Order | null>(null);
 
@@ -1572,30 +1573,40 @@ export function OrdersClient({
 
       {/* Duplicate order alert — BigSeller page only */}
       {duplicateGroups.length > 0 && (
-        <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 dark:border-yellow-700 dark:bg-yellow-900/20">
-          <div className="flex items-center gap-2 text-sm font-semibold text-yellow-800 dark:text-yellow-300">
-            <span>⚠️</span>
-            <span>{duplicateGroups.length} duplicate{duplicateGroups.length > 1 ? "s" : ""} detected</span>
-          </div>
-          <div className="mt-2 space-y-1.5">
-            {duplicateGroups.map((g, i) => (
-              <div key={i} className="text-xs text-yellow-800 dark:text-yellow-400">
-                <span className="font-medium">{g.field}:</span>{" "}
-                <span className="font-mono">{g.value}</span>{" — "}
-                {g.orders.map((o, j) => (
-                  <span key={o.id}>
-                    {j > 0 && ", "}
-                    <button
-                      className="underline hover:no-underline"
-                      onClick={() => { setEditing(o); setOpen(true); }}
-                    >
-                      #{o.order_no} {o.customer_name}
-                    </button>
-                  </span>
+        <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-900/20">
+          <button
+            className="flex w-full items-center justify-between px-4 py-3 text-left"
+            onClick={() => setDupOpen((v) => !v)}
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold text-yellow-800 dark:text-yellow-300">
+              <span>⚠️</span>
+              <span>{duplicateGroups.length} duplicate{duplicateGroups.length > 1 ? "s" : ""} detected</span>
+            </div>
+            <ChevronDown className={`h-4 w-4 text-yellow-700 transition-transform dark:text-yellow-400 ${dupOpen ? "rotate-180" : ""}`} />
+          </button>
+          {dupOpen && (
+            <div className="border-t border-yellow-200 px-4 pb-3 pt-2 dark:border-yellow-700">
+              <div className="space-y-1.5">
+                {duplicateGroups.map((g, i) => (
+                  <div key={i} className="text-xs text-yellow-800 dark:text-yellow-400">
+                    <span className="font-medium">{g.field}:</span>{" "}
+                    <span className="font-mono">{g.value}</span>{" — "}
+                    {g.orders.map((o, j) => (
+                      <span key={o.id}>
+                        {j > 0 && ", "}
+                        <button
+                          className="underline hover:no-underline"
+                          onClick={() => { setEditing(o); setOpen(true); }}
+                        >
+                          #{o.order_no} {o.customer_name}
+                        </button>
+                      </span>
+                    ))}
+                  </div>
                 ))}
               </div>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
