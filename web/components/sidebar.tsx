@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import {
   LayoutDashboard, ShoppingBag, Package, Users, Clock, Wallet, Receipt,
   BarChart3, LogOut, Printer, ChevronDown, Truck, ListChecks, Activity,
-  Store, Globe, Sparkles, Warehouse, LayoutGrid, Wrench, TrendingUp, List, Landmark, Briefcase,
+  Store, Globe, Sparkles, Warehouse, LayoutGrid, Wrench, TrendingUp, List, Landmark, Briefcase, Settings,
 } from "lucide-react";
 
 type Role = "admin" | "sub_admin" | "employee";
@@ -62,6 +62,9 @@ const STAFF_GROUPS: Group[] = [
   ]},
   { title: "Audit", items: [
     { href: "/admin/activity", label: "Activity Log", icon: Activity },
+  ]},
+  { title: "Account", items: [
+    { href: "/admin/settings", label: "Settings", icon: Settings, adminOnly: true },
   ]},
 ];
 

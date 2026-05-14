@@ -6,7 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Trash2 } from "lucide-react";
+import { Dialog } from "@/components/ui/dialog";
+import { ShieldCheck, Trash2 } from "lucide-react";
 
 type L = any;
 
@@ -36,6 +37,95 @@ function localDateKey(iso: string) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+// ---------------------------------------------------------------------------
+// 2FA verification dialog
+// ---------------------------------------------------------------------------
+function TwoFaDialog({
+  open,
+  onClose,
+  onVerified,
+  label,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onVerified: () => void;
+  label: string;
+}) {
+  const supabase = createClient();
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function verify(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    try {
+      const { data: factors } = await supabase.auth.mfa.listFactors();
+      const totp = factors?.totp?.find((f: any) => f.status === "verified");
+      if (!totp) {
+        // No 2FA enrolled — allow through
+        onVerified();
+        return;
+      }
+      const { data: ch, error: ce } = await supabase.auth.mfa.challenge({ factorId: totp.id });
+      if (ce) throw ce;
+      const { error: ve } = await supabase.auth.mfa.verify({ factorId: totp.id, challengeId: ch.id, code: code.replace(/\s/g, "") });
+      if (ve) throw ve;
+      setCode("");
+      onVerified();
+    } catch (err: unknown) {
+      setMsg("Invalid code. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleClose() {
+    setCode("");
+    setMsg(null);
+    onClose();
+  }
+
+  return (
+    <Dialog open={open} onClose={handleClose} title="Verify your identity" size="md">
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+          <ShieldCheck className="h-4 w-4 shrink-0" />
+          <span>2FA is required to {label}. Enter the 6-digit code from your authenticator app.</span>
+        </div>
+        <form onSubmit={verify} className="space-y-3">
+          <div>
+            <Label htmlFor="tfa-code">Authenticator code</Label>
+            <Input
+              id="tfa-code"
+              className="mt-1 w-40 text-center font-mono text-lg tracking-widest"
+              placeholder="000000"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              maxLength={6}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              required
+            />
+          </div>
+          {msg && <p className="text-sm text-destructive">{msg}</p>}
+          <div className="flex gap-2">
+            <Button type="submit" disabled={busy || code.length < 6}>
+              {busy ? "Verifying…" : "Confirm"}
+            </Button>
+            <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
+          </div>
+        </form>
+      </div>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main activity log client
+// ---------------------------------------------------------------------------
 export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete: boolean }) {
   const supabase = createClient();
   const [list, setList] = useState<L[]>(initial);
@@ -45,6 +135,19 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
   const [dateTo, setDateTo] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const headerCheckRef = useRef<HTMLInputElement>(null);
+
+  // 2FA gate state
+  const [twoFaOpen, setTwoFaOpen] = useState(false);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[]>([]);
+
+  // Check if 2FA is enrolled
+  const [has2Fa, setHas2Fa] = useState(false);
+  useEffect(() => {
+    if (!canDelete) return;
+    supabase.auth.mfa.listFactors().then(({ data }) => {
+      setHas2Fa(!!data?.totp?.find((f: any) => f.status === "verified"));
+    });
+  }, [canDelete]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -101,25 +204,43 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
     });
   }
 
-  async function remove(id: string) {
-    if (!confirm("Delete this audit record? Admins only — this is irreversible.")) return;
-    await supabase.from("activity_logs").delete().eq("id", id);
-    setList((p) => p.filter((x) => x.id !== id));
-    setSelectedIds((p) => { const n = new Set(p); n.delete(id); return n; });
-  }
-
-  async function deleteSelected() {
-    const ids = Array.from(selectedIds);
-    if (!ids.length) return;
-    if (!confirm(`Delete ${ids.length} audit record${ids.length > 1 ? "s" : ""}? This is irreversible.`)) return;
+  async function executeDeletion(ids: string[]) {
     const { error } = await supabase.from("activity_logs").delete().in("id", ids);
     if (error) { alert(error.message); return; }
     setList((p) => p.filter((x) => !ids.includes(x.id)));
     setSelectedIds(new Set());
+    setPendingDeleteIds([]);
   }
+
+  function requestDelete(ids: string[]) {
+    if (!ids.length) return;
+    if (has2Fa) {
+      setPendingDeleteIds(ids);
+      setTwoFaOpen(true);
+    } else {
+      const msg = ids.length === 1
+        ? "Delete this audit record? This is irreversible."
+        : `Delete ${ids.length} audit records? This is irreversible.`;
+      if (!confirm(msg)) return;
+      void executeDeletion(ids);
+    }
+  }
+
+  function remove(id: string) { requestDelete([id]); }
+  function deleteSelected() { requestDelete(Array.from(selectedIds)); }
 
   return (
     <>
+      <TwoFaDialog
+        open={twoFaOpen}
+        onClose={() => { setTwoFaOpen(false); setPendingDeleteIds([]); }}
+        onVerified={() => {
+          setTwoFaOpen(false);
+          void executeDeletion(pendingDeleteIds);
+        }}
+        label={pendingDeleteIds.length === 1 ? "delete this record" : `delete ${pendingDeleteIds.length} records`}
+      />
+
       {/* Filters */}
       <Card className="mb-4">
         <CardContent className="space-y-4 p-4">
