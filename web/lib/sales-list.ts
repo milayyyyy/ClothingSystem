@@ -19,6 +19,10 @@ export type UnifiedSaleListRow = {
   customerOrTitle: string;
   storeOrNotes: string;
   designRef: string;
+  /** BigSeller-specific identifiers */
+  waybillNo: string;
+  externalOrderNo: string;
+  skuCode: string;
   status?: string;
 };
 
@@ -72,6 +76,9 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
       customerOrTitle: String(o.customer_name || "—"),
       storeOrNotes: storeOrPlatform(o),
       designRef: String(o.design_ref || ""),
+      waybillNo: String(o.waybill_no || ""),
+      externalOrderNo: String(o.external_order_no || ""),
+      skuCode: String(o.sku_code || ""),
       status: String(o.status || ""),
     });
   }

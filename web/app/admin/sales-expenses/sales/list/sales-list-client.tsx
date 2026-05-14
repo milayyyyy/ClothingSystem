@@ -55,6 +55,9 @@ export function SalesListClient({ orders }: Props) {
           r.customerOrTitle,
           r.storeOrNotes,
           r.designRef,
+          r.waybillNo,
+          r.externalOrderNo,
+          r.skuCode,
           r.orderNo != null ? `#${r.orderNo}` : "",
           r.orderNo != null ? String(r.orderNo) : "",
         ].join(" ").toLowerCase();
@@ -231,12 +234,19 @@ function SalesRow({ row }: { row: UnifiedSaleListRow }) {
     <tr className="border-t hover:bg-muted/30">
       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{dateLabel}</td>
       <td className="py-3 font-mono text-xs">
-        {row.orderNo != null ? (
-          <Link href="/admin/orders" className="text-primary hover:underline">
-            #{row.orderNo}
-          </Link>
-        ) : (
-          "—"
+        <div>
+          {row.orderNo != null ? (
+            <Link href="/admin/orders" className="text-primary hover:underline">
+              #{row.orderNo}
+            </Link>
+          ) : "—"}
+        </div>
+        {row.isBigSeller && (
+          <div className="mt-0.5 space-y-px text-[10px] text-muted-foreground">
+            {row.externalOrderNo && <div title="External order no">{row.externalOrderNo}</div>}
+            {row.waybillNo && <div title="Waybill no">Waybill: {row.waybillNo}</div>}
+            {row.skuCode && <div title="BigSeller code">BS: {row.skuCode}</div>}
+          </div>
         )}
       </td>
       <td className="max-w-[200px] truncate py-3 font-medium" title={row.customerOrTitle}>

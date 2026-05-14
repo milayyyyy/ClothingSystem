@@ -11,6 +11,8 @@ export type DashboardLowStockItem = {
   quantity?: unknown;
   min_level?: unknown;
   unit?: string | null;
+  /** Override link for items that belong to a sub-section (e.g. ready-made). */
+  href?: string | null;
 };
 
 export type DashboardTaskReminder = {
@@ -132,9 +134,10 @@ export function DashboardReminderCards({
               Low stock
             </CardTitle>
             {invHref ? (
-              <Link href={invHref} className="shrink-0 text-xs font-medium text-primary hover:underline">
-                Open →
-              </Link>
+              <div className="flex shrink-0 gap-2 text-xs font-medium">
+                <Link href={invHref} className="text-primary hover:underline">Inventory →</Link>
+                <Link href="/admin/inventory/ready-made" className="text-primary hover:underline">Ready-made →</Link>
+              </div>
             ) : (
               <span className="shrink-0 text-xs text-muted-foreground">Heads-up</span>
             )}
@@ -146,15 +149,29 @@ export function DashboardReminderCards({
             <p className="rounded-md bg-emerald-500/5 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400">All items above minimum.</p>
           ) : (
             <>
-              {lowStock.slice(0, 6).map((i) => {
+              {lowStock.slice(0, 8).map((i) => {
                 const q = Number(i.quantity ?? 0);
                 const min = Math.max(1, Number(i.min_level ?? 1));
                 const pct = Math.min(100, (q / min) * 100);
+                const isReadyMade = String(i.id).startsWith("ready-made:");
+                const itemHref = i.href ?? (isReadyMade ? "/admin/inventory/ready-made" : invHref);
+                const nameEl = itemHref ? (
+                  <Link href={itemHref} className="truncate font-medium hover:underline">{i.name}</Link>
+                ) : (
+                  <span className="truncate font-medium">{i.name}</span>
+                );
                 return (
                   <div key={i.id} className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="truncate font-medium">{i.name}</span>
-                      <span className="text-xs text-muted-foreground">
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                        {isReadyMade && (
+                          <span className="shrink-0 rounded bg-blue-100 px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
+                            RM
+                          </span>
+                        )}
+                        {nameEl}
+                      </div>
+                      <span className="shrink-0 text-xs text-muted-foreground">
                         {q}/{String(i.min_level ?? "—")} {i.unit ? String(i.unit) : ""}
                       </span>
                     </div>
@@ -170,11 +187,7 @@ export function DashboardReminderCards({
                   </div>
                 );
               })}
-              {invHref ? (
-                <Link href={invHref} className="mt-auto block pt-1 text-xs font-medium text-primary hover:underline">
-                  View inventory →
-                </Link>
-              ) : (
+              {!invHref && (
                 <p className="mt-auto pt-1 text-xs text-muted-foreground">Tell admin if you need stock pulled.</p>
               )}
             </>
