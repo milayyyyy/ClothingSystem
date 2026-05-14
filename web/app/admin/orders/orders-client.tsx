@@ -11,7 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { peso, formatDate, formatDateTime, formatSupabaseError } from "@/lib/utils";
 import { parseBigSellerPrintedTimeFromPdfText } from "@/lib/bigseller-printed-time";
-import { Eye, FileUp, Pencil, Plus, Table2, Trash2, ArrowRight } from "lucide-react";
+import { Eye, FileUp, Pencil, Plus, Settings2, Table2, Trash2, ArrowRight } from "lucide-react";
 import { BIGSELLER_KNOWN_STORES_SORTED } from "@/lib/bigseller-store-labels";
 import { ADMIN_ORDERS_SELECT } from "@/lib/admin-orders-select";
 import {
@@ -621,6 +621,97 @@ function parseBigSellerRowsFromText(rawText: string): ParsedBigSellerRow[] {
   return dedupeBigSellerRows(pickOut);
 }
 
+// ---------------------------------------------------------------------------
+// Job Types Manager Dialog
+// ---------------------------------------------------------------------------
+type JobType = { id: string; name: string; sort_order: number };
+
+function JobTypesManagerDialog({ open, onClose, onChanged }: { open: boolean; onClose: () => void; onChanged: () => void }) {
+  const supabase = createClient();
+  const [jobTypes, setJobTypes] = useState<JobType[]>([]);
+  const [newName, setNewName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    const { data } = await supabase.from("job_types").select("id, name, sort_order").order("sort_order").order("name");
+    setJobTypes(data || []);
+  }
+
+  useEffect(() => {
+    if (open) { load(); setNewName(""); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  async function addJobType(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    try {
+      const maxOrder = jobTypes.reduce((m, j) => Math.max(m, j.sort_order), 0);
+      const { error } = await supabase.from("job_types").insert({ name: trimmed, sort_order: maxOrder + 1 });
+      if (error) throw error;
+      setNewName("");
+      await load();
+      onChanged();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to add job type");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteJobType(id: string) {
+    if (!confirm("Delete this job type? Orders using it will lose the job type label.")) return;
+    const { error } = await supabase.from("job_types").delete().eq("id", id);
+    if (error) { alert(error.message); return; }
+    await load();
+    onChanged();
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Manage Job Types" size="md">
+      <div className="space-y-4">
+        <p className="text-xs text-muted-foreground">
+          Job types appear as a pick-list when creating or editing a Services order.
+        </p>
+        <ul className="max-h-72 divide-y overflow-y-auto rounded-md border text-sm">
+          {jobTypes.length === 0 && (
+            <li className="px-3 py-4 text-center text-muted-foreground text-xs">No job types yet.</li>
+          )}
+          {jobTypes.map((jt) => (
+            <li key={jt.id} className="flex items-center gap-2 px-3 py-2">
+              <span className="flex-1">{jt.name}</span>
+              <button
+                type="button"
+                onClick={() => deleteJobType(jt.id)}
+                className="rounded p-1 text-destructive hover:bg-destructive/10"
+                title="Delete"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+        <form onSubmit={addJobType} className="flex gap-2">
+          <Input
+            placeholder="New job type (e.g. Sublimation, DTF)"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            className="flex-1"
+          />
+          <Button type="submit" disabled={saving || !newName.trim()}>
+            {saving ? "Adding…" : "Add"}
+          </Button>
+        </form>
+      </div>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main OrdersClient
+// ---------------------------------------------------------------------------
 export function OrdersClient({
   initialOrders,
   employees,
@@ -654,6 +745,16 @@ export function OrdersClient({
   const [onlineIdentifiersOrder, setOnlineIdentifiersOrder] = useState<Order | null>(null);
   /** Bulk “Forward selected”: pipeline step to apply (services stages or sublimation `sub_stage`). */
   const [bulkForwardTarget, setBulkForwardTarget] = useState("");
+  const [jobTypes, setJobTypes] = useState<JobType[]>([]);
+  const [jobTypesMgrOpen, setJobTypesMgrOpen] = useState(false);
+
+  async function fetchJobTypes() {
+    const { data } = await supabase.from("job_types").select("id, name, sort_order").order("sort_order").order("name");
+    setJobTypes(data || []);
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { void fetchJobTypes(); }, []);
 
   useEffect(() => {
     setBulkForwardTarget("");
@@ -1127,6 +1228,16 @@ export function OrdersClient({
               }}
             />
           )}
+          {kindFilter === "services" && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setJobTypesMgrOpen(true)}
+              title="Manage job types for Services orders"
+            >
+              <Settings2 className="mr-1 h-4 w-4" /> Job Types
+            </Button>
+          )}
           <Button
             onClick={() => {
               setEditing(null);
@@ -1354,6 +1465,11 @@ export function OrdersClient({
                         <span className="text-xs text-muted-foreground">
                           {k.label.replace(/\s+Order\s*$/i, "").trim() || k.label}
                         </span>
+                        {getOrderKind(o) === "services" && o.job_type?.name && (
+                          <div className="mt-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                            {o.job_type.name}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <Badge variant={orderStatusHighlightVariant(o) as any}>{stageLabel}</Badge>
@@ -1429,7 +1545,8 @@ export function OrdersClient({
         </CardContent>
       </Card>
 
-      <OrderForm open={open} onClose={() => setOpen(false)} order={editing} employees={employees} onSaved={refresh} />
+      <OrderForm open={open} onClose={() => setOpen(false)} order={editing} employees={employees} jobTypes={jobTypes} onSaved={refresh} />
+      <JobTypesManagerDialog open={jobTypesMgrOpen} onClose={() => setJobTypesMgrOpen(false)} onChanged={fetchJobTypes} />
 
       <Dialog
         open={!!onlineIdentifiersOrder}
@@ -1736,12 +1853,14 @@ function OrderForm({
   onClose,
   order,
   employees,
+  jobTypes,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   order: Order | null;
   employees: Emp[];
+  jobTypes: JobType[];
   onSaved: () => void;
 }) {
   const router = useRouter();
@@ -1761,6 +1880,7 @@ function OrderForm({
       unit_price: 0,
       down_payment: 0,
       status: "pending",
+      job_type_id: null,
       due_date: "",
       design_ref: "",
       notes: "",
@@ -1822,6 +1942,8 @@ function OrderForm({
       delete payload.assigned;
       delete payload.assignees;
       delete payload.total;
+      delete payload.job_type; // joined object — only persist the _id column
+      if (kind !== "services") payload.job_type_id = null;
 
       let targetId: string | undefined = order?.id;
       if (order) {
@@ -1941,22 +2063,35 @@ function OrderForm({
           )}
         </div>
 
-        {form.kind !== "local" && (
+        {form.kind === "services" && (
+          <div className="col-span-2">
+            <Label>Job type</Label>
+            <select
+              className="mt-1 h-9 w-full rounded-md border bg-transparent px-3 text-sm"
+              value={form.job_type_id || ""}
+              onChange={(e) => set("job_type_id", e.target.value || null)}
+            >
+              <option value="">— select job type —</option>
+              {jobTypes.map((jt) => (
+                <option key={jt.id} value={jt.id}>{jt.name}</option>
+              ))}
+            </select>
+            {jobTypes.length === 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">No job types yet. Close this form and click <b>Job Types</b> to add some.</p>
+            )}
+          </div>
+        )}
+
+        {form.kind !== "local" && form.kind !== "services" && (
           <div className="col-span-2">
             <Label>
-              {form.kind === "online"
-                ? "Marketplace / page"
-                : form.kind === "services"
-                  ? "Job type / details"
-                  : "Source"}
+              {form.kind === "online" ? "Marketplace / page" : "Source"}
             </Label>
             <Input
               placeholder={
                 form.kind === "online"
                   ? "e.g. Facebook Marketplace, Page name"
-                  : form.kind === "services"
-                    ? "e.g. DTF print, jersey numbers, embroidery"
-                    : "Facebook / Walk-in / Referral"
+                  : "Facebook / Walk-in / Referral"
               }
               value={form.source || ""}
               onChange={(e) => set("source", e.target.value)}

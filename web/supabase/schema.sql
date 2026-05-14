@@ -67,6 +67,14 @@ create table if not exists public.inventory (
   created_at timestamptz default now()
 );
 
+-- Job types for Services orders (migration 056) ---------------------------
+create table if not exists public.job_types (
+  id         uuid        primary key default gen_random_uuid(),
+  name       text        not null,
+  sort_order integer     not null default 0,
+  created_at timestamptz not null default now()
+);
+
 -- Orders -----------------------------------------------------------------
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
@@ -94,6 +102,7 @@ create table if not exists public.orders (
   due_date date,
   notes text,
   design_ref text,
+  job_type_id uuid references public.job_types(id) on delete set null,
   assigned_to uuid references public.profiles(id) on delete set null,
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz default now(),
