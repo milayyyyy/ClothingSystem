@@ -24,7 +24,7 @@ export default async function ReturnsPage() {
     // Completed orders not yet in return flow
     supabase
       .from("orders")
-      .select("id,order_no,customer_name,kind,order_type,source,stage,status,total,down_payment,return_status,notes,updated_at,created_at")
+      .select("id,order_no,customer_name,kind,order_type,source,stage,status,total,down_payment,return_status,notes,waybill_no,external_order_no,sku_code,customer_social,updated_at,created_at")
       .or("stage.eq.completed,stage.eq.for_pickup,status.eq.completed,status.eq.delivered")
       .is("return_status", null)
       .order("updated_at", { ascending: false })

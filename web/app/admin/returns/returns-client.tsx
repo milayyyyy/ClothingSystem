@@ -78,7 +78,10 @@ function NewReturnDialog({
     const q = search.trim().toLowerCase();
     if (!q) return completedOrders;
     return completedOrders.filter((o) =>
-      `${o.order_no} ${o.customer_name} ${o.notes || ""}`.toLowerCase().includes(q)
+      [o.order_no, o.customer_name, o.notes, o.waybill_no, o.external_order_no, o.sku_code, o.customer_social]
+        .join(" ")
+        .toLowerCase()
+        .includes(q)
     );
   }, [completedOrders, search]);
 
