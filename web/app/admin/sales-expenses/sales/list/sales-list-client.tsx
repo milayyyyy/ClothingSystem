@@ -21,11 +21,10 @@ import {
 type Props = { orders: any[] };
 
 const TABS: Array<{ key: SalesTab; label: string }> = [
-  { key: "all",          label: "All" },
+  { key: "all",           label: "All" },
   { key: "walkin_online", label: "Walk-in & Online" },
-  { key: "bigseller",   label: "BigSeller" },
-  { key: "services",    label: "Services" },
-  { key: "sublimation", label: "Sublimation" },
+  { key: "services",      label: "Services" },
+  { key: "sublimation",   label: "Sublimation" },
 ];
 
 function inDateRange(dateKey: string, from: string, to: string, allTime: boolean) {
