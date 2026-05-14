@@ -1586,22 +1586,23 @@ export function OrdersClient({
           </button>
           {dupOpen && (
             <div className="border-t border-yellow-200 px-4 pb-3 pt-2 dark:border-yellow-700">
+              <p className="mb-2 text-[11px] text-yellow-700 dark:text-yellow-500">
+                Click a value to filter the list by that duplicate.
+              </p>
               <div className="space-y-1.5">
                 {duplicateGroups.map((g, i) => (
-                  <div key={i} className="text-xs text-yellow-800 dark:text-yellow-400">
-                    <span className="font-medium">{g.field}:</span>{" "}
-                    <span className="font-mono">{g.value}</span>{" — "}
-                    {g.orders.map((o, j) => (
-                      <span key={o.id}>
-                        {j > 0 && ", "}
-                        <button
-                          className="underline hover:no-underline"
-                          onClick={() => { setEditing(o); setOpen(true); }}
-                        >
-                          #{o.order_no} {o.customer_name}
-                        </button>
-                      </span>
-                    ))}
+                  <div key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-yellow-800 dark:text-yellow-400">
+                    <span className="font-medium">{g.field}:</span>
+                    <button
+                      className="rounded bg-yellow-100 px-1.5 py-0.5 font-mono hover:bg-yellow-200 dark:bg-yellow-800/40 dark:hover:bg-yellow-700/60"
+                      title={`Filter list by "${g.value}"`}
+                      onClick={() => { setSearch(g.value); setDupOpen(false); }}
+                    >
+                      {g.value}
+                    </button>
+                    <span className="text-yellow-600 dark:text-yellow-500">
+                      ({g.orders.length} orders: {g.orders.map((o) => `#${o.order_no}`).join(", ")})
+                    </span>
                   </div>
                 ))}
               </div>
