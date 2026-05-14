@@ -168,9 +168,11 @@ function TeamDesignStrip({
 function JerseyOrderCell({
   items,
   onChange,
+  addLineLabel = "+ Add line",
 }: {
   items: JerseyChecklistItem[];
   onChange: (next: JerseyChecklistItem[]) => void;
+  addLineLabel?: string;
 }) {
   return (
     <div className="flex min-w-[13rem] max-w-[24rem] flex-col gap-1.5 py-1">
@@ -221,7 +223,7 @@ function JerseyOrderCell({
         className="text-left text-[10px] font-medium text-primary hover:underline"
         onClick={() => onChange([...items, { id: newClientKey(), name: "", size: "", checked: false }])}
       >
-        + Add line
+        {addLineLabel}
       </button>
     </div>
   );
@@ -739,6 +741,24 @@ export function TeamsSheetClient({
     void commitSave(computedTotal, dp); // save without recording transaction
   }
 
+  // ── Labels (change based on order kind) ──────────────────────────────────
+  const isSvc = orderKind === "services";
+  const L = {
+    pageTitle:     isSvc ? "Services Order — sheet"   : "Teams & jerseys — sheet",
+    addGroup:      isSvc ? "+ Services Order"          : "+ Team",
+    groupNameLabel:isSvc ? "Customer name"             : "Team name",
+    groupNamePlch: isSvc ? "Customer name"             : "Team name",
+    sortLabel:     isSvc ? "Sort services"             : "Sort players",
+    sortByName:    isSvc ? "Service name (A–Z)"        : "Surname (A–Z)",
+    addRow:        isSvc ? "+ Service"                 : "+ Player",
+    removeGroup:   isSvc ? "Remove services"           : "Remove team",
+    colName:       isSvc ? "Services"                  : "Surname",
+    colLines:      isSvc ? "Service Lines"             : "Jersey lines",
+    noLines:       isSvc ? "No service lines yet. Add service lines above and they will appear here." : "No jersey lines yet. Add jersey lines to players above and they will appear here.",
+    priceLineHdr:  isSvc ? "Service line"              : "Jersey line",
+    footerHint:    isSvc ? "Each block is one customer/service order. Add design photos; set size beside each service line. Use + Services Order for another customer, then Save sheet." : "Each block is one team. Add design photos by the team name; set size beside each jersey line. Use + Team for another team, then Save sheet.",
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
@@ -758,7 +778,7 @@ export function TeamsSheetClient({
           >
             ← Back to orders
           </Link>
-          <h1 className="mt-3 text-xl font-semibold tracking-tight">Teams & jerseys — sheet</h1>
+          <h1 className="mt-3 text-xl font-semibold tracking-tight">{L.pageTitle}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Order <span className="font-mono">#{orderNo}</span>
             {customerName ? <> · {customerName}</> : null}. Tab between cells like a spreadsheet; use Save when done.
@@ -766,7 +786,7 @@ export function TeamsSheetClient({
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" onClick={addTeam} disabled={loading}>
-            + Team
+            {L.addGroup}
           </Button>
           <Button type="button" size="sm" onClick={save} disabled={loading || saving}>
             {saving ? "Saving…" : "Save sheet"}
@@ -780,7 +800,7 @@ export function TeamsSheetClient({
         </p>
       )}
 
-      {/* Teams sheet */}
+      {/* Sheet */}
       <Card>
         <CardContent className="p-4">
           <div className="max-h-[calc(100dvh-14rem)] space-y-6 overflow-auto pr-1">
@@ -793,13 +813,13 @@ export function TeamsSheetClient({
                   <div className="flex min-w-0 flex-1 flex-wrap items-end gap-4">
                     <div className="min-w-[10rem] max-w-md flex-1">
                       <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Team name
+                        {L.groupNameLabel}
                       </label>
                       <Input
                         className="mt-1 h-9 font-medium"
                         value={group.teamName}
                         onChange={(e: ChangeEvent<HTMLInputElement>) => patchTeamName(group.teamKey, e.target.value)}
-                        placeholder="Team name"
+                        placeholder={L.groupNamePlch}
                       />
                     </div>
                     <TeamDesignStrip
@@ -816,11 +836,11 @@ export function TeamsSheetClient({
                   <div className="flex flex-wrap items-end gap-2">
                     <div className="flex flex-col gap-0.5">
                       <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Sort players
+                        {L.sortLabel}
                       </span>
                       <select
                         className="h-9 min-w-[11rem] rounded-md border border-input bg-background px-2 text-xs shadow-sm"
-                        aria-label="Sort players in this team"
+                        aria-label={L.sortLabel}
                         defaultValue=""
                         onChange={(e) => {
                           const v = e.target.value as TeamRowSortMode | "";
@@ -830,13 +850,13 @@ export function TeamsSheetClient({
                         disabled={loading}
                       >
                         <option value="" disabled>Sort by…</option>
-                        <option value="surname">Surname (A–Z)</option>
-                        <option value="jersey_number">Jersey number</option>
+                        <option value="surname">{L.sortByName}</option>
+                        {!isSvc && <option value="jersey_number">Jersey number</option>}
                         <option value="size">Size (first line)</option>
                       </select>
                     </div>
                     <Button type="button" size="sm" variant="secondary" onClick={() => addPlayerToTeam(group.teamKey)} disabled={loading}>
-                      + Player
+                      {L.addRow}
                     </Button>
                     <Button
                       type="button" size="sm" variant="ghost"
@@ -844,7 +864,7 @@ export function TeamsSheetClient({
                       onClick={() => removeTeam(group.teamKey)}
                       disabled={loading || teamGroups.length <= 1}
                     >
-                      Remove team
+                      {L.removeGroup}
                     </Button>
                   </div>
                 </div>
@@ -854,10 +874,10 @@ export function TeamsSheetClient({
                     <thead className="bg-muted/80">
                       <tr className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         <th className="sticky left-0 z-[1] w-10 border-b border-r bg-muted/95 px-2 py-2 text-center">#</th>
-                        <th className="min-w-[6rem] border-b border-r px-2 py-2">Surname</th>
-                        <th className="w-14 border-b border-r px-2 py-2">Jersey #</th>
+                        <th className="min-w-[6rem] border-b border-r px-2 py-2">{L.colName}</th>
+                        {!isSvc && <th className="w-14 border-b border-r px-2 py-2">Jersey #</th>}
                         <th className="min-w-[14rem] border-b border-r px-2 py-2">
-                          Jersey lines <span className="font-normal normal-case text-muted-foreground">(size)</span>
+                          {L.colLines} <span className="font-normal normal-case text-muted-foreground">(size)</span>
                         </th>
                         <th className="w-16 border-b px-2 py-2 text-center"> </th>
                       </tr>
@@ -873,21 +893,24 @@ export function TeamsSheetClient({
                               className="h-9 w-full border-0 bg-transparent px-2 outline-none focus:bg-primary/5"
                               value={r.surname}
                               onChange={(e) => patchRow(r.rowId, { surname: e.target.value })}
-                              aria-label="Surname"
+                              aria-label={L.colName}
                             />
                           </td>
-                          <td className="border-r p-0">
-                            <input
-                              className="h-9 w-full border-0 bg-transparent px-2 text-center font-mono outline-none focus:bg-primary/5"
-                              value={r.jersey_number}
-                              onChange={(e) => patchRow(r.rowId, { jersey_number: e.target.value })}
-                              aria-label="Jersey number"
-                            />
-                          </td>
+                          {!isSvc && (
+                            <td className="border-r p-0">
+                              <input
+                                className="h-9 w-full border-0 bg-transparent px-2 text-center font-mono outline-none focus:bg-primary/5"
+                                value={r.jersey_number}
+                                onChange={(e) => patchRow(r.rowId, { jersey_number: e.target.value })}
+                                aria-label="Jersey number"
+                              />
+                            </td>
+                          )}
                           <td className="border-r p-1 align-top">
                             <JerseyOrderCell
                               items={r.jerseyChecklist}
                               onChange={(next) => patchRow(r.rowId, { jerseyChecklist: next })}
+                              addLineLabel={isSvc ? "+ Add service line" : undefined}
                             />
                           </td>
                           <td className="p-0 text-center">
@@ -907,9 +930,7 @@ export function TeamsSheetClient({
               </div>
             ))}
           </div>
-          <p className="mt-4 border-t pt-3 text-[11px] text-muted-foreground">
-            Each block is one team. Add design photos by the team name; set size beside each jersey line. Use + Team for another team, then Save sheet.
-          </p>
+          <p className="mt-4 border-t pt-3 text-[11px] text-muted-foreground">{L.footerHint}</p>
         </CardContent>
       </Card>
 
@@ -918,20 +939,20 @@ export function TeamsSheetClient({
         <CardContent className="p-4">
           <h2 className="mb-1 text-sm font-semibold">Price chart</h2>
           <p className="mb-4 text-xs text-muted-foreground">
-            Jersey lines with the same name &amp; size are grouped. Set a unit price per type — the total updates
-            automatically. Save sheet saves both the teams data and the pricing.
+            {isSvc
+              ? "Service lines with the same name & size are grouped. Set a unit price per type — the total updates automatically."
+              : "Jersey lines with the same name & size are grouped. Set a unit price per type — the total updates automatically."
+            } Save sheet saves both the data and the pricing.
           </p>
 
           {uniqueLines.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No jersey lines yet. Add jersey lines to players above and they will appear here.
-            </p>
+            <p className="py-6 text-center text-sm text-muted-foreground">{L.noLines}</p>
           ) : (
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   <tr>
-                    <th className="border-b border-r px-3 py-2 text-left">Jersey line</th>
+                    <th className="border-b border-r px-3 py-2 text-left">{L.priceLineHdr}</th>
                     <th className="border-b border-r px-3 py-2 text-center">Size</th>
                     <th className="border-b border-r px-3 py-2 text-center">Qty</th>
                     <th className="border-b border-r px-3 py-2 text-right">Unit price (₱)</th>
