@@ -133,6 +133,7 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
   const [entity, setEntity] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [fetching, setFetching] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const headerCheckRef = useRef<HTMLInputElement>(null);
 
@@ -149,22 +150,47 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
     });
   }, [canDelete]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-fetch from DB whenever date range changes (server-side filtering)
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchByRange() {
+      setFetching(true);
+      let q = supabase
+        .from("activity_logs")
+        .select("*, actor:actor_id(full_name, email)")
+        .order("created_at", { ascending: false })
+        .limit(2000);
+
+      if (dateFrom) {
+        // Start of the FROM day in UTC
+        q = q.gte("created_at", `${dateFrom}T00:00:00.000Z`);
+      }
+      if (dateTo) {
+        // End of the TO day in UTC (add 1 day offset so the day is fully included)
+        const end = new Date(`${dateTo}T00:00:00.000Z`);
+        end.setDate(end.getDate() + 1);
+        q = q.lt("created_at", end.toISOString());
+      }
+
+      const { data } = await q;
+      if (!cancelled && data) setList(data);
+      if (!cancelled) setFetching(false);
+    }
+    void fetchByRange();
+    return () => { cancelled = true; };
+  }, [dateFrom, dateTo]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     return list.filter((l) => {
       if (entity !== "all" && l.entity !== entity) return false;
-      if (dateFrom || dateTo) {
-        const key = localDateKey(l.created_at);
-        if (dateFrom && key < dateFrom) return false;
-        if (dateTo && key > dateTo) return false;
-      }
       if (q) {
         const hay = `${l.actor?.full_name || ""} ${l.actor?.email || ""} ${l.entity} ${l.summary || ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [list, filter, entity, dateFrom, dateTo]);
+  }, [list, filter, entity]);
 
   const entities = useMemo(() => Array.from(new Set(list.map((l) => l.entity))).sort(), [list]);
 
@@ -282,7 +308,11 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
       {/* Bulk actions bar */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground">
-          Showing <span className="font-medium text-foreground">{filtered.length}</span> of {list.length} records
+          {fetching ? (
+            <span className="text-primary">Loading…</span>
+          ) : (
+            <>Showing <span className="font-medium text-foreground">{filtered.length}</span> of {list.length} records</>
+          )}
           {selectedIds.size > 0 && <span className="ml-2 text-primary">· {selectedIds.size} selected</span>}
         </span>
         {canDelete && selectedIds.size > 0 && (
