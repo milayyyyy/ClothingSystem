@@ -424,6 +424,9 @@ function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: b
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
   function set(k: string, v: any) { setForm((f: any) => ({ ...f, [k]: v })); }
 
   useEffect(() => {
@@ -431,7 +434,28 @@ function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: b
     setForm({ ...employee, position: employee.position ?? "", date_of_birth: employee.date_of_birth ?? "", employment_start: employee.employment_start ?? "" });
     setAvatarFile(null);
     setAvatarPreview(null);
+    setNewPassword("");
+    setPwMsg(null);
   }, [open, employee]);
+
+  async function resetPassword() {
+    if (!newPassword || newPassword.length < 6) {
+      setPwMsg({ ok: false, text: "Password must be at least 6 characters." });
+      return;
+    }
+    setPwBusy(true);
+    setPwMsg(null);
+    const res = await fetch("/api/admin/reset-employee-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: form.id, password: newPassword }),
+    });
+    const j = await res.json();
+    setPwBusy(false);
+    if (!res.ok) { setPwMsg({ ok: false, text: j.error || "Failed" }); return; }
+    setPwMsg({ ok: true, text: "Password updated successfully." });
+    setNewPassword("");
+  }
 
   function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -537,6 +561,37 @@ function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: b
           Salary type, rate, and allowance are edited on the{" "}
           <Link href="/admin/salary" className="font-medium text-primary underline underline-offset-2">Salary</Link> page.
         </p>
+
+        {/* Password reset section */}
+        <div className="col-span-2 rounded-lg border border-dashed p-3 space-y-2">
+          <p className="text-xs font-medium text-foreground">Reset Password</p>
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              placeholder="New password (min 6 chars)"
+              value={newPassword}
+              onChange={(e) => { setNewPassword(e.target.value); setPwMsg(null); }}
+              className="flex-1"
+              minLength={6}
+              autoComplete="new-password"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={pwBusy || newPassword.length < 6}
+              onClick={() => void resetPassword()}
+            >
+              {pwBusy ? "Saving…" : "Update"}
+            </Button>
+          </div>
+          {pwMsg && (
+            <p className={`text-xs ${pwMsg.ok ? "text-green-600 dark:text-green-400" : "text-destructive"}`}>
+              {pwMsg.ok ? "✓ " : "⚠ "}{pwMsg.text}
+            </p>
+          )}
+        </div>
+
         <div className="col-span-2 flex justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
