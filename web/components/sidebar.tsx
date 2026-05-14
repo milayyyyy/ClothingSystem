@@ -48,6 +48,7 @@ const STAFF_GROUPS: Group[] = [
       children: [
         { href: "/admin/sales-expenses/sales", label: "Sales", icon: TrendingUp },
         { href: "/admin/sales-expenses/sales/list", label: "Sales list", icon: List },
+        { href: "/admin/sales-expenses/sales/bigseller", label: "BigSeller sales", icon: Globe },
         { href: "/admin/sales-expenses/expenses", label: "Expenses", icon: Receipt },
       ],
     },
