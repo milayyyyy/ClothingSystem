@@ -622,6 +622,261 @@ function parseBigSellerRowsFromText(rawText: string): ParsedBigSellerRow[] {
 // ---------------------------------------------------------------------------
 type JobType = { id: string; name: string; sort_order: number };
 
+// ---------------------------------------------------------------------------
+// Payment Collection Dialog — shown when an order reaches "Completed" stage
+// ---------------------------------------------------------------------------
+type FinanceAccount = { id: string; name: string; kind: string; balance?: number | null };
+
+function PaymentCollectDialog({
+  open,
+  order,
+  financeAccounts,
+  onClose,
+  onPaid,
+}: {
+  open: boolean;
+  order: Order | null;
+  financeAccounts: FinanceAccount[];
+  onClose: () => void;
+  onPaid: () => void;
+}) {
+  const supabase = createClient();
+  const orderTotal = Number(order?.total || 0);
+  const alreadyPaid = Number(order?.down_payment || 0);
+  const remaining = Math.max(0, orderTotal - alreadyPaid);
+
+  const [amount, setAmount] = useState("");
+  const [accountId, setAccountId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setAmount(remaining > 0 ? String(remaining) : "");
+      setAccountId(financeAccounts[0]?.id ?? "");
+      setMsg(null);
+    }
+  }, [open, remaining, financeAccounts]);
+
+  async function recordPayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!order) return;
+    const amt = Number(amount);
+    if (!amt || amt <= 0) { setMsg("Enter a valid amount."); return; }
+    if (!accountId) { setMsg("Select a finance account."); return; }
+    setSaving(true);
+    setMsg(null);
+    try {
+      const newPaid = Math.min(orderTotal, alreadyPaid + amt);
+      const { error: oe } = await supabase.from("orders").update({ down_payment: newPaid }).eq("id", order.id);
+      if (oe) throw oe;
+      const today = new Date().toISOString().slice(0, 10);
+      const desc = `Order payment: #${order.order_no} — ${order.customer_name || ""}`;
+      const { error: te } = await supabase.from("finance_transactions").insert({
+        occurred_at: today,
+        account_id: accountId,
+        direction: "in",
+        amount: amt,
+        description: desc,
+        notes: `order:${order.id}`,
+      });
+      if (te) throw te;
+      onPaid();
+    } catch (err: unknown) {
+      setMsg("Error: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!order) return null;
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Collect payment" size="md">
+      <div className="space-y-4">
+        <div className="rounded-md bg-muted/40 p-3 text-sm">
+          <div className="font-semibold">Order #{order.order_no} — {order.customer_name}</div>
+          <div className="mt-1 flex flex-wrap gap-4 text-xs text-muted-foreground">
+            <span>Total: <span className="font-medium text-foreground">{peso(orderTotal)}</span></span>
+            <span>Already paid: <span className="font-medium text-foreground">{peso(alreadyPaid)}</span></span>
+            <span>Balance: <span className="font-semibold text-primary">{peso(remaining)}</span></span>
+          </div>
+        </div>
+
+        {remaining <= 0 ? (
+          <p className="text-sm text-green-600 dark:text-green-400">This order is fully paid. No balance remaining.</p>
+        ) : (
+          <form onSubmit={recordPayment} className="space-y-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium">Finance account to credit</label>
+              <select
+                className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+                required
+              >
+                <option value="">— select account —</option>
+                {financeAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} ({a.kind}){a.balance != null ? ` — ₱${Number(a.balance).toLocaleString()}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Amount received (₱)</label>
+              <input
+                type="number"
+                min={0.01}
+                max={remaining}
+                step="0.01"
+                className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                required
+              />
+              {Number(amount) < remaining && Number(amount) > 0 && (
+                <p className="mt-1 text-xs text-amber-600">Partial payment — ₱{(remaining - Number(amount)).toLocaleString(undefined, { minimumFractionDigits: 2 })} will remain outstanding.</p>
+              )}
+            </div>
+            {msg && <p className="text-sm text-destructive">{msg}</p>}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="outline" onClick={onClose}>Skip (record later)</Button>
+              <Button type="submit" disabled={saving}>{saving ? "Recording…" : "Record payment"}</Button>
+            </div>
+          </form>
+        )}
+        {remaining <= 0 && (
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" onClick={onClose}>Close</Button>
+          </div>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Outstanding Balances — completed orders not yet fully paid
+// ---------------------------------------------------------------------------
+function OutstandingBalancesSection({
+  orders,
+  financeAccounts,
+  onEnsureAccounts,
+  onPaymentRecorded,
+}: {
+  orders: Order[];
+  financeAccounts: FinanceAccount[];
+  onEnsureAccounts: () => Promise<void>;
+  onPaymentRecorded: () => void;
+}) {
+  const [payOrder, setPayOrder] = useState<Order | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+
+  const outstanding = useMemo(() => {
+    return orders.filter((o) => {
+      const stage = String(o.stage || "").toLowerCase();
+      if (stage !== "completed") return false;
+      if (isBigSellerOnlineOrder(o)) return false;
+      const total = Number(o.total || 0);
+      const paid = Number(o.down_payment || 0);
+      return total > 0 && paid < total;
+    }).sort((a, b) => {
+      const balA = Number(a.total || 0) - Number(a.down_payment || 0);
+      const balB = Number(b.total || 0) - Number(b.down_payment || 0);
+      return balB - balA;
+    });
+  }, [orders]);
+
+  if (outstanding.length === 0) return null;
+
+  const grandBalance = outstanding.reduce((s, o) => s + Number(o.total || 0) - Number(o.down_payment || 0), 0);
+
+  return (
+    <>
+      <PaymentCollectDialog
+        open={!!payOrder}
+        order={payOrder}
+        financeAccounts={financeAccounts}
+        onClose={() => setPayOrder(null)}
+        onPaid={() => { setPayOrder(null); onPaymentRecorded(); }}
+      />
+      <Card className="mt-4 border-amber-200 dark:border-amber-800">
+        <CardContent className="p-0">
+          <div
+            className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 hover:bg-muted/30"
+            onClick={() => setCollapsed((c) => !c)}
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-[11px] font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-400">
+                {outstanding.length}
+              </span>
+              Outstanding Balances
+              <span className="text-xs font-normal text-muted-foreground">
+                — completed orders not yet fully paid
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-bold text-amber-700 dark:text-amber-400">{peso(grandBalance)} total outstanding</span>
+              <span className="text-xs text-muted-foreground">{collapsed ? "▼ show" : "▲ hide"}</span>
+            </div>
+          </div>
+
+          {!collapsed && (
+            <div className="overflow-x-auto border-t">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-medium">#</th>
+                    <th className="py-2 text-left font-medium">Customer</th>
+                    <th className="py-2 text-left font-medium">Type</th>
+                    <th className="py-2 text-right font-medium">Total</th>
+                    <th className="py-2 text-right font-medium">Paid</th>
+                    <th className="py-2 text-right font-medium text-amber-700 dark:text-amber-400">Balance</th>
+                    <th className="px-3 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {outstanding.map((o) => {
+                    const total = Number(o.total || 0);
+                    const paid = Number(o.down_payment || 0);
+                    const balance = total - paid;
+                    const k = getOrderKind(o);
+                    const kindLabel = k === "sublimation" ? "Sublimation" : k === "services" ? "Services" : k === "online" ? "Online" : "Walk-in";
+                    return (
+                      <tr key={o.id} className="border-t hover:bg-muted/20">
+                        <td className="px-4 py-2 font-mono text-xs text-muted-foreground">#{o.order_no}</td>
+                        <td className="py-2 font-medium">{o.customer_name}</td>
+                        <td className="py-2 text-xs text-muted-foreground">{kindLabel}</td>
+                        <td className="py-2 text-right font-mono text-xs">{peso(total)}</td>
+                        <td className="py-2 text-right font-mono text-xs text-green-600">{paid > 0 ? peso(paid) : <span className="text-muted-foreground">—</span>}</td>
+                        <td className="py-2 text-right font-mono text-xs font-semibold text-amber-700 dark:text-amber-400">{peso(balance)}</td>
+                        <td className="px-3 py-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            onClick={async () => {
+                              await onEnsureAccounts();
+                              setPayOrder(o);
+                            }}
+                          >
+                            Collect payment
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
 function JobTypesManagerDialog({ open, onClose, onChanged }: { open: boolean; onClose: () => void; onChanged: () => void }) {
   const supabase = createClient();
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
@@ -743,6 +998,14 @@ export function OrdersClient({
   const [bulkForwardTarget, setBulkForwardTarget] = useState("");
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
   const [jobTypesMgrOpen, setJobTypesMgrOpen] = useState(false);
+  const [financeAccounts, setFinanceAccounts] = useState<FinanceAccount[]>([]);
+  const [paymentOrder, setPaymentOrder] = useState<Order | null>(null);
+
+  async function ensureFinanceAccounts() {
+    if (financeAccounts.length > 0) return;
+    const { data } = await supabase.from("finance_accounts").select("id, name, kind, balance").order("name");
+    setFinanceAccounts(data || []);
+  }
 
   async function fetchJobTypes() {
     const { data } = await supabase.from("job_types").select("id, name, sort_order").order("sort_order").order("name");
@@ -997,6 +1260,17 @@ export function OrdersClient({
       return;
     }
     await refresh();
+    // After completing a non-BigSeller order with outstanding balance, offer payment collection
+    if (patch.stage === "completed" && !isBigSellerOnlineOrder(o)) {
+      const orderTotal = Number(o.total || 0);
+      const alreadyPaid = Number(o.down_payment || 0);
+      if (orderTotal > alreadyPaid) {
+        await ensureFinanceAccounts();
+        // Re-read the order so totals reflect price-chart saves
+        const { data: fresh } = await supabase.from("orders").select("id,order_no,customer_name,total,down_payment,kind,order_type,source,notes").eq("id", o.id).single();
+        setPaymentOrder(fresh ?? o);
+      }
+    }
   }
 
   async function forwardSelectedListOrders() {
@@ -1543,8 +1817,23 @@ export function OrdersClient({
         </CardContent>
       </Card>
 
+      {/* Outstanding Balances — completed orders with unpaid/partial balance */}
+      <OutstandingBalancesSection
+        orders={orders}
+        financeAccounts={financeAccounts}
+        onEnsureAccounts={ensureFinanceAccounts}
+        onPaymentRecorded={refresh}
+      />
+
       <OrderForm open={open} onClose={() => setOpen(false)} order={editing} employees={employees} jobTypes={jobTypes} onSaved={refresh} />
       <JobTypesManagerDialog open={jobTypesMgrOpen} onClose={() => setJobTypesMgrOpen(false)} onChanged={fetchJobTypes} />
+      <PaymentCollectDialog
+        open={!!paymentOrder}
+        order={paymentOrder}
+        financeAccounts={financeAccounts}
+        onClose={() => setPaymentOrder(null)}
+        onPaid={() => { setPaymentOrder(null); void refresh(); }}
+      />
 
       <Dialog
         open={!!onlineIdentifiersOrder}
