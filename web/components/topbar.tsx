@@ -1,6 +1,7 @@
 "use client";
 import { usePathname } from "next/navigation";
 import { GlobalSearch, QuickSearchTrigger } from "@/components/global-search";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const NAMES: Record<string, string> = {
   admin: "Dashboard", orders: "Orders", stores: "Stores", inventory: "Inventory", "ready-made": "Ready made", employees: "Employees",
@@ -29,8 +30,9 @@ export function Topbar({ name, role, userId }: { name: string; role: string; use
             </span>
           ))}
         </nav>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex items-center gap-2">
           <QuickSearchTrigger />
+          <ThemeToggle />
           <div className="hidden text-right text-xs sm:block">
             <div className="font-medium">{name}</div>
             <div className="capitalize text-muted-foreground">{role}</div>
