@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -608,6 +608,30 @@ export function ReturnsClient({
   const [newReturnOpen, setNewReturnOpen] = useState(false);
   const [restockOrder, setRestockOrder] = useState<Order | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // Re-fetch on mount so navigating back always shows the latest persisted state
+  useEffect(() => {
+    async function refresh() {
+      const [{ data: ro }, { data: co }] = await Promise.all([
+        supabase
+          .from("orders")
+          .select("id,order_no,customer_name,kind,order_type,source,stage,status,total,down_payment,return_status,return_reason,return_inventory_type,return_inventory_ref,updated_at,created_at")
+          .in("return_status", ["returning", "returned"])
+          .order("updated_at", { ascending: false }),
+        supabase
+          .from("orders")
+          .select("id,order_no,customer_name,kind,order_type,source,stage,status,total,down_payment,return_status,notes,waybill_no,external_order_no,sku_code,customer_social,updated_at,created_at")
+          .or("stage.eq.completed,stage.eq.for_pickup,status.eq.delivered,status.eq.ready")
+          .is("return_status", null)
+          .order("updated_at", { ascending: false })
+          .limit(200),
+      ]);
+      if (ro) setReturnOrders(ro as Order[]);
+      if (co) setCompletedOrders(co as Order[]);
+    }
+    void refresh();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const returning = useMemo(() => returnOrders.filter((o) => o.return_status === "returning"), [returnOrders]);
   const returned = useMemo(() => returnOrders.filter((o) => o.return_status === "returned"), [returnOrders]);

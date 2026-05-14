@@ -18,7 +18,7 @@ export default async function ReturnsPage() {
     supabase
       .from("orders")
       .select("id,order_no,customer_name,kind,order_type,source,stage,status,total,down_payment,return_status,return_reason,return_inventory_type,return_inventory_ref,updated_at,created_at")
-      .not("return_status", "is", null)
+      .in("return_status", ["returning", "returned"])
       .order("updated_at", { ascending: false }),
 
     // Completed orders not yet in return flow
