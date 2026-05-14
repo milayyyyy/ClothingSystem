@@ -1987,8 +1987,9 @@ function OrderForm({
     }
   }
 
-  // Hide quantity/price/down-payment/design-ref on all new-order creation flows.
-  const isWalkinOnlineCreate = !order;
+  // Quantity / unit price / down payment / design ref are managed via the
+  // Teams & Jerseys price chart — always hide them in the order form.
+  const isWalkinOnlineCreate = true;
   const total = Number(form.quantity || 0) * Number(form.unit_price || 0);
   const balance = total - Number(form.down_payment || 0);
 
