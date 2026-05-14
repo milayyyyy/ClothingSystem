@@ -8,7 +8,7 @@ export default async function TeamsSheetPage({ params }: { params: { orderId: st
   const supabase = createClient();
   const { data: order } = await supabase
     .from("orders")
-    .select("id, order_no, customer_name, kind, order_type")
+    .select("id, order_no, customer_name, kind, order_type, down_payment, unit_price, quantity, jersey_line_prices")
     .eq("id", params.orderId)
     .single();
   if (!order) notFound();
@@ -17,6 +17,10 @@ export default async function TeamsSheetPage({ params }: { params: { orderId: st
       orderId={order.id}
       orderNo={Number(order.order_no)}
       customerName={order.customer_name}
+      initialDownPayment={Number(order.down_payment ?? 0)}
+      initialUnitPrice={Number(order.unit_price ?? 0)}
+      initialQuantity={Number(order.quantity ?? 1)}
+      initialLinePrices={(order.jersey_line_prices as Record<string, number>) ?? {}}
     />
   );
 }

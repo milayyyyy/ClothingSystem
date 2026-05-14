@@ -32,11 +32,23 @@ type FlatRow = {
 const TEAM_DESIGN_MAX = 24;
 const DESIGN_BUCKET = "jersey-designs";
 
+function peso(n: number) {
+  return `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function extFromFileName(name: string) {
   const m = /\.([a-zA-Z0-9]{1,8})$/.exec(name);
   return m ? m[1]!.toLowerCase() : "jpg";
 }
 
+/** Key used to identify a unique jersey line type in the price map. */
+function jerseyLineKey(name: string, size: string): string {
+  return `${name.trim()}|||${size.trim()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Team design photo strip
+// ---------------------------------------------------------------------------
 function TeamDesignStrip({
   urls,
   orderId,
@@ -150,6 +162,9 @@ function TeamDesignStrip({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Jersey order cell (name + size checklist per player)
+// ---------------------------------------------------------------------------
 function JerseyOrderCell({
   items,
   onChange,
@@ -212,6 +227,9 @@ function JerseyOrderCell({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Helpers: flat row ↔ TeamDraft conversions
+// ---------------------------------------------------------------------------
 function teamsToFlatRows(teams: TeamDraft[]): FlatRow[] {
   const out: FlatRow[] = [];
   const gallery = (t: TeamDraft) => [...(t.design_image_urls || [])];
@@ -306,7 +324,7 @@ function groupRowsByTeam(rows: FlatRow[]): { teamKey: string; teamName: string; 
   });
 }
 
-/** First non-empty size on the player’s jersey lines (definition order). */
+/** First non-empty size on the player's jersey lines (definition order). */
 function primaryJerseyLineSize(row: FlatRow): string {
   for (const item of row.jerseyChecklist || []) {
     const s = item.size?.trim();
@@ -316,24 +334,8 @@ function primaryJerseyLineSize(row: FlatRow): string {
 }
 
 const LETTER_SIZE_ORDER: readonly string[] = [
-  "XXXS",
-  "XXS",
-  "YXS",
-  "XS",
-  "YS",
-  "S",
-  "YM",
-  "M",
-  "YL",
-  "L",
-  "YXL",
-  "XL",
-  "XXL",
-  "2XL",
-  "XXXL",
-  "3XL",
-  "4XL",
-  "5XL",
+  "XXXS", "XXS", "YXS", "XS", "YS", "S", "YM", "M", "YL", "L",
+  "YXL", "XL", "XXL", "2XL", "XXXL", "3XL", "4XL", "5XL",
 ];
 
 function letterSizeIndex(raw: string): number {
@@ -401,14 +403,55 @@ function sortTeamPlayerRows(rows: FlatRow[], mode: TeamRowSortMode): FlatRow[] {
   return copy;
 }
 
+// ---------------------------------------------------------------------------
+// Price chart – derived from jerseyChecklist across all flat rows
+// ---------------------------------------------------------------------------
+type JerseyLineType = {
+  key: string;    // jerseyLineKey(name, size)
+  name: string;
+  size: string;
+  count: number;  // total across all players (all items, not just checked)
+};
+
+function buildUniqueLines(rows: FlatRow[]): JerseyLineType[] {
+  const map = new Map<string, JerseyLineType>();
+  for (const row of rows) {
+    for (const item of row.jerseyChecklist) {
+      const n = item.name.trim();
+      if (!n) continue;
+      const key = jerseyLineKey(n, item.size);
+      if (map.has(key)) {
+        map.get(key)!.count++;
+      } else {
+        map.set(key, { key, name: n, size: item.size.trim(), count: 1 });
+      }
+    }
+  }
+  // Sort by name then size for stable display order
+  return Array.from(map.values()).sort((a, b) => {
+    const nc = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    if (nc !== 0) return nc;
+    return compareJerseySizes(a.size, b.size);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 export function TeamsSheetClient({
   orderId,
   orderNo,
   customerName,
+  initialDownPayment = 0,
+  initialLinePrices = {},
 }: {
   orderId: string;
   orderNo: number;
   customerName: string | null;
+  initialDownPayment?: number;
+  initialUnitPrice?: number;
+  initialQuantity?: number;
+  initialLinePrices?: Record<string, number>;
 }) {
   const supabase = createClient();
   const [flatRows, setFlatRows] = useState<FlatRow[]>([]);
@@ -416,8 +459,26 @@ export function TeamsSheetClient({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [uploadingTeamKey, setUploadingTeamKey] = useState<string | null>(null);
+
+  // ── Pricing state ──────────────────────────────────────────────────────────
+  const [linePrices, setLinePrices] = useState<Record<string, number>>(initialLinePrices);
+  const [downPaymentStr, setDownPaymentStr] = useState<string>(
+    initialDownPayment > 0 ? String(initialDownPayment) : "",
+  );
+
   const teamGroups = useMemo(() => groupRowsByTeam(flatRows), [flatRows]);
 
+  /** All unique jersey line types across the whole order, with counts. */
+  const uniqueLines = useMemo(() => buildUniqueLines(flatRows), [flatRows]);
+
+  const orderTotal = useMemo(
+    () => uniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0),
+    [uniqueLines, linePrices],
+  );
+  const downPayment = Math.max(0, Number(downPaymentStr) || 0);
+  const balance = orderTotal - downPayment;
+
+  // ── Data loading ───────────────────────────────────────────────────────────
   const reload = useCallback(() => {
     setLoading(true);
     void supabase
@@ -442,6 +503,7 @@ export function TeamsSheetClient({
     reload();
   }, [reload]);
 
+  // ── Row mutation helpers ───────────────────────────────────────────────────
   function patchRow(rowId: string, patch: Partial<FlatRow>) {
     setFlatRows((prev) => {
       const i = prev.findIndex((r) => r.rowId === rowId);
@@ -484,21 +546,12 @@ export function TeamsSheetClient({
       const pk = newClientKey();
       const rowId = `${teamKey}__${pk}`;
       const newRow: FlatRow = {
-        rowId,
-        teamKey,
-        playerKey: pk,
-        teamName,
-        teamDesignUrls,
-        surname: "",
-        jersey_number: "",
-        jerseyChecklist: [],
+        rowId, teamKey, playerKey: pk, teamName, teamDesignUrls,
+        surname: "", jersey_number: "", jerseyChecklist: [],
       };
       let insertAt = prev.length;
       for (let i = prev.length - 1; i >= 0; i--) {
-        if (prev[i]!.teamKey === teamKey) {
-          insertAt = i + 1;
-          break;
-        }
+        if (prev[i]!.teamKey === teamKey) { insertAt = i + 1; break; }
       }
       return [...prev.slice(0, insertAt), newRow, ...prev.slice(insertAt)];
     });
@@ -522,12 +575,35 @@ export function TeamsSheetClient({
     });
   }
 
+  // ── Save (teams + pricing) ─────────────────────────────────────────────────
   async function save() {
     setSaving(true);
     setMessage(null);
     try {
+      // 1. Save teams/players
       const teams = flatRowsToTeams(flatRows);
       await persistSublimationTeams(supabase, orderId, teams);
+
+      // 2. Save pricing back to the order
+      //    total = sum(count × price) stored as unit_price with quantity=1
+      const computedTotal = uniqueLines.reduce(
+        (sum, l) => sum + l.count * (linePrices[l.key] ?? 0),
+        0,
+      );
+      const dp = Math.max(0, Number(downPaymentStr) || 0);
+
+      const { error: orderErr } = await supabase
+        .from("orders")
+        .update({
+          jersey_line_prices: linePrices,
+          unit_price: computedTotal,
+          quantity: 1,
+          down_payment: dp,
+        })
+        .eq("id", orderId);
+
+      if (orderErr) throw orderErr;
+
       setMessage("Saved.");
       reload();
     } catch (e) {
@@ -538,12 +614,14 @@ export function TeamsSheetClient({
     }
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link
-            href="/admin/orders?type=sublimation"
+            href="/admin/orders?type=walkin_online"
             className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             ← Back to orders
@@ -564,8 +642,13 @@ export function TeamsSheetClient({
         </div>
       </div>
 
-      {message && <p className="text-sm text-muted-foreground">{message}</p>}
+      {message && (
+        <p className={`text-sm ${message === "Saved." ? "text-green-600" : "text-destructive"}`}>
+          {message}
+        </p>
+      )}
 
+      {/* Teams sheet */}
       <Card>
         <CardContent className="p-4">
           <div className="max-h-[calc(100dvh-14rem)] space-y-6 overflow-auto pr-1">
@@ -614,9 +697,7 @@ export function TeamsSheetClient({
                         }}
                         disabled={loading}
                       >
-                        <option value="" disabled>
-                          Sort by…
-                        </option>
+                        <option value="" disabled>Sort by…</option>
                         <option value="surname">Surname (A–Z)</option>
                         <option value="jersey_number">Jersey number</option>
                         <option value="size">Size (first line)</option>
@@ -626,9 +707,7 @@ export function TeamsSheetClient({
                       + Player
                     </Button>
                     <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
+                      type="button" size="sm" variant="ghost"
                       className="text-destructive hover:text-destructive"
                       onClick={() => removeTeam(group.teamKey)}
                       disabled={loading || teamGroups.length <= 1}
@@ -697,7 +776,113 @@ export function TeamsSheetClient({
             ))}
           </div>
           <p className="mt-4 border-t pt-3 text-[11px] text-muted-foreground">
-            Each block is one team. Sort by… orders players by surname, jersey number, or the first size on their jersey lines (then tie-breaks with the other fields). Add design photos by the team name; set size beside each line. Use + Team for another team below, then Save sheet.
+            Each block is one team. Add design photos by the team name; set size beside each jersey line. Use + Team for another team, then Save sheet.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Price chart */}
+      <Card>
+        <CardContent className="p-4">
+          <h2 className="mb-1 text-sm font-semibold">Price chart</h2>
+          <p className="mb-4 text-xs text-muted-foreground">
+            Jersey lines with the same name &amp; size are grouped. Set a unit price per type — the total updates
+            automatically. Save sheet saves both the teams data and the pricing.
+          </p>
+
+          {uniqueLines.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No jersey lines yet. Add jersey lines to players above and they will appear here.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full border-collapse text-sm">
+                <thead className="bg-muted/60 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th className="border-b border-r px-3 py-2 text-left">Jersey line</th>
+                    <th className="border-b border-r px-3 py-2 text-center">Size</th>
+                    <th className="border-b border-r px-3 py-2 text-center">Qty</th>
+                    <th className="border-b border-r px-3 py-2 text-right">Unit price (₱)</th>
+                    <th className="border-b px-3 py-2 text-right">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uniqueLines.map((line) => {
+                    const unitPrice = linePrices[line.key] ?? 0;
+                    const subtotal = line.count * unitPrice;
+                    return (
+                      <tr key={line.key} className="border-b border-border/60 hover:bg-muted/10">
+                        <td className="border-r px-3 py-2 font-medium">{line.name}</td>
+                        <td className="border-r px-3 py-2 text-center font-mono text-muted-foreground">
+                          {line.size || <span className="italic text-muted-foreground/60">—</span>}
+                        </td>
+                        <td className="border-r px-3 py-2 text-center font-mono">{line.count}</td>
+                        <td className="border-r p-1">
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className="h-8 w-full rounded border border-border/60 bg-transparent px-2 text-right font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
+                            value={unitPrice === 0 ? "" : unitPrice}
+                            placeholder="0.00"
+                            onChange={(e) => {
+                              const v = e.target.value === "" ? 0 : Number(e.target.value);
+                              setLinePrices((prev) => ({ ...prev, [line.key]: isNaN(v) ? 0 : v }));
+                            }}
+                            aria-label={`Price for ${line.name} ${line.size}`}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono">
+                          {subtotal > 0 ? peso(subtotal) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="bg-muted/30 text-sm font-semibold">
+                  <tr className="border-t-2 border-border">
+                    <td colSpan={4} className="border-r px-3 py-2 text-right text-muted-foreground">
+                      Grand Total
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-base">
+                      {peso(orderTotal)}
+                    </td>
+                  </tr>
+                  <tr className="border-t border-border/60">
+                    <td colSpan={4} className="border-r px-3 py-1.5 text-right text-muted-foreground">
+                      Down payment
+                    </td>
+                    <td className="p-1">
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className="h-8 w-full rounded border border-border/60 bg-transparent px-2 text-right font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
+                        value={downPaymentStr}
+                        placeholder="0.00"
+                        onChange={(e) => setDownPaymentStr(e.target.value)}
+                        aria-label="Down payment"
+                      />
+                    </td>
+                  </tr>
+                  <tr className="border-t border-border/60">
+                    <td colSpan={4} className="border-r px-3 py-2 text-right text-muted-foreground">
+                      Balance
+                    </td>
+                    <td
+                      className={`px-3 py-2 text-right font-mono text-base ${balance < 0 ? "text-destructive" : balance === 0 && orderTotal > 0 ? "text-green-600" : ""}`}
+                    >
+                      {peso(balance)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Clicking <strong>Save sheet</strong> above saves both the jersey sheet and this pricing. The order total and
+            down payment will be updated in the orders list.
           </p>
         </CardContent>
       </Card>

@@ -103,6 +103,7 @@ create table if not exists public.orders (
   notes text,
   design_ref text,
   job_type_id uuid references public.job_types(id) on delete set null,
+  jersey_line_prices jsonb not null default '{}'::jsonb,
   assigned_to uuid references public.profiles(id) on delete set null,
   created_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz default now(),
