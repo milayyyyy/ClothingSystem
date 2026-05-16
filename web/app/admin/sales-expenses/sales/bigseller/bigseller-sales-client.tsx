@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { peso } from "@/lib/utils";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { CsvExportDialog } from "@/components/csv-export-dialog";
 
 type Order = any;
 type FinanceAccount = { id: string; name: string; kind: string; balance?: number | null };
@@ -325,6 +326,32 @@ export function BigSellerSalesClient({
           </div>
           <div className="self-end pb-1 text-xs text-muted-foreground">
             {filtered.length} of {orders.length} orders
+          </div>
+          <div className="self-end">
+            <CsvExportDialog
+              label="Export CSV"
+              filename="bigseller_sales"
+              columns={[
+                { header: "Order #",       value: (r: any) => r.order_no },
+                { header: "External #",    value: (r: any) => r.external_order_no ?? "" },
+                { header: "Waybill",       value: (r: any) => r.waybill_no ?? "" },
+                { header: "Customer",      value: (r: any) => r.customer_name ?? "" },
+                { header: "Store",         value: (r: any) => r.source ?? "" },
+                { header: "Stage",         value: (r: any) => r.stage ?? "" },
+                { header: "Sale Total",    value: (r: any) => r.total ?? 0 },
+                { header: "Withdrawn",     value: (r: any) => r.withdrawn_amount ?? 0 },
+                { header: "Pending",       value: (r: any) => (Number(r.total ?? 0) - Number(r.withdrawn_amount ?? 0)) },
+                { header: "Created",       value: (r: any) => String(r.created_at ?? "").slice(0, 10) },
+              ]}
+              fetchRows={(from, to) => {
+                return filtered.filter((r: any) => {
+                  const d = String(r.created_at ?? "").slice(0, 10);
+                  if (from && d < from) return false;
+                  if (to && d > to) return false;
+                  return true;
+                });
+              }}
+            />
           </div>
         </CardContent>
       </Card>

@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { peso, formatDate, cn } from "@/lib/utils";
 import { defaultSalesListDateRange } from "@/lib/sales-list";
 import { FileImage, Pencil, Plus, Trash2 } from "lucide-react";
+import { CsvExportDialog } from "@/components/csv-export-dialog";
 
 const CATS = [
   "Materials", "Fabrics", "Salary", "Employee Expenses", "Marketing",
@@ -387,23 +388,39 @@ export function ExpensesClient({
         </CardContent>
       </Card>
 
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
         <div>
           {selectedIds.size > 0 && (
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={bulkBusy}
-              onClick={() => void bulkDelete()}
-            >
+            <Button variant="destructive" size="sm" disabled={bulkBusy} onClick={() => void bulkDelete()}>
               <Trash2 className="mr-1 h-4 w-4" />
               {bulkBusy ? "Deleting…" : `Delete selected (${selectedIds.size})`}
             </Button>
           )}
         </div>
-        <Button onClick={() => setOpen(true)}>
-          <Plus className="mr-1 h-4 w-4" /> Add Expense
-        </Button>
+        <div className="flex gap-2">
+          <CsvExportDialog
+            label="Export CSV"
+            filename="expenses"
+            columns={[
+              { header: "Date",            value: (r: any) => r.expense_date },
+              { header: "Category",        value: (r: any) => r.category },
+              { header: "Description",     value: (r: any) => r.description ?? "" },
+              { header: "Amount",          value: (r: any) => r.amount },
+              { header: "Finance Account", value: (r: any) => r.paid_through ?? "" },
+              { header: "Notes",           value: (r: any) => r.notes ?? "" },
+            ]}
+            fetchRows={async (from, to) => {
+              let q = supabase.from("expenses").select("*").order("expense_date", { ascending: false });
+              if (from) q = q.gte("expense_date", from);
+              if (to)   q = q.lte("expense_date", to);
+              const { data } = await q;
+              return data || [];
+            }}
+          />
+          <Button onClick={() => setOpen(true)}>
+            <Plus className="mr-1 h-4 w-4" /> Add Expense
+          </Button>
+        </div>
       </div>
 
       <Card><CardContent className="p-0 overflow-x-auto">

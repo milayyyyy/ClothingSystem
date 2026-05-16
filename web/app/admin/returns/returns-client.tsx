@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { peso } from "@/lib/utils";
 import { PackageX, RotateCcw, Search } from "lucide-react";
+import { CsvExportDialog } from "@/components/csv-export-dialog";
 
 type Order = {
   id: string;
@@ -714,12 +715,36 @@ export function ReturnsClient({
             );
           })}
         </div>
-        {canEdit && (
-          <Button className="gap-1.5" onClick={() => setNewReturnOpen(true)}>
-            <PackageX className="h-4 w-4" />
-            New return
-          </Button>
-        )}
+        <div className="flex gap-2">
+          <CsvExportDialog
+            label="Export CSV"
+            filename="returns"
+            columns={[
+              { header: "Order #",       value: (r: any) => r.order_no },
+              { header: "Customer",      value: (r: any) => r.customer_name ?? "" },
+              { header: "Channel",       value: (r: any) => r.kind ?? "" },
+              { header: "Return Status", value: (r: any) => r.return_status ?? "" },
+              { header: "Return Reason", value: (r: any) => r.return_reason ?? "" },
+              { header: "Total",         value: (r: any) => r.total ?? 0 },
+              { header: "Updated",       value: (r: any) => String(r.updated_at ?? "").slice(0, 10) },
+            ]}
+            fetchRows={(from, to) => {
+              const all = [...returnOrders, ...completedOrders.filter((o: any) => o.return_status)];
+              return all.filter((r: any) => {
+                const d = String(r.updated_at ?? "").slice(0, 10);
+                if (from && d < from) return false;
+                if (to && d > to) return false;
+                return true;
+              });
+            }}
+          />
+          {canEdit && (
+            <Button className="gap-1.5" onClick={() => setNewReturnOpen(true)}>
+              <PackageX className="h-4 w-4" />
+              New return
+            </Button>
+          )}
+        </div>
       </div>
 
       {err && (

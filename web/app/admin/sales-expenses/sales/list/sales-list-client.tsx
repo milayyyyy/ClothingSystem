@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table2 } from "lucide-react";
 import { peso } from "@/lib/utils";
 import { formatSalesDateTime, orderTypeLabel } from "@/lib/sales";
+import { CsvExportDialog } from "@/components/csv-export-dialog";
 import {
   defaultSalesListDateRange,
   rowMatchesTab,
@@ -139,6 +140,29 @@ export function SalesListClient({ orders }: Props) {
             <span className="font-medium text-foreground">down payment</span> appear as{" "}
             <span className="font-medium text-amber-600 dark:text-amber-400">Deposit</span> rows.
           </p>
+          <div className="flex justify-end">
+            <CsvExportDialog
+              label="Export CSV"
+              filename="sales_list"
+              columns={[
+                { header: "Date",        value: (r: any) => r.dateKey },
+                { header: "Order #",     value: (r: any) => r.order_no },
+                { header: "Customer",    value: (r: any) => r.customer_name ?? "" },
+                { header: "Channel",     value: (r: any) => r.kind ?? "" },
+                { header: "Type",        value: (r: any) => r.rowType ?? "" },
+                { header: "Amount",      value: (r: any) => r.amount },
+                { header: "Description", value: (r: any) => r.description ?? "" },
+              ]}
+              fetchRows={(from, to) => {
+                return filtered.filter((r) => {
+                  if (!from && !to) return true;
+                  if (from && r.dateKey < from) return false;
+                  if (to && r.dateKey > to) return false;
+                  return true;
+                });
+              }}
+            />
+          </div>
         </CardContent>
       </Card>
 

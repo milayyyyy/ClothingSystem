@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { Clock, Pencil, Plus, ScanFace, Trash2 } from "lucide-react";
+import { CsvExportDialog } from "@/components/csv-export-dialog";
 
 export type AttendanceRow = {
   id: string;
@@ -245,6 +246,33 @@ export function AdminAttendanceClient({
             <Trash2 className="mr-1 h-4 w-4" />
             {bulkBusy ? "Deleting…" : `Delete selected (${selectedCount})`}
           </Button>
+          <CsvExportDialog
+            label="Export CSV"
+            filename="attendance"
+            columns={[
+              { header: "Employee",    value: (r: AttendanceRow) => r.user?.full_name || r.user?.email || "" },
+              { header: "Time In",     value: (r: AttendanceRow) => r.time_in ? new Date(r.time_in).toLocaleString() : "" },
+              { header: "Time Out",    value: (r: AttendanceRow) => r.time_out ? new Date(r.time_out).toLocaleString() : "" },
+              { header: "Hours",       value: (r: AttendanceRow) => {
+                if (!r.time_out) return "";
+                const diff = (new Date(r.time_out).getTime() - new Date(r.time_in).getTime()) / 3600000;
+                return diff.toFixed(2);
+              }},
+              { header: "Notes",       value: (r: AttendanceRow) => r.notes ?? "" },
+              { header: "Payroll Paid", value: (r: AttendanceRow) => r.payroll_paid ? "Yes" : "No" },
+            ]}
+            fetchRows={async (from, to) => {
+              const supabaseClient = createClient();
+              let q = supabaseClient
+                .from("attendance")
+                .select("*, user:user_id(full_name, email)")
+                .order("time_in", { ascending: false });
+              if (from) q = q.gte("time_in", localDayStartIso(from));
+              if (to)   q = q.lte("time_in", localDayEndIso(to));
+              const { data } = await q;
+              return (data as AttendanceRow[]) || [];
+            }}
+          />
           {/* Clock mode switch */}
           <div className="flex items-center gap-2.5 rounded-lg border bg-muted/30 px-3 py-1.5">
             <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
