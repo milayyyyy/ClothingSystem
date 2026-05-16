@@ -10,7 +10,8 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDateTime } from "@/lib/utils";
-import { History, Plus, Pencil, Search, Trash2 } from "lucide-react";
+import { History, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { CsvExportDialog } from "@/components/csv-export-dialog";
 
 type Item = {
   id: string;
@@ -568,6 +569,28 @@ export function InventoryClient({
             <History className="mr-1 h-4 w-4" />
             Stock history
           </Button>
+          <CsvExportDialog
+            label="Export CSV"
+            filename="inventory"
+            columns={[
+              { header: "Name",      value: (r) => r.name },
+              { header: "Category",  value: (r) => r.category ?? "" },
+              { header: "Type",      value: (r) => r.item_type ?? "" },
+              { header: "Quantity",  value: (r) => r.quantity ?? 0 },
+              { header: "Unit",      value: (r) => r.unit ?? "" },
+              { header: "Min Level", value: (r) => r.min_level ?? "" },
+              { header: "Unit Cost", value: (r) => r.unit_cost ?? "" },
+              { header: "Supplier",  value: (r) => r.supplier ?? "" },
+              { header: "Notes",     value: (r) => r.notes ?? "" },
+            ]}
+            fetchRows={async (from, to) => {
+              let q = supabase.from("inventory").select("*").order("name");
+              if (from) q = q.gte("created_at", from);
+              if (to)   q = q.lte("created_at", to + "T23:59:59");
+              const { data } = await q;
+              return (data as Item[]) || [];
+            }}
+          />
           {canEdit && (
             <Link
               href="/admin/inventory/settings"

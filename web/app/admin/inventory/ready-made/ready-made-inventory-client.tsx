@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Plus, Search, Trash2 } from "lucide-react";
+import { CsvExportDialog } from "@/components/csv-export-dialog";
 import { computeReadyMadeLowStockRows } from "@/lib/ready-made-low-stock";
 import { fetchReadyMadeLowStockRowsForBoard } from "@/lib/ready-made-board-low-stock-fetch";
 import { cn } from "@/lib/utils";
@@ -506,16 +507,73 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
             />
           </div>
         </div>
-        {canEdit && (
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setNewGroupOpen(true)} disabled={saving}>
-              <Plus className="mr-1 h-4 w-4" /> New group
-            </Button>
-            <Button type="button" size="sm" onClick={() => openNewSheet()} disabled={saving || !groups.length}>
-              <Plus className="mr-1 h-4 w-4" /> New sheet
-            </Button>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <CsvExportDialog
+            label="Export CSV"
+            filename="ready_made_inventory"
+            columns={[
+              { header: "Group",       value: (r: any) => r.group },
+              { header: "Sheet",       value: (r: any) => r.sheet },
+              { header: "Row / Item",  value: (r: any) => r.row },
+              { header: "Column",      value: (r: any) => r.column },
+              { header: "Value",       value: (r: any) => r.value },
+            ]}
+            fetchRows={async (_from, _to) => {
+              // Fetch all groups, boards, cols, rows, cells then flatten
+              const [
+                { data: grps },
+                { data: bds },
+                { data: allCols },
+                { data: allRows },
+                { data: allCells },
+              ] = await Promise.all([
+                supabase.from("ready_made_sheet_groups").select("id,name").order("sort_order"),
+                supabase.from("ready_made_boards").select("id,name,group_id").order("sort_order"),
+                supabase.from("ready_made_columns").select("id,board_id,name,sort_order").order("sort_order"),
+                supabase.from("ready_made_rows").select("id,board_id,label,sort_order").order("sort_order"),
+                supabase.from("ready_made_cells").select("row_id,column_id,value"),
+              ]);
+              const groupMap = Object.fromEntries((grps || []).map((g: any) => [g.id, g.name]));
+              const cellMap = Object.fromEntries(
+                (allCells || []).map((c: any) => [`${c.row_id}:${c.column_id}`, c.value])
+              );
+              const flat: any[] = [];
+              for (const board of (bds || []) as any[]) {
+                const boardCols = ((allCols || []) as any[]).filter((c) => c.board_id === board.id);
+                const boardRows = ((allRows || []) as any[]).filter((r) => r.board_id === board.id);
+                const groupName = board.group_id ? groupMap[board.group_id] || "Ungrouped" : "Ungrouped";
+                if (boardCols.length === 0) {
+                  for (const row of boardRows) {
+                    flat.push({ group: groupName, sheet: board.name, row: row.label, column: "", value: "" });
+                  }
+                } else {
+                  for (const row of boardRows) {
+                    for (const col of boardCols) {
+                      flat.push({
+                        group: groupName,
+                        sheet: board.name,
+                        row: row.label,
+                        column: col.name,
+                        value: cellMap[`${row.id}:${col.id}`] ?? "",
+                      });
+                    }
+                  }
+                }
+              }
+              return flat;
+            }}
+          />
+          {canEdit && (
+            <>
+              <Button type="button" variant="outline" size="sm" onClick={() => setNewGroupOpen(true)} disabled={saving}>
+                <Plus className="mr-1 h-4 w-4" /> New group
+              </Button>
+              <Button type="button" size="sm" onClick={() => openNewSheet()} disabled={saving || !groups.length}>
+                <Plus className="mr-1 h-4 w-4" /> New sheet
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {boards.length > 0 && (
