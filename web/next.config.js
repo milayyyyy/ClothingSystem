@@ -8,5 +8,19 @@ try {
   /* @next/env ships with Next */
 }
 
-const nextConfig = { reactStrictMode: true };
+const nextConfig = {
+  reactStrictMode: true,
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // face-api.js relies on browser-only APIs (canvas, WebGL).
+      // Exclude it from the server bundle so the dynamic import resolves correctly.
+      config.externals = Array.isArray(config.externals)
+        ? [...config.externals, "face-api.js"]
+        : config.externals
+        ? [config.externals, "face-api.js"]
+        : ["face-api.js"];
+    }
+    return config;
+  },
+};
 module.exports = nextConfig;
