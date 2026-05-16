@@ -8,7 +8,8 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { ArrowRight, Pencil, Plus, RotateCcw, Settings2, Trash2, Users } from "lucide-react";
+import { ArrowRight, Pencil, Plus, Repeat, RotateCcw, Settings2, Trash2, Users } from "lucide-react";
+import { repeatLabel, repeatFieldsForInsert, spawnNextRecurringTask, type RepeatMode } from "@/lib/task-recurrence";
 
 type T = any;
 type P = { id: string; full_name: string; email: string; role: string };
@@ -77,6 +78,12 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
     const patch: any = { status: next };
     if (next === "done") patch.completed_at = new Date().toISOString();
     await supabase.from("tasks").update(patch).eq("id", task.id);
+    if (next === "done") {
+      const assigneeIds = (task.assignees || [])
+        .map((a: any) => a.user_id)
+        .filter(Boolean) as string[];
+      await spawnNextRecurringTask(supabase, task, assigneeIds);
+    }
     await refresh();
     setForwarding(null);
   }
@@ -123,6 +130,12 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
             <span className="font-medium text-sm">{t.title}</span>
             {t.task_type && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0">{t.task_type}</Badge>
+            )}
+            {repeatLabel(t) && (
+              <Badge variant="outline" className="gap-0.5 text-[10px] px-1.5 py-0 text-primary">
+                <Repeat className="h-2.5 w-2.5" />
+                {repeatLabel(t)}
+              </Badge>
             )}
           </div>
           {t.description && (
@@ -488,23 +501,49 @@ function NewTaskForm({
   const supabase = createClient();
   const [form, setForm] = useState<any>({ title: "", description: "", task_type: "", priority: "normal", due_date: "" });
   const [selected, setSelected] = useState<string[]>([]);
+  const [repeatEnabled, setRepeatEnabled] = useState(false);
+  const [repeatPreset, setRepeatPreset] = useState<RepeatMode>("weekly");
+  const [repeatCustomDays, setRepeatCustomDays] = useState("7");
+
   function set(k: string, v: any) { setForm((f: any) => ({ ...f, [k]: v })); }
   function toggle(id: string) { setSelected((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]); }
 
+  function resetForm() {
+    setForm({ title: "", description: "", task_type: "", priority: "normal", due_date: "" });
+    setSelected([]);
+    setRepeatEnabled(false);
+    setRepeatPreset("weekly");
+    setRepeatCustomDays("7");
+  }
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    const payload = { ...form, due_date: form.due_date || null, task_type: form.task_type || null };
+    const repeat = repeatFieldsForInsert(
+      repeatEnabled,
+      repeatPreset,
+      Number(repeatCustomDays),
+    );
+    const payload = {
+      ...form,
+      due_date: form.due_date || null,
+      task_type: form.task_type || null,
+      ...repeat,
+    };
     const { data: t } = await supabase.from("tasks").insert(payload).select().single();
     if (t && selected.length) {
       await supabase.from("task_assignees").insert(selected.map((user_id) => ({ task_id: t.id, user_id })));
     }
-    setForm({ title: "", description: "", task_type: "", priority: "normal", due_date: "" });
-    setSelected([]);
+    resetForm();
     onClose(); onSaved();
   }
 
+  function handleClose() {
+    resetForm();
+    onClose();
+  }
+
   return (
-    <Dialog open={open} onClose={onClose} title="New Task" description="Assign to one or more staff members for a group task." size="xl">
+    <Dialog open={open} onClose={handleClose} title="New Task" description="Assign to one or more staff members for a group task." size="xl">
       <form onSubmit={save} className="grid grid-cols-2 gap-3">
         <div className="col-span-2"><Label>Title</Label><Input required value={form.title} onChange={(e) => set("title", e.target.value)} /></div>
         <div className="col-span-2"><Label>Description</Label><textarea className="min-h-[70px] w-full rounded-md border bg-transparent px-3 py-2 text-sm" value={form.description} onChange={(e) => set("description", e.target.value)} /></div>
@@ -524,6 +563,49 @@ function NewTaskForm({
           </select>
         </div>
         <div className="col-span-2"><Label>Due date</Label><Input type="date" value={form.due_date} onChange={(e) => set("due_date", e.target.value)} /></div>
+        <div className="col-span-2 rounded-lg border bg-muted/20 p-3 space-y-3">
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={repeatEnabled}
+              onChange={(e) => setRepeatEnabled(e.target.checked)}
+            />
+            <Repeat className="h-4 w-4 text-muted-foreground" />
+            Repeat this task
+          </label>
+          {repeatEnabled && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Repeat every</Label>
+                <select
+                  className="mt-1 h-9 w-full rounded-md border bg-transparent px-3 text-sm"
+                  value={repeatPreset}
+                  onChange={(e) => setRepeatPreset(e.target.value as RepeatMode)}
+                >
+                  <option value="daily">Day</option>
+                  <option value="weekly">Week</option>
+                  <option value="monthly">Month</option>
+                  <option value="custom">Custom (days)</option>
+                </select>
+              </div>
+              {repeatPreset === "custom" && (
+                <div>
+                  <Label>Every how many days?</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    className="mt-1"
+                    value={repeatCustomDays}
+                    onChange={(e) => setRepeatCustomDays(e.target.value)}
+                  />
+                </div>
+              )}
+              <p className="sm:col-span-2 text-xs text-muted-foreground">
+                When marked done, a new open task is created automatically with the same details, assignees, and next due date.
+              </p>
+            </div>
+          )}
+        </div>
         <div className="col-span-2">
           <Label>Assign to ({selected.length} selected)</Label>
           <div className="mt-1 max-h-48 overflow-y-auto rounded-md border">
@@ -537,7 +619,7 @@ function NewTaskForm({
           </div>
         </div>
         <div className="col-span-2 flex justify-end gap-2 pt-2">
-          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="outline" onClick={handleClose}>Cancel</Button>
           <Button type="submit">Create Task</Button>
         </div>
       </form>

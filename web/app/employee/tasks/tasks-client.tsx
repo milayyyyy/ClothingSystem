@@ -5,7 +5,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
-import { ArrowRight, RotateCcw } from "lucide-react";
+import { ArrowRight, Repeat, RotateCcw } from "lucide-react";
+import { repeatLabel, spawnNextRecurringTask } from "@/lib/task-recurrence";
 
 const STATUS_FLOW: Record<string, string> = {
   open: "in_progress",
@@ -41,6 +42,20 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
     if (next === "done") patch.completed_at = new Date().toISOString();
     const { data } = await supabase.from("tasks").update(patch).eq("id", task.id).select().single();
     if (data) setList((p) => p.map((t) => (t.id === task.id ? { ...t, ...data } : t)));
+    if (next === "done") {
+      const assigneeIds = (task.assignees || [])
+        .map((a: any) => a.user_id)
+        .filter(Boolean) as string[];
+      const spawned = await spawnNextRecurringTask(supabase, task, assigneeIds);
+      if (spawned) {
+        const { data: refreshed } = await supabase
+          .from("tasks")
+          .select("*, assignees:task_assignees!inner(user_id)")
+          .eq("assignees.user_id", userId)
+          .order("created_at", { ascending: false });
+        if (refreshed) setList(refreshed);
+      }
+    }
     setForwarding(null);
   }
 
@@ -81,7 +96,15 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
                       </Badge>
                     </td>
                     <td className="py-3 pr-3">
-                      <div className="font-medium">{t.title}</div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium">{t.title}</span>
+                        {repeatLabel(t) && (
+                          <Badge variant="outline" className="gap-0.5 text-[10px] px-1.5 py-0 text-primary">
+                            <Repeat className="h-2.5 w-2.5" />
+                            {repeatLabel(t)}
+                          </Badge>
+                        )}
+                      </div>
                       {t.description && (
                         <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{t.description}</div>
                       )}
@@ -137,7 +160,15 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
                         </Badge>
                       </td>
                       <td className="py-3 pr-3">
-                        <div className="font-medium">{t.title}</div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="font-medium">{t.title}</span>
+                        {repeatLabel(t) && (
+                          <Badge variant="outline" className="gap-0.5 text-[10px] px-1.5 py-0 text-primary">
+                            <Repeat className="h-2.5 w-2.5" />
+                            {repeatLabel(t)}
+                          </Badge>
+                        )}
+                      </div>
                         {t.description && (
                           <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{t.description}</div>
                         )}

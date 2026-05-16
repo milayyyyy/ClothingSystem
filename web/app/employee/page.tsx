@@ -22,6 +22,7 @@ export default async function EmployeeDashboard() {
     { data: tasksAssigned },
     { data: inventory },
     readyMadeLow,
+    { data: clockSetting },
   ] = await Promise.all([
     supabase.from("orders").select("*").order("created_at", { ascending: false }),
     supabase.from("salaries").select("*").eq("user_id", uid).order("created_at", { ascending: false }).limit(3),
@@ -33,6 +34,7 @@ export default async function EmployeeDashboard() {
       .order("due_date", { ascending: true }),
     supabase.from("inventory").select("*"),
     fetchReadyMadeDashboardLowStockItems(supabase),
+    supabase.from("app_settings").select("value").eq("key", "clock_mode").maybeSingle(),
   ]);
 
   const tasksReminders = (tasksAssigned || [])
@@ -46,6 +48,7 @@ export default async function EmployeeDashboard() {
   const open = (orders || []).filter((o) => !["delivered", "cancelled"].includes(o.status));
   const lastAttendance = attendance?.[0];
   const onClock = !!(lastAttendance && !lastAttendance.time_out);
+  const clockMode: "manual" | "face" = (clockSetting as { value?: string } | null)?.value === "face" ? "face" : "manual";
 
   return (
     <div>
@@ -61,7 +64,14 @@ export default async function EmployeeDashboard() {
         </CardContent></Card>
         <Card><CardContent className="p-5">
           <div className="text-xs uppercase text-muted-foreground">Attendance</div>
-          <TimeClock onClock={onClock} lastId={lastAttendance?.id} userId={user.id} profileId={user.profile.id} />
+          <TimeClock
+            onClock={onClock}
+            lastId={lastAttendance?.id}
+            userId={user.id}
+            profileId={user.profile.id}
+            lastTimeIn={lastAttendance?.time_in}
+            forcedMode={clockMode}
+          />
         </CardContent></Card>
       </div>
 
