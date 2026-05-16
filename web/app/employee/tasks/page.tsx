@@ -11,7 +11,7 @@ export default async function EmployeeTasksPage() {
   const supabase = createClient();
   const { data } = await supabase
     .from("tasks")
-    .select("*, assignees:task_assignees!inner(user_id)")
+    .select("*, machine_types(id, name), assignees:task_assignees!inner(user_id)")
     .eq("assignees.user_id", me.id)
     .order("created_at", { ascending: false });
   return (

@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
-import { ArrowRight, Repeat, RotateCcw } from "lucide-react";
+import { ArrowRight, Cog, Repeat, RotateCcw } from "lucide-react";
 import { repeatLabel, spawnNextRecurringTask } from "@/lib/task-recurrence";
 
 const STATUS_FLOW: Record<string, string> = {
@@ -104,6 +104,20 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
                             {repeatLabel(t)}
                           </Badge>
                         )}
+                        {t.machine_types?.name && (
+                          <Badge variant="outline" className="gap-0.5 text-[10px] px-1.5 py-0 text-amber-700 dark:text-amber-400">
+                            <Cog className="h-2.5 w-2.5" />
+                            {t.machine_types.name}
+                          </Badge>
+                        )}
+
+                        {t.machine_types?.name && (
+                          <Badge variant="outline" className="gap-0.5 text-[10px] px-1.5 py-0 text-amber-700 dark:text-amber-400">
+                            <Cog className="h-2.5 w-2.5" />
+                            {t.machine_types.name}
+                          </Badge>
+                        )}
+
                       </div>
                       {t.description && (
                         <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{t.description}</div>

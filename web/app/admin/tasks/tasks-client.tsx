@@ -8,12 +8,17 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { ArrowRight, Pencil, Plus, Repeat, RotateCcw, Settings2, Trash2, Users } from "lucide-react";
+import { ArrowRight, Cog, Pencil, Plus, Repeat, RotateCcw, Settings2, Trash2, Users } from "lucide-react";
 import { repeatLabel, repeatFieldsForInsert, spawnNextRecurringTask, type RepeatMode } from "@/lib/task-recurrence";
 
 type T = any;
 type P = { id: string; full_name: string; email: string; role: string };
 type TaskType = { id: string; name: string; sort_order: number };
+type MachineType = { id: string; name: string; sort_order: number };
+
+function isMaintenanceTaskType(taskType: string) {
+  return taskType.trim().toLowerCase() === "maintenance";
+}
 
 const STATUS_FLOW: Record<string, string> = {
   open: "in_progress",
@@ -44,7 +49,9 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
   const [editTask, setEditTask] = useState<T | null>(null);
   const [forwarding, setForwarding] = useState<string | null>(null);
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
+  const [machineTypes, setMachineTypes] = useState<MachineType[]>([]);
   const [typesMgrOpen, setTypesMgrOpen] = useState(false);
+  const [machinesMgrOpen, setMachinesMgrOpen] = useState(false);
 
   async function fetchTaskTypes() {
     const { data } = await supabase
@@ -55,12 +62,24 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
     setTaskTypes(data || []);
   }
 
-  useEffect(() => { void fetchTaskTypes(); }, []);
+  async function fetchMachineTypes() {
+    const { data } = await supabase
+      .from("machine_types")
+      .select("id, name, sort_order")
+      .order("sort_order")
+      .order("name");
+    setMachineTypes(data || []);
+  }
+
+  useEffect(() => {
+    void fetchTaskTypes();
+    void fetchMachineTypes();
+  }, []);
 
   async function refresh() {
     const { data } = await supabase
       .from("tasks")
-      .select("*, assignees:task_assignees(user_id, profiles:user_id(full_name, email, role))")
+      .select("*, machine_types(id, name), assignees:task_assignees(user_id, profiles:user_id(full_name, email, role))")
       .order("created_at", { ascending: false });
     setList(data || []);
   }
@@ -130,6 +149,12 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
             <span className="font-medium text-sm">{t.title}</span>
             {t.task_type && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0">{t.task_type}</Badge>
+            )}
+            {t.machine_types?.name && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-amber-700 dark:text-amber-400">
+                <Cog className="mr-0.5 inline h-2.5 w-2.5" />
+                {t.machine_types.name}
+              </Badge>
             )}
             {repeatLabel(t) && (
               <Badge variant="outline" className="gap-0.5 text-[10px] px-1.5 py-0 text-primary">
@@ -229,6 +254,9 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
   return (
     <>
       <div className="mb-4 flex items-center justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={() => setMachinesMgrOpen(true)}>
+          <Cog className="mr-1 h-4 w-4" /> Machine Types
+        </Button>
         <Button variant="outline" size="sm" onClick={() => setTypesMgrOpen(true)}>
           <Settings2 className="mr-1 h-4 w-4" /> Task Types
         </Button>
@@ -283,12 +311,24 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
         </details>
       )}
 
+      <MachineTypesManagerDialog
+        open={machinesMgrOpen}
+        onClose={() => setMachinesMgrOpen(false)}
+        onChanged={fetchMachineTypes}
+      />
       <TaskTypesManagerDialog
         open={typesMgrOpen}
         onClose={() => setTypesMgrOpen(false)}
         onChanged={fetchTaskTypes}
       />
-      <NewTaskForm open={newOpen} onClose={() => setNewOpen(false)} people={people} taskTypes={taskTypes} onSaved={refresh} />
+      <NewTaskForm
+        open={newOpen}
+        onClose={() => setNewOpen(false)}
+        people={people}
+        taskTypes={taskTypes}
+        machineTypes={machineTypes}
+        onSaved={refresh}
+      />
       <EditTaskAssigneesDialog
         open={!!editTask}
         task={editTask}
@@ -361,6 +401,129 @@ function EditTaskAssigneesDialog({
           <Button type="submit">Save</Button>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+// ── Machine Types Manager ───────────────────────────────────────────────────
+function MachineTypesManagerDialog({
+  open,
+  onClose,
+  onChanged,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const supabase = createClient();
+  const [machines, setMachines] = useState<MachineType[]>([]);
+  const [newName, setNewName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    const { data } = await supabase.from("machine_types").select("id, name, sort_order").order("sort_order").order("name");
+    setMachines(data || []);
+  }
+
+  useEffect(() => { if (open) load(); }, [open]);
+
+  async function addMachine(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    const maxOrder = machines.reduce((m, t) => Math.max(m, t.sort_order), 0);
+    const { error } = await supabase.from("machine_types").insert({ name: trimmed, sort_order: maxOrder + 1 });
+    setSaving(false);
+    if (error) { alert(error.message); return; }
+    setNewName("");
+    await load();
+    onChanged();
+  }
+
+  async function saveEdit(id: string) {
+    const trimmed = editingName.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    const { error } = await supabase.from("machine_types").update({ name: trimmed }).eq("id", id);
+    setSaving(false);
+    if (error) { alert(error.message); return; }
+    setEditingId(null);
+    setEditingName("");
+    await load();
+    onChanged();
+  }
+
+  async function deleteMachine(id: string) {
+    if (!confirm("Delete this machine type? Maintenance tasks using it will clear the machine selection.")) return;
+    const { error } = await supabase.from("machine_types").delete().eq("id", id);
+    if (error) { alert(error.message); return; }
+    await load();
+    onChanged();
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Machine Types" description="Machines available when creating maintenance tasks." size="xl">
+      <div className="space-y-3">
+        <ul className="max-h-64 overflow-y-auto divide-y rounded-md border">
+          {machines.length === 0 && (
+            <li className="px-3 py-4 text-center text-muted-foreground text-xs">No machines yet.</li>
+          )}
+          {machines.map((m) => (
+            <li key={m.id} className="flex items-center gap-2 px-3 py-2.5 text-sm">
+              {editingId === m.id ? (
+                <>
+                  <Input
+                    className="h-7 flex-1 text-sm"
+                    value={editingName}
+                    onChange={(e) => setEditingName(e.target.value)}
+                    autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveEdit(m.id); } if (e.key === "Escape") setEditingId(null); }}
+                  />
+                  <Button size="sm" className="h-7 text-xs" disabled={saving} onClick={() => saveEdit(m.id)}>Save</Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditingId(null)}>Cancel</Button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 font-medium">{m.name}</span>
+                  <button
+                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title="Edit"
+                    onClick={() => { setEditingId(m.id); setEditingName(m.name); }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    className="rounded p-1 text-destructive hover:bg-destructive/10"
+                    title="Delete"
+                    onClick={() => deleteMachine(m.id)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+
+        <form onSubmit={addMachine} className="flex gap-2">
+          <Input
+            placeholder="New machine (e.g. DTF Printer #2)"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            className="flex-1"
+          />
+          <Button type="submit" disabled={saving || !newName.trim()}>
+            <Plus className="mr-1 h-4 w-4" /> Add
+          </Button>
+        </form>
+
+        <div className="flex justify-end pt-1">
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </div>
+      </div>
     </Dialog>
   );
 }
@@ -490,26 +653,39 @@ function TaskTypesManagerDialog({
 
 // ── New Task Form ───────────────────────────────────────────────────────────
 function NewTaskForm({
-  open, onClose, people, taskTypes, onSaved,
+  open, onClose, people, taskTypes, machineTypes, onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   people: P[];
   taskTypes: TaskType[];
+  machineTypes: MachineType[];
   onSaved: () => void;
 }) {
   const supabase = createClient();
   const [form, setForm] = useState<any>({ title: "", description: "", task_type: "", priority: "normal", due_date: "" });
+  const [machineTypeId, setMachineTypeId] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [repeatEnabled, setRepeatEnabled] = useState(false);
   const [repeatPreset, setRepeatPreset] = useState<RepeatMode>("weekly");
   const [repeatCustomDays, setRepeatCustomDays] = useState("7");
 
-  function set(k: string, v: any) { setForm((f: any) => ({ ...f, [k]: v })); }
+  const maintenanceSelected = isMaintenanceTaskType(form.task_type || "");
+
+  function set(k: string, v: any) {
+    setForm((f: any) => {
+      const next = { ...f, [k]: v };
+      if (k === "task_type" && !isMaintenanceTaskType(String(v))) {
+        setMachineTypeId("");
+      }
+      return next;
+    });
+  }
   function toggle(id: string) { setSelected((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]); }
 
   function resetForm() {
     setForm({ title: "", description: "", task_type: "", priority: "normal", due_date: "" });
+    setMachineTypeId("");
     setSelected([]);
     setRepeatEnabled(false);
     setRepeatPreset("weekly");
@@ -518,6 +694,10 @@ function NewTaskForm({
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (maintenanceSelected && !machineTypeId) {
+      alert("Select which machine this maintenance task is for.");
+      return;
+    }
     const repeat = repeatFieldsForInsert(
       repeatEnabled,
       repeatPreset,
@@ -527,6 +707,7 @@ function NewTaskForm({
       ...form,
       due_date: form.due_date || null,
       task_type: form.task_type || null,
+      machine_type_id: maintenanceSelected ? machineTypeId : null,
       ...repeat,
     };
     const { data: t } = await supabase.from("tasks").insert(payload).select().single();
@@ -557,11 +738,33 @@ function NewTaskForm({
             <p className="mt-1 text-xs text-muted-foreground">No types yet. Close this form and click <b>Task Types</b> to add some.</p>
           )}
         </div>
-        <div><Label>Priority</Label>
+        <div>
+          <Label>Priority</Label>
           <select className="h-9 w-full rounded-md border bg-transparent px-3 text-sm" value={form.priority} onChange={(e) => set("priority", e.target.value)}>
             <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option>
           </select>
         </div>
+        {maintenanceSelected && (
+          <div className="col-span-2">
+            <Label>Machine</Label>
+            <select
+              className="mt-1 h-9 w-full rounded-md border bg-transparent px-3 text-sm"
+              value={machineTypeId}
+              onChange={(e) => setMachineTypeId(e.target.value)}
+              required
+            >
+              <option value="">— Select machine —</option>
+              {machineTypes.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            {machineTypes.length === 0 && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                No machines yet. Close this form and click <b>Machine Types</b> to add some.
+              </p>
+            )}
+          </div>
+        )}
         <div className="col-span-2"><Label>Due date</Label><Input type="date" value={form.due_date} onChange={(e) => set("due_date", e.target.value)} /></div>
         <div className="col-span-2 rounded-lg border bg-muted/20 p-3 space-y-3">
           <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">

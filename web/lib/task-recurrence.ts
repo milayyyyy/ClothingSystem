@@ -8,6 +8,7 @@ export type RecurringTaskFields = {
   title: string;
   description?: string | null;
   task_type?: string | null;
+  machine_type_id?: string | null;
   priority?: string | null;
   due_date?: string | null;
 };
@@ -105,6 +106,7 @@ export async function spawnNextRecurringTask(
     title: completedTask.title,
     description: completedTask.description ?? null,
     task_type: completedTask.task_type ?? null,
+    machine_type_id: completedTask.machine_type_id ?? null,
     priority: completedTask.priority ?? "normal",
     due_date: nextDue,
     status: "open" as const,
