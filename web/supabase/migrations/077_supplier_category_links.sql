@@ -10,14 +10,25 @@ create table if not exists public.supplier_category_links (
 create index if not exists supplier_category_links_category_id_idx
   on public.supplier_category_links(category_id);
 
--- Migrate legacy single category_id (migration 076)
-insert into public.supplier_category_links (supplier_id, category_id)
-select id, category_id
-from public.suppliers
-where category_id is not null
-on conflict (supplier_id, category_id) do nothing;
+-- Migrate legacy single category_id (migration 076) when column still exists
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'suppliers'
+      and column_name = 'category_id'
+  ) then
+    insert into public.supplier_category_links (supplier_id, category_id)
+    select id, category_id
+    from public.suppliers
+    where category_id is not null
+    on conflict (supplier_id, category_id) do nothing;
 
-alter table public.suppliers drop column if exists category_id;
+    alter table public.suppliers drop column category_id;
+  end if;
+end $$;
 
 alter table public.supplier_category_links enable row level security;
 
