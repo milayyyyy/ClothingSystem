@@ -97,15 +97,25 @@ export function MyOrdersClient({ initial }: { initial: any[] }) {
                   <dt className="mb-1 text-xs text-muted-foreground">Status</dt>
                   <StatusBadge status={o.status} />
                 </div>
-                {showSheet && (
+                <div className="flex flex-wrap gap-2">
                   <Link
-                    href={`/employee/orders/${o.id}/teams`}
+                    href={`/employee/orders/${o.id}/invoice`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-input bg-background px-3 text-xs font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
                   >
-                    <Table2 className="mr-1.5 h-3.5 w-3.5" />
-                    View sheet
+                    Invoice
                   </Link>
-                )}
+                  {showSheet && (
+                    <Link
+                      href={`/employee/orders/${o.id}/teams`}
+                      className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-input bg-background px-3 text-xs font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <Table2 className="mr-1.5 h-3.5 w-3.5" />
+                      View sheet
+                    </Link>
+                  )}
+                </div>
               </div>
 
               {isSub && (

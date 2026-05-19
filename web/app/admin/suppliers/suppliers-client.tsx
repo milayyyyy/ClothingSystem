@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,10 +7,20 @@ import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Pencil, Plus, Trash2, Mail, Phone, MapPin, Share2, ListOrdered } from "lucide-react";
+import { Pencil, Plus, Trash2, Mail, Phone, MapPin, Share2, ListOrdered, Tags } from "lucide-react";
 import { SupplierPricelistDialog } from "./supplier-pricelist-dialog";
+import {
+  SupplierCategoriesDialog,
+  type SupplierCategoryRow,
+} from "./supplier-categories-dialog";
+import { cn } from "@/lib/utils";
+import {
+  normalizeSupplier,
+  syncSupplierCategoryLinks,
+  type SupplierWithCategories,
+} from "@/lib/supplier-categories";
 
-type S = any;
+type S = SupplierWithCategories;
 
 const SUPPLIER_FORM_EMPTY = {
   name: "",
@@ -21,7 +31,10 @@ const SUPPLIER_FORM_EMPTY = {
   google_maps_pin_url: "",
   social_media_url: "",
   notes: "",
+  category_ids: [] as string[],
 };
+
+type CategoryFilter = "all" | "none" | string;
 
 function externalHref(raw: string | null | undefined): string {
   const t = String(raw ?? "").trim();
@@ -30,13 +43,38 @@ function externalHref(raw: string | null | undefined): string {
   return `https://${t}`;
 }
 
-export function SuppliersClient({ initial }: { initial: S[] }) {
+export function SuppliersClient({
+  initial,
+  initialCategories = [],
+}: {
+  initial: S[];
+  initialCategories?: SupplierCategoryRow[];
+}) {
   const supabase = createClient();
   const [list, setList] = useState<S[]>(initial);
+  const [categories, setCategories] = useState<SupplierCategoryRow[]>(initialCategories);
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<S | null>(null);
   const [pricelistSupplier, setPricelistSupplier] = useState<S | null>(null);
   const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
+
+  const categoryById = useMemo(() => {
+    const m = new Map<string, SupplierCategoryRow>();
+    for (const c of categories) m.set(c.id, c);
+    return m;
+  }, [categories]);
+
+  const filteredList = useMemo(() => {
+    if (categoryFilter === "all") return list;
+    if (categoryFilter === "none") return list.filter((s) => s.category_ids.length === 0);
+    return list.filter((s) => s.category_ids.includes(categoryFilter));
+  }, [list, categoryFilter]);
+
+  function countInCategory(categoryId: string) {
+    return list.filter((s) => s.category_ids.includes(categoryId)).length;
+  }
 
   async function loadItemCounts(supplierIds: string[]) {
     if (!supplierIds.length) {
@@ -56,9 +94,21 @@ export function SuppliersClient({ initial }: { initial: S[] }) {
     setItemCounts(counts);
   }
 
+  async function refreshCategories() {
+    const { data } = await supabase
+      .from("supplier_categories")
+      .select("id,name,sort_order")
+      .order("sort_order")
+      .order("name");
+    setCategories((data as SupplierCategoryRow[]) || []);
+  }
+
   async function refresh() {
-    const { data } = await supabase.from("suppliers").select("*").order("name");
-    const rows = data || [];
+    const [{ data }, _cats] = await Promise.all([
+      supabase.from("suppliers").select("*, supplier_category_links(category_id)").order("name"),
+      refreshCategories(),
+    ]);
+    const rows = ((data as Record<string, unknown>[]) || []).map((row) => normalizeSupplier(row));
     setList(rows);
     void loadItemCounts(rows.map((r) => r.id));
   }
@@ -74,16 +124,79 @@ export function SuppliersClient({ initial }: { initial: S[] }) {
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
-        <Button onClick={() => { setEditing(null); setOpen(true); }}><Plus className="mr-1 h-4 w-4" /> Add Supplier</Button>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Category</span>
+          <button
+            type="button"
+            onClick={() => setCategoryFilter("all")}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              categoryFilter === "all"
+                ? "border-primary bg-primary/10 text-primary"
+                : "hover:bg-muted",
+            )}
+          >
+            All ({list.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setCategoryFilter("none")}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              categoryFilter === "none"
+                ? "border-primary bg-primary/10 text-primary"
+                : "hover:bg-muted",
+            )}
+          >
+            Uncategorized ({list.filter((s) => s.category_ids.length === 0).length})
+          </button>
+          {categories.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => setCategoryFilter(c.id)}
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                categoryFilter === c.id
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "hover:bg-muted",
+              )}
+            >
+              {c.name} ({countInCategory(c.id)})
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={() => setCategoriesOpen(true)}>
+            <Tags className="mr-1 h-4 w-4" />
+            Manage categories
+          </Button>
+          <Button onClick={() => { setEditing(null); setOpen(true); }}>
+            <Plus className="mr-1 h-4 w-4" /> Add Supplier
+          </Button>
+        </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {list.map((s) => (
+        {filteredList.map((s) => (
           <Card key={s.id} className="card-hover">
             <CardContent className="p-5">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="font-semibold">{s.name}</div>
+                  {s.category_ids.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {s.category_ids.map((cid) => {
+                        const cat = categoryById.get(cid);
+                        if (!cat) return null;
+                        return (
+                          <Badge key={cid} variant="outline" className="text-[10px]">
+                            {cat.name}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  )}
                   {s.contact_person && <div className="text-xs text-muted-foreground">{s.contact_person}</div>}
                 </div>
                 <div className="flex gap-1">
@@ -151,9 +264,25 @@ export function SuppliersClient({ initial }: { initial: S[] }) {
             </CardContent>
           </Card>
         ))}
-        {list.length === 0 && <p className="text-sm text-muted-foreground">No suppliers yet.</p>}
+        {filteredList.length === 0 && (
+          <p className="col-span-full text-sm text-muted-foreground">
+            {list.length === 0 ? "No suppliers yet." : "No suppliers in this category."}
+          </p>
+        )}
       </div>
-      <SupplierForm open={open} onClose={() => setOpen(false)} supplier={editing} onSaved={refresh} />
+      <SupplierForm
+        open={open}
+        onClose={() => setOpen(false)}
+        supplier={editing}
+        categories={categories}
+        onManageCategories={() => setCategoriesOpen(true)}
+        onSaved={refresh}
+      />
+      <SupplierCategoriesDialog
+        open={categoriesOpen}
+        onClose={() => setCategoriesOpen(false)}
+        onChanged={refresh}
+      />
       <SupplierPricelistDialog
         open={!!pricelistSupplier}
         onClose={() => setPricelistSupplier(null)}
@@ -164,14 +293,45 @@ export function SuppliersClient({ initial }: { initial: S[] }) {
   );
 }
 
-function SupplierForm({ open, onClose, supplier, onSaved }: { open: boolean; onClose: () => void; supplier: S | null; onSaved: () => void }) {
+function SupplierForm({
+  open,
+  onClose,
+  supplier,
+  categories,
+  onManageCategories,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  supplier: S | null;
+  categories: SupplierCategoryRow[];
+  onManageCategories: () => void;
+  onSaved: () => void;
+}) {
   const supabase = createClient();
   const [form, setForm] = useState<any>(() => ({ ...SUPPLIER_FORM_EMPTY, ...(supplier || {}) }));
 
   useEffect(() => {
     if (!open) return;
-    setForm(supplier ? { ...SUPPLIER_FORM_EMPTY, ...supplier } : { ...SUPPLIER_FORM_EMPTY });
+    setForm(
+      supplier
+        ? {
+            ...SUPPLIER_FORM_EMPTY,
+            ...supplier,
+            category_ids: [...(supplier.category_ids || [])],
+          }
+        : { ...SUPPLIER_FORM_EMPTY },
+    );
   }, [open, supplier]);
+
+  function toggleCategory(categoryId: string, checked: boolean) {
+    setForm((f: typeof SUPPLIER_FORM_EMPTY) => {
+      const ids = new Set(f.category_ids || []);
+      if (checked) ids.add(categoryId);
+      else ids.delete(categoryId);
+      return { ...f, category_ids: [...ids] };
+    });
+  }
 
   function set(k: string, v: any) {
     setForm((f: any) => ({ ...f, [k]: v }));
@@ -189,10 +349,22 @@ function SupplierForm({ open, onClose, supplier, onSaved }: { open: boolean; onC
       social_media_url: form.social_media_url?.trim() || null,
       notes: form.notes?.trim() || null,
     };
-    if (supplier) await supabase.from("suppliers").update(payload).eq("id", supplier.id);
-    else await supabase.from("suppliers").insert(payload);
-    onClose();
-    onSaved();
+    const categoryIds: string[] = form.category_ids || [];
+    try {
+      if (supplier) {
+        const { error } = await supabase.from("suppliers").update(payload).eq("id", supplier.id);
+        if (error) throw new Error(error.message);
+        await syncSupplierCategoryLinks(supabase, supplier.id, categoryIds);
+      } else {
+        const { data: created, error } = await supabase.from("suppliers").insert(payload).select("id").single();
+        if (error || !created) throw new Error(error?.message || "Could not create supplier");
+        await syncSupplierCategoryLinks(supabase, created.id, categoryIds);
+      }
+      onClose();
+      onSaved();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Save failed");
+    }
   }
 
   return (
@@ -201,6 +373,40 @@ function SupplierForm({ open, onClose, supplier, onSaved }: { open: boolean; onC
         <div className="col-span-2">
           <Label>Name</Label>
           <Input required value={form.name} onChange={(e) => set("name", e.target.value)} />
+        </div>
+        <div className="col-span-2">
+          <div className="flex items-end justify-between gap-2">
+            <Label className="flex-1">Categories</Label>
+            <button
+              type="button"
+              className="text-xs text-primary underline-offset-4 hover:underline"
+              onClick={onManageCategories}
+            >
+              Manage categories
+            </button>
+          </div>
+          {categories.length === 0 ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              No categories yet. Use Manage categories to add some.
+            </p>
+          ) : (
+            <div className="mt-2 max-h-36 space-y-1.5 overflow-y-auto rounded-md border bg-muted/10 p-2">
+              {categories.map((c) => (
+                <label
+                  key={c.id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-muted/50"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input accent-primary"
+                    checked={(form.category_ids || []).includes(c.id)}
+                    onChange={(e) => toggleCategory(c.id, e.target.checked)}
+                  />
+                  {c.name}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <Label>Contact person</Label>

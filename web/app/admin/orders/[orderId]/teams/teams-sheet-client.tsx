@@ -550,6 +550,7 @@ export function TeamsSheetClient({
   orderKind = "local",
   initialDownPayment = 0,
   initialLinePrices = {},
+  initialSheetFormat = "teams",
   readOnly = false,
   backHref,
 }: {
@@ -561,6 +562,7 @@ export function TeamsSheetClient({
   initialUnitPrice?: number;
   initialQuantity?: number;
   initialLinePrices?: Record<string, number>;
+  initialSheetFormat?: "teams" | "services";
   readOnly?: boolean;
   backHref?: string;
 }) {
@@ -574,7 +576,25 @@ export function TeamsSheetClient({
 
   // Walk-in & Online can switch between "teams" and "services" sheet format
   const canSwitchFormat = orderKind === "local" || orderKind === "online";
-  const [sheetFormat, setSheetFormat] = useState<"teams" | "services">("teams");
+  const [sheetFormat, setSheetFormat] = useState<"teams" | "services">(() => {
+    if (orderKind === "services") return "services";
+    if (initialSheetFormat === "services" || initialSheetFormat === "teams") return initialSheetFormat;
+    return "teams";
+  });
+
+  async function persistSheetFormat(fmt: "teams" | "services") {
+    if (!canSwitchFormat || viewOnly) return;
+    const { error } = await supabase
+      .from("orders")
+      .update({ teams_sheet_format: fmt })
+      .eq("id", orderId);
+    if (error) console.error("teams_sheet_format save:", error.message);
+  }
+
+  function chooseSheetFormat(fmt: "teams" | "services") {
+    setSheetFormat(fmt);
+    void persistSheetFormat(fmt);
+  }
 
   // ── Pricing state ──────────────────────────────────────────────────────────
   const [linePrices, setLinePrices] = useState<Record<string, number>>(initialLinePrices);
@@ -711,7 +731,13 @@ export function TeamsSheetClient({
       // 2. Save pricing back to the order
       const { error: orderErr } = await supabase
         .from("orders")
-        .update({ jersey_line_prices: linePrices, unit_price: computedTotal, quantity: 1, down_payment: dp })
+        .update({
+          jersey_line_prices: linePrices,
+          unit_price: computedTotal,
+          quantity: 1,
+          down_payment: dp,
+          ...(canSwitchFormat ? { teams_sheet_format: sheetFormat } : {}),
+        })
         .eq("id", orderId);
 
       if (orderErr) {
@@ -785,6 +811,9 @@ export function TeamsSheetClient({
 
   // ── Labels (change based on order kind or chosen format) ─────────────────
   const isSvc = orderKind === "services" || (canSwitchFormat && sheetFormat === "services");
+  const invoiceHref = backHref?.includes("/employee")
+    ? `/employee/orders/${orderId}/invoice`
+    : `/admin/orders/${orderId}/invoice`;
   const L = {
     pageTitle:     isSvc ? "Services Order — sheet"   : "Teams & jerseys — sheet",
     addGroup:      isSvc ? "+ Services Order"          : "+ Team",
@@ -828,22 +857,31 @@ export function TeamsSheetClient({
             {customerName ? <> · {customerName}</> : null}{viewOnly ? ". View only." : ". Tab between cells like a spreadsheet; use Save when done."}
           </p>
         </div>
-        {!viewOnly && (
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={invoiceHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            Invoice
+          </Link>
+        {!viewOnly && (
+          <>
           {/* Format toggle — only for Walk-in & Online */}
           {canSwitchFormat && (
             <div className="flex rounded-md border overflow-hidden text-xs">
               <button
                 type="button"
                 className={`px-3 py-1.5 font-medium transition-colors ${sheetFormat === "teams" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
-                onClick={() => setSheetFormat("teams")}
+                onClick={() => chooseSheetFormat("teams")}
               >
                 Teams & Jerseys
               </button>
               <button
                 type="button"
                 className={`px-3 py-1.5 font-medium transition-colors border-l ${sheetFormat === "services" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
-                onClick={() => setSheetFormat("services")}
+                onClick={() => chooseSheetFormat("services")}
               >
                 Services
               </button>
@@ -855,8 +893,9 @@ export function TeamsSheetClient({
           <Button type="button" size="sm" onClick={save} disabled={loading || saving}>
             {saving ? "Saving…" : "Save sheet"}
           </Button>
-        </div>
+          </>
         )}
+        </div>
       </div>
 
       {message && (

@@ -138,3 +138,28 @@
   }
   .pulse-dot { animation: pulse-ring 2s infinite; }
 }
+
+/* Order invoice — print only the document, hide app chrome */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .invoice-doc,
+  .invoice-doc * {
+    visibility: visible;
+  }
+  .invoice-doc {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none;
+    padding: 0;
+  }
+}

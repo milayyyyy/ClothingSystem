@@ -37,6 +37,20 @@ export default async function TeamsSheetPage({ params }: { params: { orderId: st
     : rawKind === "online" ? "online"
     : "local";
 
+  let sheetFormat: "teams" | "services" = "teams";
+  try {
+    const { data: fmtRow } = await supabase
+      .from("orders")
+      .select("teams_sheet_format")
+      .eq("id", params.orderId)
+      .single();
+    if (fmtRow?.teams_sheet_format === "services" || fmtRow?.teams_sheet_format === "teams") {
+      sheetFormat = fmtRow.teams_sheet_format;
+    }
+  } catch {
+    // column not yet in DB — ignore
+  }
+
   return (
     <TeamsSheetClient
       orderId={order.id}
@@ -47,6 +61,7 @@ export default async function TeamsSheetPage({ params }: { params: { orderId: st
       initialUnitPrice={Number(order.unit_price ?? 0)}
       initialQuantity={Number(order.quantity ?? 1)}
       initialLinePrices={linePrices}
+      initialSheetFormat={sheetFormat}
     />
   );
 }

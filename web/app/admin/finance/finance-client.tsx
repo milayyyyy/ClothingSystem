@@ -11,6 +11,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FinanceCsvExportDialog } from "@/components/finance-csv-export-dialog";
+import { useConfirmAction } from "@/components/confirm-dialog";
 
 type FinanceAccountRow = {
   id: string;
@@ -85,6 +86,7 @@ export function FinanceClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
+  const { ask, dialog: confirmDialog } = useConfirmAction();
 
   const [flowFromInput, setFlowFromInput] = useState(flowDateFrom);
   const [flowToInput, setFlowToInput] = useState(flowDateTo);
@@ -258,11 +260,20 @@ export function FinanceClient({
     router.refresh();
   }
 
-  async function deleteAccount(a: FinanceAccountRow) {
-    if (!confirm(`Delete "${a.name}"? This will also delete its money flow history.`)) return;
-    const { error: e } = await supabase.from("finance_accounts").delete().eq("id", a.id);
-    if (e) return alert(e.message);
-    router.refresh();
+  function deleteAccount(a: FinanceAccountRow) {
+    ask({
+      title: "Delete finance account?",
+      description: `Delete "${a.name}"? All money flow entries for this account will be removed. This cannot be undone.`,
+      confirmLabel: "Delete account",
+      onConfirm: async () => {
+        const { error: e } = await supabase.from("finance_accounts").delete().eq("id", a.id);
+        if (e) {
+          alert(e.message);
+          return;
+        }
+        router.refresh();
+      },
+    });
   }
 
   function openCreateTx() {
@@ -311,15 +322,25 @@ export function FinanceClient({
     router.refresh();
   }
 
-  async function deleteTx(t: FinanceTxRow) {
-    if (!confirm("Delete this money flow entry?")) return;
-    const { error: e } = await supabase.from("finance_transactions").delete().eq("id", t.id);
-    if (e) return alert(e.message);
-    router.refresh();
+  function deleteTx(t: FinanceTxRow) {
+    ask({
+      title: "Delete money flow entry?",
+      description: "Remove this transaction from the ledger? Account balances will be recalculated. This cannot be undone.",
+      confirmLabel: "Delete entry",
+      onConfirm: async () => {
+        const { error: e } = await supabase.from("finance_transactions").delete().eq("id", t.id);
+        if (e) {
+          alert(e.message);
+          return;
+        }
+        router.refresh();
+      },
+    });
   }
 
   return (
     <div className="space-y-6">
+      {confirmDialog}
       {error && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
           Finance is unavailable until migrations <code className="rounded bg-muted px-1">037_finance_accounts.sql</code> and{" "}

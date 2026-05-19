@@ -11,7 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { peso, formatDate, formatDateTime, formatSupabaseError } from "@/lib/utils";
 import { parseBigSellerPrintedTimeFromPdfText } from "@/lib/bigseller-printed-time";
-import { ChevronDown, Eye, FileUp, Pencil, Plus, Settings2, Table2, Trash2, ArrowRight } from "lucide-react";
+import { ChevronDown, Eye, FileText, FileUp, Pencil, Plus, Settings2, Table2, Trash2, ArrowRight } from "lucide-react";
 import { BIGSELLER_KNOWN_STORES_SORTED } from "@/lib/bigseller-store-labels";
 import { ADMIN_ORDERS_SELECT } from "@/lib/admin-orders-select";
 import {
@@ -21,6 +21,7 @@ import {
   normalizeOrderServiceStage,
   nextOrderServiceStage,
 } from "@/lib/order-services";
+import { useConfirmAction } from "@/components/confirm-dialog";
 
 /** Local calendar day `YYYY-MM-DD` for date-range filters on `bigseller_printed_at`. */
 function localDayKeyFromIso(iso: string | null | undefined): string | null {
@@ -985,6 +986,7 @@ export function OrdersClient({
   const pathname = usePathname();
   const params = useSearchParams();
   const supabase = createClient();
+  const { ask, dialog: confirmDialog } = useConfirmAction();
   const [orders, setOrders] = useState<Order[]>(() => (initialOrders || []).map(normalizeOrderAssigneesRow));
   const [stageFilter, setStageFilter] = useState<"all" | string>("all");
   const [kindFilter, setKindFilter] = useState<OrdersTabKind>(() =>
@@ -1199,20 +1201,33 @@ export function OrdersClient({
     }
     setOrders(list);
   }
-  async function remove(id: string) {
-    if (!confirm("Delete this order?")) return;
-    await supabase.from("orders").delete().eq("id", id);
-    setSelectedOnlineIds((prev) => {
-      const n = new Set(prev);
-      n.delete(id);
-      return n;
+  function remove(id: string) {
+    const o = orders.find((x) => x.id === id);
+    ask({
+      title: "Delete order?",
+      description: o
+        ? `Delete order #${o.order_no} for ${o.customer_name}? This permanently removes the order and its saved sheet data. This cannot be undone.`
+        : "Delete this order? This cannot be undone.",
+      confirmLabel: "Delete order",
+      onConfirm: async () => {
+        const { error } = await supabase.from("orders").delete().eq("id", id);
+        if (error) {
+          alert(error.message);
+          return;
+        }
+        setSelectedOnlineIds((prev) => {
+          const n = new Set(prev);
+          n.delete(id);
+          return n;
+        });
+        setSelectedListOrderIds((prev) => {
+          const n = new Set(prev);
+          n.delete(id);
+          return n;
+        });
+        refresh();
+      },
     });
-    setSelectedListOrderIds((prev) => {
-      const n = new Set(prev);
-      n.delete(id);
-      return n;
-    });
-    refresh();
   }
 
   function toggleOnlineRowSelected(id: string) {
@@ -1232,17 +1247,26 @@ export function OrdersClient({
     else setSelectedOnlineIds(new Set(ids));
   }
 
-  async function removeSelectedOnline() {
+  function removeSelectedOnline() {
     const ids = [...selectedOnlineIds];
     if (ids.length === 0) return;
-    if (!confirm(`Delete ${ids.length} selected order(s)? This cannot be undone.`)) return;
-    const { error } = await supabase.from("orders").delete().in("id", ids);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    setSelectedOnlineIds(new Set());
-    refresh();
+    ask({
+      title: ids.length === 1 ? "Delete order?" : `Delete ${ids.length} orders?`,
+      description:
+        ids.length === 1
+          ? "Delete the selected order? This cannot be undone."
+          : `Delete ${ids.length} selected orders? This cannot be undone.`,
+      confirmLabel: ids.length === 1 ? "Delete order" : `Delete ${ids.length} orders`,
+      onConfirm: async () => {
+        const { error } = await supabase.from("orders").delete().in("id", ids);
+        if (error) {
+          alert(error.message);
+          return;
+        }
+        setSelectedOnlineIds(new Set());
+        refresh();
+      },
+    });
   }
 
   function toggleListRowSelected(id: string) {
@@ -1262,17 +1286,26 @@ export function OrdersClient({
     else setSelectedListOrderIds(new Set(ids));
   }
 
-  async function removeSelectedListOrders() {
+  function removeSelectedListOrders() {
     const ids = [...selectedListOrderIds];
     if (ids.length === 0) return;
-    if (!confirm(`Delete ${ids.length} selected order(s)? This cannot be undone.`)) return;
-    const { error } = await supabase.from("orders").delete().in("id", ids);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    setSelectedListOrderIds(new Set());
-    refresh();
+    ask({
+      title: ids.length === 1 ? "Delete order?" : `Delete ${ids.length} orders?`,
+      description:
+        ids.length === 1
+          ? "Delete the selected order? This cannot be undone."
+          : `Delete ${ids.length} selected orders? This cannot be undone.`,
+      confirmLabel: ids.length === 1 ? "Delete order" : `Delete ${ids.length} orders`,
+      onConfirm: async () => {
+        const { error } = await supabase.from("orders").delete().in("id", ids);
+        if (error) {
+          alert(error.message);
+          return;
+        }
+        setSelectedListOrderIds(new Set());
+        refresh();
+      },
+    });
   }
 
   async function forwardOrdersByIds(ids: string[], target: string) {
@@ -1382,6 +1415,7 @@ export function OrdersClient({
 
   return (
     <>
+      {confirmDialog}
       <div className="mb-4 border-b">
         <div className="flex flex-wrap items-end gap-1">
           {ORDER_TOP_TABS.map((t) => {
@@ -1855,6 +1889,15 @@ export function OrdersClient({
                       </td>
                       <td className="text-xs">{formatDate(o.due_date)}</td>
                       <td className="pr-3 text-right">
+                        <Link
+                          href={`/admin/orders/${o.id}/invoice`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mr-1 inline-flex rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          title="Invoice"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                        </Link>
                         {(isSub || k.v === "local" || k.v === "online" || k.v === "services") && (
                           <Link
                             href={`/admin/orders/${o.id}/teams`}
