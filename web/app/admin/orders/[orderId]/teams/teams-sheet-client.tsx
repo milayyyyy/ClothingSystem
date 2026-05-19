@@ -54,6 +54,7 @@ function TeamDesignStrip({
   orderId,
   teamKey,
   disabled,
+  viewOnly = false,
   uploading,
   onUrlsChange,
   onUploadError,
@@ -63,6 +64,7 @@ function TeamDesignStrip({
   orderId: string;
   teamKey: string;
   disabled: boolean;
+  viewOnly?: boolean;
   uploading: boolean;
   onUrlsChange: (next: string[]) => void;
   onUploadError: (msg: string) => void;
@@ -116,9 +118,11 @@ function TeamDesignStrip({
         <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           Design photos
         </label>
-        <span className="text-[10px] text-muted-foreground/90">
-          {urls.length}/{TEAM_DESIGN_MAX} · multi-select in the file picker (Ctrl/Cmd+click)
-        </span>
+        {!viewOnly && (
+          <span className="text-[10px] text-muted-foreground/90">
+            {urls.length}/{TEAM_DESIGN_MAX} · multi-select in the file picker (Ctrl/Cmd+click)
+          </span>
+        )}
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-2">
         {urls.map((url) => (
@@ -127,36 +131,45 @@ function TeamDesignStrip({
             className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-md border border-border bg-muted/40"
           >
             <img src={url} alt="" className="h-full w-full object-cover" />
-            <button
-              type="button"
-              className="absolute inset-0 flex items-center justify-center bg-black/50 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
-              disabled={disabled || uploading}
-              onClick={() => onUrlsChange(urls.filter((u) => u !== url))}
-            >
-              Remove
-            </button>
+            {!viewOnly && (
+              <button
+                type="button"
+                className="absolute inset-0 flex items-center justify-center bg-black/50 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
+                disabled={disabled || uploading}
+                onClick={() => onUrlsChange(urls.filter((u) => u !== url))}
+              >
+                Remove
+              </button>
+            )}
           </div>
         ))}
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          aria-label="Add design photos (choose multiple files at once)"
-          onChange={onPickFiles}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-9 shrink-0 text-xs"
-          disabled={disabled || uploading || urls.length >= TEAM_DESIGN_MAX}
-          title="Opens file picker—you can select several images in one go"
-          onClick={() => fileRef.current?.click()}
-        >
-          {uploading ? "Uploading…" : urls.length ? "Add more photos" : "Upload photos (multiple)"}
-        </Button>
+        {!viewOnly && (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              aria-label="Add design photos (choose multiple files at once)"
+              onChange={onPickFiles}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 shrink-0 text-xs"
+              disabled={disabled || uploading || urls.length >= TEAM_DESIGN_MAX}
+              title="Opens file picker—you can select several images in one go"
+              onClick={() => fileRef.current?.click()}
+            >
+              {uploading ? "Uploading…" : urls.length ? "Add more photos" : "Upload photos (multiple)"}
+            </Button>
+          </>
+        )}
+        {viewOnly && urls.length === 0 && (
+          <span className="text-[11px] text-muted-foreground">No design photos</span>
+        )}
       </div>
     </div>
   );
@@ -168,12 +181,32 @@ function TeamDesignStrip({
 function JerseyOrderCell({
   items,
   onChange,
+  readOnly = false,
   addLineLabel = "+ Add line",
 }: {
   items: JerseyChecklistItem[];
   onChange: (next: JerseyChecklistItem[]) => void;
+  readOnly?: boolean;
   addLineLabel?: string;
 }) {
+  if (readOnly) {
+    const lines = items.filter((x) => x.checked || x.name.trim() || x.size.trim());
+    if (!lines.length) return <span className="text-[11px] text-muted-foreground italic">—</span>;
+    return (
+      <ul className="flex min-w-[13rem] max-w-[24rem] flex-col gap-1 py-1 text-[11px]">
+        {lines.map((item) => (
+          <li key={item.id} className="rounded border border-border/60 bg-muted/15 px-2 py-0.5">
+            <span className={item.checked ? "font-medium" : "text-muted-foreground line-through"}>
+              {item.name.trim() || "—"}
+            </span>
+            {item.size.trim() ? (
+              <span className="ml-1 font-mono text-muted-foreground">({item.size.trim()})</span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    );
+  }
   return (
     <div className="flex min-w-[13rem] max-w-[24rem] flex-col gap-1.5 py-1">
       {items.map((item) => (
@@ -517,6 +550,8 @@ export function TeamsSheetClient({
   orderKind = "local",
   initialDownPayment = 0,
   initialLinePrices = {},
+  readOnly = false,
+  backHref,
 }: {
   orderId: string;
   orderNo: number;
@@ -526,8 +561,11 @@ export function TeamsSheetClient({
   initialUnitPrice?: number;
   initialQuantity?: number;
   initialLinePrices?: Record<string, number>;
+  readOnly?: boolean;
+  backHref?: string;
 }) {
   const supabase = createClient();
+  const viewOnly = readOnly;
   const [flatRows, setFlatRows] = useState<FlatRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -766,18 +804,20 @@ export function TeamsSheetClient({
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      <FinanceAccountDialog
+      {!viewOnly && (
+        <FinanceAccountDialog
         open={dpDialogOpen}
         dpAmount={Math.max(0, (Number(downPaymentStr) || 0) - savedDownPayment)}
         accounts={financeAccounts}
         onConfirm={handleDpDialogConfirm}
         onCancel={handleDpDialogSkip}
-      />
+        />
+      )}
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link
-            href={backHrefForKind(orderKind)}
+            href={backHref ?? backHrefForKind(orderKind)}
             className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
           >
             ← Back to orders
@@ -785,9 +825,10 @@ export function TeamsSheetClient({
           <h1 className="mt-3 text-xl font-semibold tracking-tight">{L.pageTitle}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Order <span className="font-mono">#{orderNo}</span>
-            {customerName ? <> · {customerName}</> : null}. Tab between cells like a spreadsheet; use Save when done.
+            {customerName ? <> · {customerName}</> : null}{viewOnly ? ". View only." : ". Tab between cells like a spreadsheet; use Save when done."}
           </p>
         </div>
+        {!viewOnly && (
         <div className="flex flex-wrap items-center gap-2">
           {/* Format toggle — only for Walk-in & Online */}
           {canSwitchFormat && (
@@ -815,6 +856,7 @@ export function TeamsSheetClient({
             {saving ? "Saving…" : "Save sheet"}
           </Button>
         </div>
+        )}
       </div>
 
       {message && (
@@ -838,18 +880,23 @@ export function TeamsSheetClient({
                       <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                         {L.groupNameLabel}
                       </label>
-                      <Input
-                        className="mt-1 h-9 font-medium"
-                        value={group.teamName}
-                        onChange={(e: ChangeEvent<HTMLInputElement>) => patchTeamName(group.teamKey, e.target.value)}
-                        placeholder={L.groupNamePlch}
-                      />
+                      {viewOnly ? (
+                        <p className="mt-1 h-9 font-medium leading-9">{group.teamName || "—"}</p>
+                      ) : (
+                        <Input
+                          className="mt-1 h-9 font-medium"
+                          value={group.teamName}
+                          onChange={(e: ChangeEvent<HTMLInputElement>) => patchTeamName(group.teamKey, e.target.value)}
+                          placeholder={L.groupNamePlch}
+                        />
+                      )}
                     </div>
                     <TeamDesignStrip
                       urls={group.rows[0]?.teamDesignUrls ?? []}
                       orderId={orderId}
                       teamKey={group.teamKey}
-                      disabled={loading}
+                      disabled={loading || viewOnly}
+                      viewOnly={viewOnly}
                       uploading={uploadingTeamKey === group.teamKey}
                       onUrlsChange={(next) => patchTeamDesignUrls(group.teamKey, next)}
                       onUploadError={(msg) => setMessage(msg)}
@@ -878,17 +925,23 @@ export function TeamsSheetClient({
                         <option value="size">Size (first line)</option>
                       </select>
                     </div>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => addPlayerToTeam(group.teamKey)} disabled={loading}>
-                      {L.addRow}
-                    </Button>
-                    <Button
-                      type="button" size="sm" variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => removeTeam(group.teamKey)}
-                      disabled={loading || teamGroups.length <= 1}
-                    >
-                      {L.removeGroup}
-                    </Button>
+                    {!viewOnly && (
+                      <>
+                        <Button type="button" size="sm" variant="secondary" onClick={() => addPlayerToTeam(group.teamKey)} disabled={loading}>
+                          {L.addRow}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => removeTeam(group.teamKey)}
+                          disabled={loading || teamGroups.length <= 1}
+                        >
+                          {L.removeGroup}
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -902,7 +955,7 @@ export function TeamsSheetClient({
                         <th className="min-w-[14rem] border-b border-r px-2 py-2">
                           {L.colLines} <span className="font-normal normal-case text-muted-foreground">(size)</span>
                         </th>
-                        <th className="w-16 border-b px-2 py-2 text-center"> </th>
+                        {!viewOnly && <th className="w-16 border-b px-2 py-2 text-center"> </th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -912,38 +965,49 @@ export function TeamsSheetClient({
                             {idx + 1}
                           </td>
                           <td className="border-r p-0">
-                            <input
-                              className="h-9 w-full border-0 bg-transparent px-2 outline-none focus:bg-primary/5"
-                              value={r.surname}
-                              onChange={(e) => patchRow(r.rowId, { surname: e.target.value })}
-                              aria-label={L.colName}
-                            />
+                            {viewOnly ? (
+                              <span className="block h-9 px-2 leading-9">{r.surname || "—"}</span>
+                            ) : (
+                              <input
+                                className="h-9 w-full border-0 bg-transparent px-2 outline-none focus:bg-primary/5"
+                                value={r.surname}
+                                onChange={(e) => patchRow(r.rowId, { surname: e.target.value })}
+                                aria-label={L.colName}
+                              />
+                            )}
                           </td>
                           {!isSvc && (
                             <td className="border-r p-0">
-                              <input
-                                className="h-9 w-full border-0 bg-transparent px-2 text-center font-mono outline-none focus:bg-primary/5"
-                                value={r.jersey_number}
-                                onChange={(e) => patchRow(r.rowId, { jersey_number: e.target.value })}
-                                aria-label="Jersey number"
-                              />
+                              {viewOnly ? (
+                                <span className="block h-9 px-2 text-center font-mono leading-9">{r.jersey_number || "—"}</span>
+                              ) : (
+                                <input
+                                  className="h-9 w-full border-0 bg-transparent px-2 text-center font-mono outline-none focus:bg-primary/5"
+                                  value={r.jersey_number}
+                                  onChange={(e) => patchRow(r.rowId, { jersey_number: e.target.value })}
+                                  aria-label="Jersey number"
+                                />
+                              )}
                             </td>
                           )}
                           <td className="border-r p-1 align-top">
                             <JerseyOrderCell
                               items={r.jerseyChecklist}
                               onChange={(next) => patchRow(r.rowId, { jerseyChecklist: next })}
+                              readOnly={viewOnly}
                               addLineLabel={isSvc ? "+ Add service line" : undefined}
                             />
                           </td>
                           <td className="p-0 text-center">
-                            <button
-                              type="button"
-                              className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                              onClick={() => removeRow(r.rowId)}
-                            >
-                              Delete
-                            </button>
+                            {!viewOnly && (
+                              <button
+                                type="button"
+                                className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                onClick={() => removeRow(r.rowId)}
+                              >
+                                Delete
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -953,7 +1017,7 @@ export function TeamsSheetClient({
               </div>
             ))}
           </div>
-          <p className="mt-4 border-t pt-3 text-[11px] text-muted-foreground">{L.footerHint}</p>
+          {!viewOnly && <p className="mt-4 border-t pt-3 text-[11px] text-muted-foreground">{L.footerHint}</p>}
         </CardContent>
       </Card>
 
@@ -962,10 +1026,11 @@ export function TeamsSheetClient({
         <CardContent className="p-4">
           <h2 className="mb-1 text-sm font-semibold">Price chart</h2>
           <p className="mb-4 text-xs text-muted-foreground">
-            {isSvc
-              ? "Service lines with the same name & size are grouped. Set a unit price per type — the total updates automatically."
-              : "Jersey lines with the same name & size are grouped. Set a unit price per type — the total updates automatically."
-            } Save sheet saves both the data and the pricing.
+            {viewOnly
+              ? "Grouped line items and pricing for this order."
+              : isSvc
+                ? "Service lines with the same name & size are grouped. Set a unit price per type — the total updates automatically. Save sheet saves both the data and the pricing."
+                : "Jersey lines with the same name & size are grouped. Set a unit price per type — the total updates automatically. Save sheet saves both the data and the pricing."}
           </p>
 
           {uniqueLines.length === 0 ? (
@@ -993,20 +1058,24 @@ export function TeamsSheetClient({
                           {line.size || <span className="italic text-muted-foreground/60">—</span>}
                         </td>
                         <td className="border-r px-3 py-2 text-center font-mono">{line.count}</td>
-                        <td className="border-r p-1">
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            className="h-8 w-full rounded border border-border/60 bg-transparent px-2 text-right font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
-                            value={unitPrice === 0 ? "" : unitPrice}
-                            placeholder="0.00"
-                            onChange={(e) => {
-                              const v = e.target.value === "" ? 0 : Number(e.target.value);
-                              setLinePrices((prev) => ({ ...prev, [line.key]: isNaN(v) ? 0 : v }));
-                            }}
-                            aria-label={`Price for ${line.name} ${line.size}`}
-                          />
+                        <td className="border-r px-3 py-2 text-right font-mono">
+                          {viewOnly ? (
+                            unitPrice > 0 ? peso(unitPrice) : <span className="text-muted-foreground">—</span>
+                          ) : (
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              className="h-8 w-full rounded border border-border/60 bg-transparent px-2 text-right font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
+                              value={unitPrice === 0 ? "" : unitPrice}
+                              placeholder="0.00"
+                              onChange={(e) => {
+                                const v = e.target.value === "" ? 0 : Number(e.target.value);
+                                setLinePrices((prev) => ({ ...prev, [line.key]: isNaN(v) ? 0 : v }));
+                              }}
+                              aria-label={`Price for ${line.name} ${line.size}`}
+                            />
+                          )}
                         </td>
                         <td className="px-3 py-2 text-right font-mono">
                           {subtotal > 0 ? peso(subtotal) : <span className="text-muted-foreground">—</span>}
@@ -1028,17 +1097,21 @@ export function TeamsSheetClient({
                     <td colSpan={4} className="border-r px-3 py-1.5 text-right text-muted-foreground">
                       Down payment
                     </td>
-                    <td className="p-1">
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        className="h-8 w-full rounded border border-border/60 bg-transparent px-2 text-right font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
-                        value={downPaymentStr}
-                        placeholder="0.00"
-                        onChange={(e) => setDownPaymentStr(e.target.value)}
-                        aria-label="Down payment"
-                      />
+                    <td className="px-3 py-2 text-right font-mono">
+                      {viewOnly ? (
+                        downPayment > 0 ? peso(downPayment) : <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          className="h-8 w-full rounded border border-border/60 bg-transparent px-2 text-right font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
+                          value={downPaymentStr}
+                          placeholder="0.00"
+                          onChange={(e) => setDownPaymentStr(e.target.value)}
+                          aria-label="Down payment"
+                        />
+                      )}
                     </td>
                   </tr>
                   <tr className="border-t border-border/60">
@@ -1056,10 +1129,12 @@ export function TeamsSheetClient({
             </div>
           )}
 
-          <p className="mt-3 text-[11px] text-muted-foreground">
-            Clicking <strong>Save sheet</strong> above saves both the jersey sheet and this pricing. The order total and
-            down payment will be updated in the orders list.
-          </p>
+          {!viewOnly && (
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              Clicking <strong>Save sheet</strong> above saves both the jersey sheet and this pricing. The order total and
+              down payment will be updated in the orders list.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

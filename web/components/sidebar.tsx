@@ -11,6 +11,12 @@ import {
   BarChart3, LogOut, Printer, ChevronDown, Truck, ListChecks, Activity,
   Store, Globe, Sparkles, Warehouse, LayoutGrid, Wrench, TrendingUp, List, Landmark, Briefcase, Settings, PackageX,
 } from "lucide-react";
+import {
+  canView,
+  hrefToFeature,
+  isEmployeeOwnedAdminPath,
+  type Permissions,
+} from "@/lib/role-permissions";
 
 type Role = "admin" | "sub_admin" | "employee";
 type Child = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; query?: Record<string, string> };
@@ -87,11 +93,49 @@ function initials(name: string) {
   return name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase() || "U";
 }
 
-export function Sidebar({ role, name }: { role: Role; name: string }) {
+function filterStaffGroups(groups: Group[], perms: Permissions, role: Role): Group[] {
+  return groups
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((item) => {
+        if (item.adminOnly && role !== "admin") return false;
+        const feature = hrefToFeature(item.href);
+        if (!feature) return true;
+        return canView(perms, feature);
+      }),
+    }))
+    .filter((g) => g.items.length > 0);
+}
+
+/** Extra admin links for employees (inventory, suppliers, etc.) — not tasks/salary/attendance/orders. */
+function employeeGrantedAdminItems(perms: Permissions): Item[] {
+  return filterStaffGroups(STAFF_GROUPS, perms, "employee")
+    .flatMap((g) => g.items)
+    .filter((item) => !isEmployeeOwnedAdminPath(item.href.split("?")[0]));
+}
+
+export function Sidebar({
+  role,
+  name,
+  permissions,
+}: {
+  role: Role;
+  name: string;
+  permissions?: Permissions;
+}) {
   const pathname = usePathname();
   const params = useSearchParams();
   const router = useRouter();
-  const groups = role === "employee" ? EMPLOYEE_GROUPS : STAFF_GROUPS;
+  const perms = permissions ?? ({ all: role === "admin" } as Permissions);
+  const groups =
+    role === "employee"
+      ? (() => {
+          const extra = employeeGrantedAdminItems(perms);
+          return extra.length > 0
+            ? [...EMPLOYEE_GROUPS, { title: "Operations", items: extra }]
+            : EMPLOYEE_GROUPS;
+        })()
+      : filterStaffGroups(STAFF_GROUPS, perms, role);
   const homeBase = role === "employee" ? "/employee" : "/admin";
 
   // Manual expand state — start with active section auto-expanded
@@ -159,9 +203,7 @@ export function Sidebar({ role, name }: { role: Role; name: string }) {
               {g.title}
             </div>
             <div className="space-y-0.5">
-              {g.items
-                .filter((i) => !i.adminOnly || role === "admin")
-                .map((item) => {
+              {g.items.map((item) => {
                   const Icon = item.icon;
                   const active = isItemActive(item);
                   const hasChildren = !!item.children;

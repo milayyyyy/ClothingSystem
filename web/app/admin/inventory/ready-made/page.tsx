@@ -1,13 +1,16 @@
 import Link from "next/link";
-import { getSessionUser } from "@/lib/supabase/server";
+import { createClient, getSessionUser } from "@/lib/supabase/server";
+import { canEdit, getPermissionsForRole } from "@/lib/role-permissions";
 import { PageHeader } from "@/components/page-header";
 import { ReadyMadeInventoryClient } from "./ready-made-inventory-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReadyMadeInventoryPage() {
+  const supabase = createClient();
   const user = await getSessionUser();
-  const canEdit = user?.profile?.role === "admin" || user?.profile?.role === "sub_admin";
+  const perms = user ? await getPermissionsForRole(supabase, user.profile.role) : null;
+  const canEditReadyMade = perms ? canEdit(perms, "ready_made") : false;
   return (
     <div>
       <PageHeader
@@ -22,7 +25,7 @@ export default async function ReadyMadeInventoryPage() {
           </Link>
         }
       />
-      <ReadyMadeInventoryClient canEdit={canEdit} />
+      <ReadyMadeInventoryClient canEdit={canEditReadyMade} />
     </div>
   );
 }

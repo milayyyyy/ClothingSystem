@@ -9,7 +9,7 @@ export default async function SuppliersPage() {
   const { data } = await supabase.from("suppliers").select("*").order("name");
   return (
     <div>
-      <PageHeader title="Suppliers" description="Vendor contacts and notes" />
+      <PageHeader title="Suppliers" description="Vendor contacts, pricelist photos, and product price lines" />
       <SuppliersClient initial={data || []} />
     </div>
   );

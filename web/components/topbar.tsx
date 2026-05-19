@@ -1,7 +1,12 @@
 "use client";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { GlobalSearch, QuickSearchTrigger } from "@/components/global-search";
 import { ThemeToggle } from "@/components/theme-toggle";
+
+const StickyNotes = dynamic(() => import("@/components/sticky-notes").then((m) => m.StickyNotes), {
+  ssr: false,
+});
 
 const NAMES: Record<string, string> = {
   admin: "Dashboard", orders: "Orders", stores: "Stores", inventory: "Inventory", "ready-made": "Ready made", employees: "Employees",
@@ -31,6 +36,7 @@ export function Topbar({ name, role, userId }: { name: string; role: string; use
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-2">
+          {userId && <StickyNotes userId={userId} />}
           <QuickSearchTrigger />
           <ThemeToggle />
           <div className="hidden text-right text-xs sm:block">

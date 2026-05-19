@@ -6,7 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
-import { Pencil, Plus, Trash2, Mail, Phone, MapPin, Share2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Pencil, Plus, Trash2, Mail, Phone, MapPin, Share2, ListOrdered } from "lucide-react";
+import { SupplierPricelistDialog } from "./supplier-pricelist-dialog";
 
 type S = any;
 
@@ -33,11 +35,37 @@ export function SuppliersClient({ initial }: { initial: S[] }) {
   const [list, setList] = useState<S[]>(initial);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<S | null>(null);
+  const [pricelistSupplier, setPricelistSupplier] = useState<S | null>(null);
+  const [itemCounts, setItemCounts] = useState<Record<string, number>>({});
+
+  async function loadItemCounts(supplierIds: string[]) {
+    if (!supplierIds.length) {
+      setItemCounts({});
+      return;
+    }
+    const { data, error } = await supabase.from("supplier_pricelist_items").select("supplier_id").in("supplier_id", supplierIds);
+    if (error) {
+      setItemCounts({});
+      return;
+    }
+    const counts: Record<string, number> = {};
+    for (const row of data || []) {
+      const id = String((row as { supplier_id: string }).supplier_id);
+      counts[id] = (counts[id] || 0) + 1;
+    }
+    setItemCounts(counts);
+  }
 
   async function refresh() {
     const { data } = await supabase.from("suppliers").select("*").order("name");
-    setList(data || []);
+    const rows = data || [];
+    setList(rows);
+    void loadItemCounts(rows.map((r) => r.id));
   }
+
+  useEffect(() => {
+    void loadItemCounts((initial || []).map((r: S) => r.id));
+  }, []);
   async function remove(id: string) {
     if (!confirm("Delete supplier?")) return;
     await supabase.from("suppliers").delete().eq("id", id);
@@ -95,12 +123,43 @@ export function SuppliersClient({ initial }: { initial: S[] }) {
                 )}
                 {s.notes && <p className="mt-2 rounded bg-muted/40 p-2 text-xs">{s.notes}</p>}
               </div>
+              <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-3">
+                {s.pricelist_image_url && (
+                  <a href={s.pricelist_image_url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={s.pricelist_image_url}
+                      alt=""
+                      className="h-10 w-14 rounded border object-cover"
+                    />
+                  </a>
+                )}
+                <Badge variant="outline" className="text-[10px]">
+                  {(itemCounts[s.id] ?? 0) === 1 ? "1 product" : `${itemCounts[s.id] ?? 0} products`}
+                </Badge>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="ml-auto h-8 text-xs"
+                  onClick={() => setPricelistSupplier(s)}
+                >
+                  <ListOrdered className="mr-1 h-3.5 w-3.5" />
+                  Pricelist
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}
         {list.length === 0 && <p className="text-sm text-muted-foreground">No suppliers yet.</p>}
       </div>
       <SupplierForm open={open} onClose={() => setOpen(false)} supplier={editing} onSaved={refresh} />
+      <SupplierPricelistDialog
+        open={!!pricelistSupplier}
+        onClose={() => setPricelistSupplier(null)}
+        supplier={pricelistSupplier}
+        onSaved={refresh}
+      />
     </>
   );
 }

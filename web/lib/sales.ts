@@ -79,6 +79,35 @@ export function orderTypeLabel(k: SalesChannel) {
   return "Walk in";
 }
 
+/** Online orders imported from BigSeller PDF typically have no teams/jerseys sheet. */
+export function isBigSellerOnlineOrder(order: {
+  kind?: string | null;
+  order_type?: string | null;
+  source?: string | null;
+  notes?: string | null;
+}): boolean {
+  if (getOrderKind(order as { kind?: string; order_type?: string }) !== "online") return false;
+  const src = String(order?.source || "").toLowerCase();
+  if (src.includes("bigseller")) return true;
+  const notes = String(order?.notes || "").toLowerCase();
+  if (notes.includes("imported from bigseller pdf")) return true;
+  if (notes.includes("bigseller") && notes.includes("pdf") && notes.includes("import")) return true;
+  return false;
+}
+
+/** Whether this order uses the teams/jerseys spreadsheet (admin sheet view). */
+export function orderHasTeamsSheet(order: {
+  kind?: string | null;
+  order_type?: string | null;
+  source?: string | null;
+  notes?: string | null;
+}): boolean {
+  const channel = getOrderKind(order as { kind?: string; order_type?: string });
+  if (channel === "sublimation" || channel === "services" || channel === "local") return true;
+  if (channel === "online" && !isBigSellerOnlineOrder(order)) return true;
+  return false;
+}
+
 export function formatSalesDateTime(d: string | null | undefined) {
   if (!d) return "—";
   const date = new Date(d);

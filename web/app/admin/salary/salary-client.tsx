@@ -367,7 +367,7 @@ function PayFromAttendanceDialog({
             extra payout (Confirm pay). Unpaid base + allowance in this range is ₱0 until new attendance is added.
           </p>
         )}
-        <div className="rounded-md border bg-muted/30 p-3 text-sm">
+        <div className="rounded-md border bg-muted/30 p-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">Base + allowance (unpaid in period)</span>
             <span className="font-medium">{peso(row.total)}</span>
@@ -405,7 +405,7 @@ function PayFromAttendanceDialog({
             <p className="mt-1 text-xs text-destructive">Add an account under Admin → Finance first.</p>
           )}
           {accountId && financeAccounts.length > 0 && (
-            <div className="mt-2 rounded-md border bg-background/60 p-3 text-sm space-y-1.5">
+            <div className="mt-2 rounded-md border bg-background/60 p-2 text-sm space-y-1.5">
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground">Account balance</span>
                 <span className="font-medium tabular-nums">{peso(accountBalance)}</span>
@@ -515,8 +515,8 @@ function EmployeePayRow({ emp }: { emp: any }) {
 
   return (
     <tr className="border-t align-top">
-      <td className="p-3">
-        <div className="font-medium">{emp.full_name || "—"}</div>
+      <td className="p-2">
+        <div className="font-medium text-sm leading-tight">{emp.full_name || "—"}</div>
         <div className="text-xs text-muted-foreground">{emp.email}</div>
       </td>
       <td className="p-2">
@@ -542,7 +542,7 @@ function EmployeePayRow({ emp }: { emp: any }) {
           value={salaryRate}
           onChange={(e) => setSalaryRate(Number(e.target.value))}
         />
-        <p className="mt-1 text-[10px] text-muted-foreground leading-tight">
+        <p className="mt-0.5 text-[10px] text-muted-foreground leading-none">
           {salaryType === "hourly" ? "Regular ₱/hr" : "₱ per day / period as per type"}
         </p>
       </td>
@@ -559,7 +559,7 @@ function EmployeePayRow({ emp }: { emp: any }) {
             setBreakMinutes(raw === "" ? 0 : Math.max(0, Math.floor(Number(raw)) || 0));
           }}
         />
-        <p className="mt-1 text-[10px] text-muted-foreground leading-tight">
+        <p className="mt-0.5 text-[10px] text-muted-foreground leading-none">
           {salaryType === "hourly" ? "Unpaid break / day (min)" : "Used for Hourly only"}
         </p>
       </td>
@@ -576,7 +576,7 @@ function EmployeePayRow({ emp }: { emp: any }) {
             setOvertimeHourlyRate(raw === "" ? 0 : Math.max(0, Number(raw) || 0));
           }}
         />
-        <p className="mt-1 text-[10px] text-muted-foreground leading-tight">
+        <p className="mt-0.5 text-[10px] text-muted-foreground leading-none">
           {salaryType === "hourly"
             ? `>${REGULAR_HOURS_BEFORE_OT_DEFAULT} paid hrs/day (₱/hr); 0 = same as regular`
             : "Used for Hourly only"}
@@ -893,53 +893,44 @@ export function SalaryClient({
 
   return (
     <>
-      <div className="mb-6 flex flex-col gap-3 rounded-lg border border-border/60 bg-card/50 px-4 py-3 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="grid gap-1.5">
-            <Label htmlFor="payroll-period-start">Start (default: 29 days before PH today)</Label>
-            <Input
-              id="payroll-period-start"
-              type="date"
-              className="h-9 w-[11.5rem] font-medium tabular-nums"
-              value={periodStartStr}
-              onChange={(e) => onPayrollStartChange(e.target.value)}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="payroll-period-end">End (defaults to today, Philippines)</Label>
-            <Input
-              id="payroll-period-end"
-              type="date"
-              className="h-9 w-[11.5rem] font-medium tabular-nums"
-              value={periodEndStr}
-              onChange={(e) => onPayrollEndChange(e.target.value)}
-            />
-          </div>
-        </div>
-        <p className="max-w-xl text-xs text-muted-foreground leading-relaxed lg:pb-0.5">
-          <strong>Employee salary computation</strong> and <strong>recorded payroll</strong> use this inclusive range in{" "}
-          <strong>Asia/Manila</strong> (start at midnight, end through end of day). On first load, end defaults to{" "}
-          <strong>today in the Philippines</strong> and start is <strong>29 days earlier</strong> (30 calendar days
-          inclusive, e.g. June 1–June 30). Pay stores these same dates on the salary row.
+      <div className="mb-4 flex flex-col gap-2 rounded-lg border border-border/60 bg-card/50 p-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2 sm:gap-y-2 sm:p-2.5">
+        <Input
+          id="payroll-period-start"
+          type="date"
+          aria-label="Payroll period start"
+          className="h-8 w-[10.25rem] text-xs tabular-nums"
+          value={periodStartStr}
+          onChange={(e) => onPayrollStartChange(e.target.value)}
+        />
+        <span className="text-xs text-muted-foreground">–</span>
+        <Input
+          id="payroll-period-end"
+          type="date"
+          aria-label="Payroll period end"
+          className="h-8 w-[10.25rem] text-xs tabular-nums"
+          value={periodEndStr}
+          onChange={(e) => onPayrollEndChange(e.target.value)}
+        />
+        <span className="text-xs font-medium text-foreground">{periodRangeLabel}</span>
+        <p className="text-[11px] leading-tight text-muted-foreground sm:ml-auto">
+          Manila · unpaid shifts in range · default 30 days
         </p>
       </div>
 
-      <details className="group mb-6 rounded-lg border border-border/80 bg-card open:shadow-sm">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
+      <details className="group mb-4 rounded-lg border border-border/80 bg-card open:shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
           <span>Employee pay &amp; allowances</span>
           <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
         </summary>
-        <div className="border-t border-border/60 px-4 pb-4 pt-3">
-          <p className="mb-3 text-sm text-muted-foreground">
-            <strong>Hourly</strong>: times from <span className="whitespace-nowrap">Admin → Attendance</span>; set{" "}
-            <strong>break (minutes)</strong> and <strong>OT (₱/hr)</strong> in the table (they apply only when type is
-            Hourly). Other types use distinct days with a time-in during the payroll period you set above.
+        <div className="border-t border-border/60 px-3 pb-3 pt-2">
+          <p className="mb-2 text-[11px] text-muted-foreground leading-snug">
+            Hourly uses Attendance times; break &amp; OT apply when type is Hourly. Other types count distinct days with time-in in the period above.
           </p>
           <div className="overflow-x-auto rounded-md border">
             <table className="w-full min-w-[960px] text-sm">
               <thead className="bg-muted/40 text-left text-xs font-medium text-muted-foreground">
                 <tr>
-                  <th className="p-3">Employee</th>
+                  <th className="p-2">Employee</th>
                   <th className="p-2 w-[130px]">Salary type</th>
                   <th className="p-2 w-[110px]">Rate</th>
                   <th className="p-2 w-[88px]">Break (min)</th>
@@ -966,28 +957,23 @@ export function SalaryClient({
         </div>
       </details>
 
-      <Card className="mb-6">
-        <CardHeader className="pb-2">
+      <Card className="mb-4">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-x-3 gap-y-1 space-y-0 px-3 py-2">
           <div className="flex items-center gap-2">
-            <CardTitle className="text-base">Employee salary computation</CardTitle>
+            <CardTitle className="text-sm font-semibold">Employee salary computation</CardTitle>
             {loadingPeriod && (
               <span className="text-xs text-muted-foreground animate-pulse">Refreshing…</span>
             )}
           </div>
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{periodRangeLabel}</span> — only shifts in this date range that are{" "}
-            <strong>not yet marked paid in payroll</strong> count toward the unpaid columns here (see Attendance). The{" "}
-            <strong>Pay</strong> button stays available after a period is paid (e.g. for a bonus);{" "}
-            <strong>Confirm pay</strong> requires a payout greater than zero. After you use <strong>Pay</strong>, those rows
-            are flagged settled; new clock-ins in this period stay unpaid until the next payout. Hourly uses break and OT
-            rules; allowance follows basis.
+          <p className="text-[11px] text-muted-foreground">
+            <span className="font-medium text-foreground">{periodRangeLabel}</span> · unpaid attendance in range · Pay for bonus or new shifts
           </p>
         </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full min-w-[760px] text-sm">
             <thead className="bg-muted/40 text-left text-xs font-medium text-muted-foreground">
               <tr>
-                <th className="p-3">Employee</th>
+                <th className="p-2">Employee</th>
                 <th className="p-2">Type</th>
                 <th className="p-2 text-right">Days in</th>
                 <th className="p-2 text-right">Raw h</th>
@@ -1003,8 +989,8 @@ export function SalaryClient({
             <tbody>
               {previewRows.map((r) => (
                 <tr key={r.id} className="border-t">
-                  <td className="p-3">
-                    <div className="font-medium">{r.name}</div>
+                  <td className="p-2">
+                    <div className="font-medium text-sm leading-tight">{r.name}</div>
                     <div className="text-xs text-muted-foreground">{r.email}</div>
                   </td>
                   <td className="p-2">{salaryTypeLabel(r.type)}</td>
@@ -1022,7 +1008,7 @@ export function SalaryClient({
                     {peso(r.displayTotal)}
                   </td>
                   <td className="p-2">
-                    <div className="flex flex-col items-start gap-1.5">
+                    <div className="flex flex-col items-start gap-1">
                       {r.payrollPaid === "paid" && (
                         <div className="flex flex-col gap-0.5">
                           <Badge variant="green">Paid</Badge>
@@ -1077,42 +1063,31 @@ export function SalaryClient({
       </Card>
 
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Recorded payroll</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{periodRangeLabel}</span> — rows saved for this same attendance
-            period (start/end above). Rows created when you use <strong>Pay</strong> in Employee salary computation (finance +
-            expense). The list is ordered by <strong>last paid</strong> so the newest activity appears first.{" "}
-            <strong>Mark paid</strong> only toggles status without recording an expense — use Pay for normal payroll.
-          </p>
-          <div className="mt-3 rounded-md border border-border/60 bg-muted/25 px-3 py-2.5 text-xs text-muted-foreground leading-relaxed">
-            <p className="font-medium text-foreground/90">How follow-up pays work</p>
-            <p className="mt-1.5">
-              There is <strong>one summary row per employee per payroll period</strong> (same start and end dates as
-              above). If you run <strong>Pay</strong> again after new attendance in that range, that row is{" "}
-              <strong>updated</strong>: Gross, Net, Days, Last paid, and the linked salary expense id point to the{" "}
-              <strong>latest</strong> payout run.
-            </p>
-            <p className="mt-1.5">
-              Each <strong>Pay</strong> still creates its <strong>own</strong> Salary expense and finance withdrawal for
-              that run&apos;s amount. The row here is the <strong>cumulative</strong> total for that period; older expense
-              lines remain in <strong>Admin → Expenses</strong> and <strong>Finance</strong> for the full history.
-            </p>
+        <CardHeader className="space-y-0 px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle className="text-sm font-semibold">Recorded payroll</CardTitle>
+            <span className="text-xs font-medium text-foreground">{periodRangeLabel}</span>
           </div>
+          <details className="mt-1 text-[11px] text-muted-foreground">
+            <summary className="cursor-pointer font-medium text-foreground/80 hover:text-foreground">How follow-up pays work</summary>
+            <p className="mt-1 leading-snug">
+              One row per employee per period; each Pay updates totals and creates its own expense. Mark paid toggles status only.
+            </p>
+          </details>
         </CardHeader>
         <CardContent className="p-0">
           <table className="w-full text-sm">
-            <thead className="bg-muted/40 text-left">
+            <thead className="bg-muted/40 text-left text-xs">
               <tr>
-                <th className="p-3">Employee</th>
-                <th>Attendance period</th>
-                <th>Days</th>
-                <th>Gross</th>
-                <th>Deductions</th>
-                <th>Net</th>
-                <th>Last paid</th>
-                <th>Status</th>
-                <th></th>
+                <th className="p-2">Employee</th>
+                <th className="p-2">Period</th>
+                <th className="p-2 text-right">Days</th>
+                <th className="p-2 text-right">Gross</th>
+                <th className="p-2 text-right">Ded.</th>
+                <th className="p-2 text-right">Net</th>
+                <th className="p-2">Last paid</th>
+                <th className="p-2">Status</th>
+                <th className="p-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -1120,21 +1095,21 @@ export function SalaryClient({
                 const emp = employees.find((e) => e.id === s.user_id);
                 return (
                   <tr key={s.id} className="border-t">
-                    <td className="p-3">{emp?.full_name || emp?.email || "—"}</td>
-                    <td className="text-muted-foreground">{periodRangeLabel}</td>
-                    <td>{s.days_worked}</td>
-                    <td>{peso(s.gross_pay)}</td>
-                    <td>{peso(s.deductions)}</td>
-                    <td className="font-semibold">{peso(s.net_pay)}</td>
-                    <td className="text-muted-foreground whitespace-nowrap text-xs">
+                    <td className="p-2 text-sm">{emp?.full_name || emp?.email || "—"}</td>
+                    <td className="p-2 text-xs text-muted-foreground whitespace-nowrap">{periodRangeLabel}</td>
+                    <td className="p-2 text-right tabular-nums">{s.days_worked}</td>
+                    <td className="p-2 text-right tabular-nums">{peso(s.gross_pay)}</td>
+                    <td className="p-2 text-right tabular-nums">{peso(s.deductions)}</td>
+                    <td className="p-2 text-right font-semibold tabular-nums">{peso(s.net_pay)}</td>
+                    <td className="p-2 text-muted-foreground whitespace-nowrap text-xs">
                       {s.paid_at ? formatDateTime(s.paid_at) : "—"}
                     </td>
-                    <td>
+                    <td className="p-2">
                       <Badge variant={salaryRowIsPaid(s) ? "green" : "amber"}>
                         {salaryRowIsPaid(s) ? "Paid" : "Unpaid"}
                       </Badge>
                     </td>
-                    <td>
+                    <td className="p-2">
                       {!salaryRowIsPaid(s) && (
                         <Button size="sm" variant="outline" onClick={() => void markPaid(s.id)}>
                           Mark Paid
@@ -1162,7 +1137,7 @@ export function SalaryClient({
             </tbody>
             <tfoot>
               <tr className="border-t bg-muted/40">
-                <td colSpan={6} className="p-3 text-right font-medium">
+                <td colSpan={6} className="p-2 text-right font-medium">
                   Total (net)
                 </td>
                 <td colSpan={3} className="font-semibold">

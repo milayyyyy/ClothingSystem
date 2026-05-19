@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
     overtime_hourly_rate: 0,
     date_of_birth: date_of_birth || null,
     employment_start: employment_start || null,
+    employment_category: "permanent",
   }).eq("id", created.user.id);
   if (pErr) return NextResponse.json({ error: pErr.message }, { status: 400 });
 

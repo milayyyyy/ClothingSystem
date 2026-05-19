@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient, getSessionUser } from "@/lib/supabase/server";
+import { canEdit, canView, getPermissionsForRole } from "@/lib/role-permissions";
 import { PageHeader } from "@/components/page-header";
 import { InventoryClient, type InventoryCategoryRow } from "./inventory-client";
 
@@ -13,7 +14,10 @@ export default async function AdminInventoryPage() {
     supabase.from("inventory_type_options").select("name").order("name"),
     getSessionUser(),
   ]);
-  const canEdit = user?.profile?.role === "admin" || user?.profile?.role === "sub_admin";
+  const perms = user ? await getPermissionsForRole(supabase, user.profile.role) : null;
+  const canEditInventory = perms ? canEdit(perms, "inventory") : false;
+  const canViewReadyMade = perms ? canView(perms, "ready_made") : false;
+  const canViewStores = perms ? canView(perms, "stores") : false;
   const initialTypePresets = ((typeOpts as { name: string }[] | null) || []).map((r) => r.name).filter(Boolean);
   return (
     <div>
@@ -22,17 +26,21 @@ export default async function AdminInventoryPage() {
         description="Stock levels and replenishment"
         action={
           <div className="flex flex-wrap gap-2">
-            {canEdit && (
+            {canEditInventory && (
               <Link href="/admin/inventory/settings" className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground">
                 Categories & types
               </Link>
             )}
-            <Link href="/admin/inventory/ready-made" className="inline-flex h-9 items-center justify-center rounded-md border border-primary/30 bg-primary/5 px-3 text-sm font-medium text-primary shadow-sm transition-colors hover:bg-primary/10">
-              Ready made inventory
-            </Link>
-            <Link href="/admin/stores" className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground">
-              Stores
-            </Link>
+            {canViewReadyMade && (
+              <Link href="/admin/inventory/ready-made" className="inline-flex h-9 items-center justify-center rounded-md border border-primary/30 bg-primary/5 px-3 text-sm font-medium text-primary shadow-sm transition-colors hover:bg-primary/10">
+                Ready made inventory
+              </Link>
+            )}
+            {canViewStores && (
+              <Link href="/admin/stores" className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground">
+                Stores
+              </Link>
+            )}
           </div>
         }
       />
@@ -40,7 +48,7 @@ export default async function AdminInventoryPage() {
         initial={data || []}
         initialCategories={(categories as InventoryCategoryRow[]) || []}
         initialTypePresets={initialTypePresets}
-        canEdit={canEdit}
+        canEdit={canEditInventory}
       />
     </div>
   );

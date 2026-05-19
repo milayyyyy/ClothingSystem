@@ -2,7 +2,8 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import dynamic from "next/dynamic";
 import { SidebarFallback } from "@/components/sidebar-fallback";
-import { getSessionUser } from "@/lib/supabase/server";
+import { createClient, getSessionUser } from "@/lib/supabase/server";
+import { getPermissionsForRole } from "@/lib/role-permissions";
 import { Topbar } from "@/components/topbar";
 
 const Sidebar = dynamic(() => import("@/components/sidebar").then((m) => m.Sidebar), {
@@ -12,11 +13,13 @@ const Sidebar = dynamic(() => import("@/components/sidebar").then((m) => m.Sideb
 export default async function EmployeeLayout({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+  const supabase = createClient();
+  const permissions = await getPermissionsForRole(supabase, user.profile.role);
   const name = user.profile.full_name || user.email!;
   return (
     <div className="flex h-screen overflow-hidden bg-muted/20">
       <Suspense fallback={<SidebarFallback />}>
-        <Sidebar role="employee" name={name} />
+        <Sidebar role="employee" name={name} permissions={permissions} />
       </Suspense>
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar role="employee" name={name} userId={user.id} />

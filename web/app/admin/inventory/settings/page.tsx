@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
+import { createClient, getSessionUser } from "@/lib/supabase/server";
+import { canEdit, getPermissionsForRole } from "@/lib/role-permissions";
 import { PageHeader } from "@/components/page-header";
 import { InventorySettingsClient } from "./inventory-settings-client";
 
@@ -7,6 +9,11 @@ export const dynamic = "force-dynamic";
 
 export default async function InventorySettingsPage() {
   const supabase = createClient();
+  const user = await getSessionUser();
+  if (user) {
+    const perms = await getPermissionsForRole(supabase, user.profile.role);
+    if (!canEdit(perms, "inventory")) redirect("/admin/inventory");
+  }
   const [{ data: types, error: te }, { data: cats, error: ce }] = await Promise.all([
     supabase.from("inventory_type_options").select("id,name").order("name"),
     supabase.from("inventory_categories").select("id,name,slug,sort_order").order("sort_order").order("name"),

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,8 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { normalizeEmploymentCategory, type EmploymentCategory } from "@/lib/employment-category";
+import { OnCallStaffPanel, type OnCallStaff } from "./on-call-staff-panel";
 import { Camera, Eye, EyeOff, Pencil, Plus, ScanFace, Settings2, ShieldCheck, Trash2 } from "lucide-react";
 import { FaceEnrollDialog } from "@/components/face-enroll-dialog";
 import { RoleSettingsDialog } from "@/components/role-settings-dialog";
@@ -28,15 +30,28 @@ function initials(name?: string | null) {
   return name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
 }
 
-export function EmployeesClient({ initial }: { initial: P[] }) {
+export function EmployeesClient({
+  initialPermanent,
+  initialOnCall,
+}: {
+  initialPermanent: P[];
+  initialOnCall: OnCallStaff[];
+}) {
   const supabase = createClient();
-  const [list, setList] = useState<P[]>(initial);
+  const [permanentList, setPermanentList] = useState<P[]>(initialPermanent);
+  const [onCallList, setOnCallList] = useState<OnCallStaff[]>(initialOnCall);
+  const [categoryTab, setCategoryTab] = useState<EmploymentCategory>("permanent");
   const [editing, setEditing] = useState<P | null>(null);
   const [adding, setAdding] = useState(false);
   const [enrollTarget, setEnrollTarget] = useState<P | null>(null);
   const [positions, setPositions] = useState<EmpPosition[]>([]);
   const [positionsMgrOpen, setPositionsMgrOpen] = useState(false);
   const [roleSettingsOpen, setRoleSettingsOpen] = useState(false);
+
+  const counts = useMemo(
+    () => ({ permanent: permanentList.length, onCall: onCallList.length }),
+    [permanentList, onCallList],
+  );
 
   async function fetchPositions() {
     const { data } = await supabase
@@ -50,8 +65,16 @@ export function EmployeesClient({ initial }: { initial: P[] }) {
   useEffect(() => { void fetchPositions(); }, []);
 
   async function refresh() {
-    const { data } = await supabase.from("profiles").select("*").order("created_at", { ascending: false });
-    setList(data || []);
+    const [{ data: profiles }, { data: onCall }] = await Promise.all([
+      supabase.from("profiles").select("*").order("created_at", { ascending: false }),
+      supabase.from("on_call_staff").select("*").order("full_name", { ascending: true }),
+    ]);
+    setPermanentList(
+      (profiles || []).filter(
+        (row) => normalizeEmploymentCategory((row as P).employment_category) !== "on_call",
+      ),
+    );
+    setOnCallList((onCall as OnCallStaff[]) || []);
   }
 
   function handleEnrolled() {
@@ -64,17 +87,67 @@ export function EmployeesClient({ initial }: { initial: P[] }) {
 
   return (
     <>
-      <div className="mb-4 flex items-center justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={() => setRoleSettingsOpen(true)}>
-          <ShieldCheck className="mr-1 h-4 w-4" /> Role Settings
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => setPositionsMgrOpen(true)}>
-          <Settings2 className="mr-1 h-4 w-4" /> Positions
-        </Button>
-        <Button onClick={() => setAdding(true)}><Plus className="mr-1 h-4 w-4" /> Add Employee</Button>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="inline-flex rounded-lg border bg-muted/30 p-0.5">
+          <button
+            type="button"
+            onClick={() => setCategoryTab("permanent")}
+            className={cn(
+              "rounded-md px-4 py-2 text-sm font-medium transition-colors",
+              categoryTab === "permanent"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            Permanent
+            <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">({counts.permanent})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCategoryTab("on_call")}
+            className={cn(
+              "rounded-md px-4 py-2 text-sm font-medium transition-colors",
+              categoryTab === "on_call"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            On call
+            <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">({counts.onCall})</span>
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={() => setRoleSettingsOpen(true)}>
+            <ShieldCheck className="mr-1 h-4 w-4" /> Role Settings
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setPositionsMgrOpen(true)}>
+            <Settings2 className="mr-1 h-4 w-4" /> Positions
+          </Button>
+          {categoryTab === "permanent" && (
+            <Button onClick={() => setAdding(true)}>
+              <Plus className="mr-1 h-4 w-4" />
+              Add employee
+            </Button>
+          )}
+        </div>
       </div>
+
+      <p className="mb-4 text-sm text-muted-foreground">
+        {categoryTab === "permanent"
+          ? "Regular staff with login accounts — payroll, attendance, and app access."
+          : "Contact directory for on-call workers — no accounts or app access."}
+      </p>
+
+      {categoryTab === "on_call" ? (
+        <OnCallStaffPanel list={onCallList} positions={positions} onRefresh={refresh} />
+      ) : (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {list.map((p) => (
+        {permanentList.length === 0 && (
+          <p className="col-span-full rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+            No permanent employees yet.
+          </p>
+        )}
+        {permanentList.map((p) => (
           <Card key={p.id}>
             <CardContent className="p-5">
               <div className="flex items-start justify-between">
@@ -105,6 +178,7 @@ export function EmployeesClient({ initial }: { initial: P[] }) {
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                <Badge variant="teal">Permanent</Badge>
                 <Badge variant={p.role === "admin" ? "purple" : "blue"}>{p.role}</Badge>
                 <Badge variant={p.active ? "green" : "red"}>{p.active ? "Active" : "Inactive"}</Badge>
                 {p.position && <Badge variant="outline">{p.position}</Badge>}
@@ -158,6 +232,7 @@ export function EmployeesClient({ initial }: { initial: P[] }) {
           </Card>
         ))}
       </div>
+      )}
 
       <RoleSettingsDialog
         open={roleSettingsOpen}
@@ -299,10 +374,29 @@ function PositionsManagerDialog({ open, onClose, onChanged }: PositionsMgrProps)
 }
 
 // ── Add / Edit Employee ───────────────────────────────────────────────────
-function AddEmployee({ open, onClose, positions, onSaved }: { open: boolean; onClose: () => void; positions: EmpPosition[]; onSaved: () => void }) {
+function AddEmployee({
+  open,
+  onClose,
+  positions,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  positions: EmpPosition[];
+  onSaved: () => void;
+}) {
   const supabase = createClient();
   const fileRef = useRef<HTMLInputElement>(null);
-  const emptyForm = { email: "", password: "", full_name: "", phone: "", position: "", role: "employee", date_of_birth: "", employment_start: "" };
+  const emptyForm = {
+    email: "",
+    password: "",
+    full_name: "",
+    phone: "",
+    position: "",
+    role: "employee",
+    date_of_birth: "",
+    employment_start: "",
+  };
   const [form, setForm] = useState<any>(emptyForm);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -354,7 +448,7 @@ function AddEmployee({ open, onClose, positions, onSaved }: { open: boolean; onC
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Add Employee" size="lg">
+    <Dialog open={open} onClose={onClose} title="Add employee" size="lg">
       <form onSubmit={save} className="grid grid-cols-2 gap-3">
         {/* Avatar picker */}
         <div className="col-span-2 flex items-center gap-4">
@@ -432,7 +526,12 @@ function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: b
 
   useEffect(() => {
     if (!open || !employee) return;
-    setForm({ ...employee, position: employee.position ?? "", date_of_birth: employee.date_of_birth ?? "", employment_start: employee.employment_start ?? "" });
+    setForm({
+      ...employee,
+      position: employee.position ?? "",
+      date_of_birth: employee.date_of_birth ?? "",
+      employment_start: employee.employment_start ?? "",
+    });
     setAvatarFile(null);
     setAvatarPreview(null);
     setNewPassword("");

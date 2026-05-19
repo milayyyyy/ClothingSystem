@@ -51,6 +51,13 @@ function blankPerms(): Permissions {
   return JSON.parse(JSON.stringify(EMPTY_PERMS));
 }
 
+/** Employee access is fixed in the app (/employee/*); not editable here. */
+const HIDDEN_ROLE_NAMES = new Set(["employee"]);
+
+function visibleRoles(list: Role[]) {
+  return list.filter((r) => !HIDDEN_ROLE_NAMES.has(r.name));
+}
+
 // ── Main dialog ────────────────────────────────────────────────────────────
 export function RoleSettingsDialog({
   open,
@@ -76,14 +83,23 @@ export function RoleSettingsDialog({
       .select("id, name, is_system, permissions")
       .order("is_system", { ascending: false })
       .order("name");
-    setRoles((data as Role[]) || []);
-    return (data as Role[]) || [];
+    const visible = visibleRoles((data as Role[]) || []);
+    setRoles(visible);
+    return visible;
   }
 
   useEffect(() => {
     if (open) {
       load().then((list) => {
-        if (!selected && list.length > 0) selectRole(list[0], list);
+        const pick =
+          list.find((r) => r.name === "admin") ??
+          list.find((r) => !HIDDEN_ROLE_NAMES.has(r.name)) ??
+          list[0];
+        if (pick && (!selected || HIDDEN_ROLE_NAMES.has(selected.name))) {
+          selectRole(pick, list);
+        } else if (!selected && pick) {
+          selectRole(pick, list);
+        }
       });
     }
   }, [open]);
@@ -147,6 +163,10 @@ export function RoleSettingsDialog({
     e.preventDefault();
     const name = addingName.trim();
     if (!name) return;
+    if (HIDDEN_ROLE_NAMES.has(name.toLowerCase())) {
+      setAddErr("That role name is reserved.");
+      return;
+    }
     setAddErr("");
     const { error } = await supabase
       .from("roles")
@@ -174,7 +194,13 @@ export function RoleSettingsDialog({
   const isSystem = !!selected?.is_system;
 
   return (
-    <Dialog open={open} onClose={onClose} title="Role Settings" description="Define access permissions for each role." size="xl">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Role Settings"
+      description="Permissions for admin, sub-admin, and custom roles. Employee portal access is fixed in the app and is not listed here."
+      size="xl"
+    >
       <div className="flex gap-4 min-h-[440px]">
 
         {/* ── Left: role list ─────────────────────────────────────── */}
@@ -293,7 +319,6 @@ export function RoleSettingsDialog({
                                 <input
                                   type="checkbox"
                                   checked={fp.view}
-                                  disabled={isSystem && selected.name === "employee" ? false : false}
                                   onChange={() => toggle(f.key, "view")}
                                   className="h-4 w-4 cursor-pointer rounded border-input accent-primary"
                                 />

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +7,13 @@ import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import { ArrowRight, Cog, Repeat, RotateCcw } from "lucide-react";
 import { repeatLabel, spawnNextRecurringTask } from "@/lib/task-recurrence";
+import {
+  inTaskDateRange,
+  taskDateKey,
+  taskDateRangeForPreset,
+  type TaskDatePreset,
+} from "@/lib/task-date-filter";
+import { TaskDateFilterBar } from "@/components/task-date-filter-bar";
 
 const STATUS_FLOW: Record<string, string> = {
   open: "in_progress",
@@ -29,10 +36,45 @@ function statusVariant(s: string) {
   return "amber";
 }
 
+type MachineType = { id: string; name: string };
+
 export function EmployeeTasksClient({ userId, initial }: { userId: string; initial: any[] }) {
   const supabase = createClient();
   const [list, setList] = useState(initial);
   const [forwarding, setForwarding] = useState<string | null>(null);
+  const [machineTypes, setMachineTypes] = useState<MachineType[]>([]);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [allTime, setAllTime] = useState(true);
+  const [datePreset, setDatePreset] = useState<TaskDatePreset | null>("all");
+
+  useEffect(() => {
+    void supabase
+      .from("machine_types")
+      .select("id, name")
+      .order("sort_order")
+      .order("name")
+      .then(({ data }) => setMachineTypes(data || []));
+  }, []);
+
+  function applyDatePreset(p: TaskDatePreset) {
+    setDatePreset(p);
+    const { from, to, allTime: all } = taskDateRangeForPreset(p);
+    setAllTime(all);
+    setDateFrom(from);
+    setDateTo(to);
+  }
+
+  const filteredList = useMemo(
+    () => list.filter((t) => inTaskDateRange(taskDateKey(t), dateFrom, dateTo, allTime)),
+    [list, dateFrom, dateTo, allTime],
+  );
+
+  function machineNameFor(task: any) {
+    if (task.machine_types?.name) return task.machine_types.name as string;
+    if (!task.machine_type_id) return null;
+    return machineTypes.find((m) => m.id === task.machine_type_id)?.name ?? null;
+  }
 
   async function forward(task: any) {
     const next = STATUS_FLOW[task.status];
@@ -66,11 +108,32 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
     setForwarding(null);
   }
 
-  const active = list.filter((t) => t.status !== "done" && t.status !== "cancelled");
-  const finished = list.filter((t) => t.status === "done" || t.status === "cancelled");
+  const active = filteredList.filter((t) => t.status !== "done" && t.status !== "cancelled");
+  const finished = filteredList.filter((t) => t.status === "done" || t.status === "cancelled");
 
   return (
     <div className="space-y-4">
+      <TaskDateFilterBar
+        idPrefix="emp-tasks"
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        allTime={allTime}
+        datePreset={datePreset}
+        onPreset={applyDatePreset}
+        onFromChange={(v) => {
+          setAllTime(false);
+          setDatePreset(null);
+          setDateFrom(v);
+        }}
+        onToChange={(v) => {
+          setAllTime(false);
+          setDatePreset(null);
+          setDateTo(v);
+        }}
+        filteredCount={filteredList.length}
+        totalCount={list.length}
+      />
+
       {/* Active tasks */}
       <Card>
         <CardContent className="p-0">
@@ -104,20 +167,12 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
                             {repeatLabel(t)}
                           </Badge>
                         )}
-                        {t.machine_types?.name && (
+                        {machineNameFor(t) && (
                           <Badge variant="outline" className="gap-0.5 text-[10px] px-1.5 py-0 text-amber-700 dark:text-amber-400">
                             <Cog className="h-2.5 w-2.5" />
-                            {t.machine_types.name}
+                            {machineNameFor(t)}
                           </Badge>
                         )}
-
-                        {t.machine_types?.name && (
-                          <Badge variant="outline" className="gap-0.5 text-[10px] px-1.5 py-0 text-amber-700 dark:text-amber-400">
-                            <Cog className="h-2.5 w-2.5" />
-                            {t.machine_types.name}
-                          </Badge>
-                        )}
-
                       </div>
                       {t.description && (
                         <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{t.description}</div>
@@ -147,7 +202,7 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
               {active.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
-                    No active tasks assigned to you.
+                    No active tasks assigned to you in this date range.
                   </td>
                 </tr>
               )}
@@ -175,14 +230,20 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
                       </td>
                       <td className="py-3 pr-3">
                         <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-medium">{t.title}</span>
-                        {repeatLabel(t) && (
-                          <Badge variant="outline" className="gap-0.5 text-[10px] px-1.5 py-0 text-primary">
-                            <Repeat className="h-2.5 w-2.5" />
-                            {repeatLabel(t)}
-                          </Badge>
-                        )}
-                      </div>
+                          <span className="font-medium">{t.title}</span>
+                          {repeatLabel(t) && (
+                            <Badge variant="outline" className="gap-0.5 text-[10px] px-1.5 py-0 text-primary">
+                              <Repeat className="h-2.5 w-2.5" />
+                              {repeatLabel(t)}
+                            </Badge>
+                          )}
+                          {machineNameFor(t) && (
+                            <Badge variant="outline" className="gap-0.5 text-[10px] px-1.5 py-0 text-amber-700 dark:text-amber-400">
+                              <Cog className="h-2.5 w-2.5" />
+                              {machineNameFor(t)}
+                            </Badge>
+                          )}
+                        </div>
                         {t.description && (
                           <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{t.description}</div>
                         )}

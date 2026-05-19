@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { canAccessAdminPath, getPermissionsForRole } from "@/lib/role-permissions";
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } });
@@ -41,11 +42,18 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
     const role = profile.role;
-    // /admin is shared by admin and sub_admin
-    if (path.startsWith("/admin") && !(role === "admin" || role === "sub_admin")) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/employee";
-      return NextResponse.redirect(url);
+    // Employees may access specific /admin routes when their role grants view permission.
+    if (path.startsWith("/admin") && role === "employee") {
+      const perms = await getPermissionsForRole(supabase, role);
+      if (!canAccessAdminPath(path, perms, role)) {
+        const url = request.nextUrl.clone();
+        if (path.startsWith("/admin/orders")) url.pathname = "/employee/orders";
+        else if (path.startsWith("/admin/tasks")) url.pathname = "/employee/tasks";
+        else if (path.startsWith("/admin/attendance")) url.pathname = "/employee/attendance";
+        else if (path.startsWith("/admin/salary")) url.pathname = "/employee/salary";
+        else url.pathname = "/employee";
+        return NextResponse.redirect(url);
+      }
     }
     // some admin sub-paths are admin-only
     const adminOnly = ["/admin/employees", "/admin/activity/delete"];

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { ArrowRight, Cog, Pencil, Plus, Repeat, RotateCcw, Settings2, Trash2, Users } from "lucide-react";
 import { repeatLabel, repeatFieldsForInsert, spawnNextRecurringTask, type RepeatMode } from "@/lib/task-recurrence";
+import { TaskDateFilterBar } from "@/components/task-date-filter-bar";
+import {
+  inTaskDateRange,
+  taskDateKey,
+  taskDateRangeForPreset,
+  type TaskDatePreset,
+} from "@/lib/task-date-filter";
 
 type T = any;
 type P = { id: string; full_name: string; email: string; role: string };
@@ -52,6 +59,23 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
   const [machineTypes, setMachineTypes] = useState<MachineType[]>([]);
   const [typesMgrOpen, setTypesMgrOpen] = useState(false);
   const [machinesMgrOpen, setMachinesMgrOpen] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [allTime, setAllTime] = useState(true);
+  const [datePreset, setDatePreset] = useState<TaskDatePreset | null>("all");
+
+  function applyDatePreset(p: TaskDatePreset) {
+    setDatePreset(p);
+    const { from, to, allTime: all } = taskDateRangeForPreset(p);
+    setAllTime(all);
+    setDateFrom(from);
+    setDateTo(to);
+  }
+
+  const filteredList = useMemo(
+    () => list.filter((t) => inTaskDateRange(taskDateKey(t), dateFrom, dateTo, allTime)),
+    [list, dateFrom, dateTo, allTime],
+  );
 
   async function fetchTaskTypes() {
     const { data } = await supabase
@@ -77,11 +101,21 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
   }, []);
 
   async function refresh() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("tasks")
-      .select("*, machine_types(id, name), assignees:task_assignees(user_id, profiles:user_id(full_name, email, role))")
+      .select("*, assignees:task_assignees(user_id, profiles:user_id(full_name, email, role))")
       .order("created_at", { ascending: false });
+    if (error) {
+      alert(`Could not load tasks: ${error.message}`);
+      return;
+    }
     setList(data || []);
+  }
+
+  function machineNameFor(task: T) {
+    if (task.machine_types?.name) return task.machine_types.name as string;
+    if (!task.machine_type_id) return null;
+    return machineTypes.find((m) => m.id === task.machine_type_id)?.name ?? null;
   }
 
   async function remove(id: string) {
@@ -122,9 +156,9 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
     setForwarding(null);
   }
 
-  // Group: active first, then done/cancelled
-  const active = list.filter((t) => t.status !== "done" && t.status !== "cancelled");
-  const finished = list.filter((t) => t.status === "done" || t.status === "cancelled");
+  // Group: active first, then done/cancelled (after date filter)
+  const active = filteredList.filter((t) => t.status !== "done" && t.status !== "cancelled");
+  const finished = filteredList.filter((t) => t.status === "done" || t.status === "cancelled");
 
   function TaskRow({ t }: { t: T }) {
     const nextStatus = STATUS_FLOW[t.status];
@@ -150,10 +184,10 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
             {t.task_type && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0">{t.task_type}</Badge>
             )}
-            {t.machine_types?.name && (
+            {machineNameFor(t) && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-amber-700 dark:text-amber-400">
                 <Cog className="mr-0.5 inline h-2.5 w-2.5" />
-                {t.machine_types.name}
+                {machineNameFor(t)}
               </Badge>
             )}
             {repeatLabel(t) && (
@@ -253,6 +287,27 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
 
   return (
     <>
+      <TaskDateFilterBar
+        idPrefix="tasks"
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        allTime={allTime}
+        datePreset={datePreset}
+        onPreset={applyDatePreset}
+        onFromChange={(v) => {
+          setAllTime(false);
+          setDatePreset(null);
+          setDateFrom(v);
+        }}
+        onToChange={(v) => {
+          setAllTime(false);
+          setDatePreset(null);
+          setDateTo(v);
+        }}
+        filteredCount={filteredList.length}
+        totalCount={list.length}
+      />
+
       <div className="mb-4 flex items-center justify-end gap-2">
         <Button variant="outline" size="sm" onClick={() => setMachinesMgrOpen(true)}>
           <Cog className="mr-1 h-4 w-4" /> Machine Types
@@ -703,19 +758,45 @@ function NewTaskForm({
       repeatPreset,
       Number(repeatCustomDays),
     );
-    const payload = {
-      ...form,
+    const payload: Record<string, unknown> = {
+      title: form.title.trim(),
+      description: form.description?.trim() || null,
       due_date: form.due_date || null,
       task_type: form.task_type || null,
+      priority: form.priority || "normal",
       machine_type_id: maintenanceSelected ? machineTypeId : null,
       ...repeat,
     };
-    const { data: t } = await supabase.from("tasks").insert(payload).select().single();
+    let { data: t, error: insertErr } = await supabase.from("tasks").insert(payload).select().single();
+    if (insertErr) {
+      const msg = insertErr.message.toLowerCase();
+      const stripped = { ...payload };
+      if (msg.includes("machine_type_id")) delete stripped.machine_type_id;
+      if (msg.includes("repeat_mode") || msg.includes("repeat_interval")) {
+        delete stripped.repeat_mode;
+        delete stripped.repeat_interval_days;
+      }
+      if (Object.keys(stripped).length < Object.keys(payload).length) {
+        const retry = await supabase.from("tasks").insert(stripped).select().single();
+        t = retry.data;
+        insertErr = retry.error;
+      }
+    }
+    if (insertErr) {
+      alert(insertErr.message);
+      return;
+    }
     if (t && selected.length) {
-      await supabase.from("task_assignees").insert(selected.map((user_id) => ({ task_id: t.id, user_id })));
+      const { error: assignErr } = await supabase
+        .from("task_assignees")
+        .insert(selected.map((user_id) => ({ task_id: t.id, user_id })));
+      if (assignErr) {
+        alert(`Task created but assignees failed: ${assignErr.message}`);
+      }
     }
     resetForm();
-    onClose(); onSaved();
+    onClose();
+    onSaved();
   }
 
   function handleClose() {

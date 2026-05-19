@@ -10,7 +10,7 @@ export default async function TasksPage() {
   if (!user) redirect("/login");
   const supabase = createClient();
   const [{ data: tasks }, { data: people }] = await Promise.all([
-    supabase.from("tasks").select("*, machine_types(id, name), assignees:task_assignees(user_id, profiles:user_id(full_name, email, role))").order("created_at", { ascending: false }),
+    supabase.from("tasks").select("*, assignees:task_assignees(user_id, profiles:user_id(full_name, email, role))").order("created_at", { ascending: false }),
     supabase.from("profiles").select("id, full_name, email, role").in("role", ["employee", "sub_admin"]),
   ]);
   return (

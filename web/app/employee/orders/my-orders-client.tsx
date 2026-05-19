@@ -1,12 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { peso, formatDate } from "@/lib/utils";
 import { ORDER_SERVICE_LABEL, ORDER_SERVICE_STAGES, normalizeOrderServiceStage } from "@/lib/order-services";
-import { getOrderKind as getSalesChannel, orderTypeLabel } from "@/lib/sales";
+import { getOrderKind as getSalesChannel, orderHasTeamsSheet, orderTypeLabel } from "@/lib/sales";
+import { Table2 } from "lucide-react";
 
 const SUB_STAGES = [
   { v: "design_layout", label: "Design Layout" },
@@ -61,6 +63,7 @@ export function MyOrdersClient({ initial }: { initial: any[] }) {
     <div className="grid gap-4 md:grid-cols-2">
       {list.map((o) => {
         const ch = getSalesChannel(o);
+        const showSheet = orderHasTeamsSheet(o);
         const isSub = ch === "sublimation";
         const stageIdx = SUB_STAGES.findIndex((s) => s.v === o.sub_stage);
         const svcNorm = normalizeOrderServiceStage(o.stage);
@@ -89,7 +92,21 @@ export function MyOrdersClient({ initial }: { initial: any[] }) {
                 <div><dt className="text-xs text-muted-foreground">Due</dt><dd>{formatDate(o.due_date)}</dd></div>
               </dl>
 
-              <div className="mt-3"><dt className="mb-1 text-xs text-muted-foreground">Status</dt><StatusBadge status={o.status} /></div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <dt className="mb-1 text-xs text-muted-foreground">Status</dt>
+                  <StatusBadge status={o.status} />
+                </div>
+                {showSheet && (
+                  <Link
+                    href={`/employee/orders/${o.id}/teams`}
+                    className="inline-flex h-8 shrink-0 items-center justify-center rounded-md border border-input bg-background px-3 text-xs font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                  >
+                    <Table2 className="mr-1.5 h-3.5 w-3.5" />
+                    View sheet
+                  </Link>
+                )}
+              </div>
 
               {isSub && (
                 <div className="mt-4">

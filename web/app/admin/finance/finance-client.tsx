@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CsvExportDialog } from "@/components/csv-export-dialog";
+import { FinanceCsvExportDialog } from "@/components/finance-csv-export-dialog";
 
 type FinanceAccountRow = {
   id: string;
@@ -327,6 +327,10 @@ export function FinanceClient({
         </div>
       )}
 
+      <div className="flex justify-end">
+        <FinanceCsvExportDialog supabase={supabase} />
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
@@ -358,23 +362,6 @@ export function FinanceClient({
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle>Accounts</CardTitle>
           <div className="flex gap-2">
-            <CsvExportDialog
-              label="Export CSV"
-              filename="finance_accounts"
-              columns={[
-                { header: "Type",           value: (r: FinanceAccountRow) => labelKind(r.kind) },
-                { header: "Name",           value: (r: FinanceAccountRow) => r.name },
-                { header: "Account Name",   value: (r: FinanceAccountRow) => r.account_name ?? "" },
-                { header: "Account Number", value: (r: FinanceAccountRow) => r.account_number ?? "" },
-                { header: "Balance",        value: (r: FinanceAccountRow) => Number(r.balance || 0) },
-                { header: "Description",    value: (r: FinanceAccountRow) => r.description ?? r.notes ?? "" },
-              ]}
-              fetchRows={async (from, to) => {
-                let q = supabase.from("finance_accounts").select("*").order("kind").order("name");
-                const { data } = await q;
-                return (data as FinanceAccountRow[]) || [];
-              }}
-            />
             <Button type="button" size="sm" onClick={openCreateAccount}>
               Add account
             </Button>
@@ -453,30 +440,6 @@ export function FinanceClient({
             </p>
           </div>
           <div className="flex shrink-0 self-end gap-2 sm:self-start">
-            <CsvExportDialog
-              label="Export CSV"
-              filename="finance_money_flow"
-              columns={[
-                { header: "Date",        value: (r: FinanceTxRow) => r.occurred_at },
-                { header: "Account",     value: (r: FinanceTxRow) => byId.get(r.account_id)?.name ?? "" },
-                { header: "Type",        value: (r: FinanceTxRow) => labelKind(byId.get(r.account_id)?.kind ?? "") },
-                { header: "Direction",   value: (r: FinanceTxRow) => r.direction === "in" ? "In" : "Out" },
-                { header: "Money In",    value: (r: FinanceTxRow) => r.direction === "in" ? Number(r.amount || 0) : "" },
-                { header: "Money Out",   value: (r: FinanceTxRow) => r.direction === "out" ? Number(r.amount || 0) : "" },
-                { header: "Description", value: (r: FinanceTxRow) => r.description ?? "" },
-                { header: "Recorded",    value: (r: FinanceTxRow) => r.created_at ? String(r.created_at).slice(0, 10) : "" },
-              ]}
-              fetchRows={async (from, to) => {
-                let q = supabase
-                  .from("finance_transactions")
-                  .select("*")
-                  .order("occurred_at", { ascending: false });
-                if (from) q = q.gte("occurred_at", from);
-                if (to)   q = q.lte("occurred_at", to);
-                const { data } = await q;
-                return (data as FinanceTxRow[]) || [];
-              }}
-            />
             <Button type="button" size="sm" onClick={openCreateTx} disabled={(accounts || []).length === 0}>
               Add money flow
             </Button>
