@@ -1,7 +1,7 @@
 import type { SalesChannel } from "@/lib/sales";
 import { getOrderKind, isSalesRecognized, storeOrPlatform } from "@/lib/sales";
 
-export type SalesTab = "all" | "walkin_online" | "bigseller" | "services" | "sublimation";
+export type SalesTab = "all" | "walkin_online" | "services" | "sublimation";
 
 export type UnifiedSaleListRow = {
   key: string;
@@ -49,7 +49,9 @@ function detectBigSeller(o: any): boolean {
   if (src.includes("bigseller")) return true;
   const notes = String(o?.notes || "").toLowerCase();
   if (notes.includes("imported from bigseller pdf")) return true;
+  if (notes.includes("imported from bigseller excel")) return true;
   if (notes.includes("bigseller") && notes.includes("pdf") && notes.includes("import")) return true;
+  if (notes.includes("bigseller") && notes.includes("excel") && notes.includes("import")) return true;
   return false;
 }
 
@@ -128,7 +130,6 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
 
 export function rowMatchesTab(r: UnifiedSaleListRow, tab: SalesTab): boolean {
   if (tab === "all") return true;
-  if (tab === "bigseller") return r.isBigSeller;
   if (tab === "walkin_online") return (r.channel === "local" || r.channel === "online") && !r.isBigSeller;
   if (tab === "services") return r.channel === "services";
   if (tab === "sublimation") return r.channel === "sublimation";

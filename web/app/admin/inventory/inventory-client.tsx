@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn, formatDateTime } from "@/lib/utils";
 import { History, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
+import { useConfirmAction } from "@/components/confirm-dialog";
 
 type Item = {
   id: string;
@@ -256,6 +257,7 @@ export function InventoryClient({
   canEdit: boolean;
 }) {
   const supabase = createClient();
+  const { ask, dialog: confirmDialog } = useConfirmAction();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -383,17 +385,26 @@ export function InventoryClient({
     setSelectedIds(new Set());
   }
 
-  async function bulkDelete() {
+  function bulkDelete() {
     const ids = Array.from(selectedIds);
     if (!ids.length) return;
-    if (!confirm(`Delete ${ids.length} item(s)? This cannot be undone.`)) return;
-    const { error } = await supabase.from("inventory").delete().in("id", ids);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    clearSelection();
-    await refresh();
+    ask({
+      title: ids.length === 1 ? "Delete item?" : `Delete ${ids.length} items?`,
+      description:
+        ids.length === 1
+          ? "Remove this inventory item permanently? This cannot be undone."
+          : `Remove ${ids.length} selected inventory items permanently? This cannot be undone.`,
+      confirmLabel: ids.length === 1 ? "Delete item" : `Delete ${ids.length} items`,
+      onConfirm: async () => {
+        const { error } = await supabase.from("inventory").delete().in("id", ids);
+        if (error) {
+          alert(error.message);
+          return;
+        }
+        clearSelection();
+        await refresh();
+      },
+    });
   }
 
   async function applyBulkOnHand() {
@@ -426,10 +437,23 @@ export function InventoryClient({
     setTypePresetNames(((typeRows as { name: string }[]) || []).map((r) => r.name).filter(Boolean));
   }
 
-  async function remove(id: string) {
-    if (!confirm("Delete this item?")) return;
-    await supabase.from("inventory").delete().eq("id", id);
-    refresh();
+  function remove(id: string) {
+    const item = items.find((i) => i.id === id);
+    ask({
+      title: "Delete item?",
+      description: item
+        ? `Delete "${item.name}" from inventory? This cannot be undone.`
+        : "Delete this inventory item? This cannot be undone.",
+      confirmLabel: "Delete item",
+      onConfirm: async () => {
+        const { error } = await supabase.from("inventory").delete().eq("id", id);
+        if (error) {
+          alert(error.message);
+          return;
+        }
+        await refresh();
+      },
+    });
   }
 
   async function commitInventoryField(id: string, field: "quantity" | "min_level", value: number) {
@@ -447,6 +471,7 @@ export function InventoryClient({
 
   return (
     <>
+      {confirmDialog}
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
         <Card>
           <CardContent className="p-4">

@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Table2 } from "lucide-react";
+import { Table2, Trash2 } from "lucide-react";
 import { peso } from "@/lib/utils";
+import { useConfirmAction } from "@/components/confirm-dialog";
 import { formatSalesDateTime, orderTypeLabel } from "@/lib/sales";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
 import {
@@ -22,10 +24,10 @@ import {
 type Props = { orders: any[] };
 
 const TABS: Array<{ key: SalesTab; label: string }> = [
-  { key: "all",           label: "All" },
+  { key: "all", label: "All" },
   { key: "walkin_online", label: "Walk-in & Online" },
-  { key: "services",      label: "Services" },
-  { key: "sublimation",   label: "Sublimation" },
+  { key: "services", label: "Services" },
+  { key: "sublimation", label: "Sublimation" },
 ];
 
 function inDateRange(dateKey: string, from: string, to: string, allTime: boolean) {
@@ -35,13 +37,21 @@ function inDateRange(dateKey: string, from: string, to: string, allTime: boolean
   return true;
 }
 
-export function SalesListClient({ orders }: Props) {
+export function SalesListClient({ orders: initialOrders }: Props) {
+  const supabase = createClient();
+  const { ask, dialog: confirmDialog } = useConfirmAction();
+  const [orders, setOrders] = useState(initialOrders);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
   const defaults = defaultSalesListDateRange();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
   const [allTime, setAllTime] = useState(false);
   const [tab, setTab] = useState<SalesTab>("all");
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    setOrders(initialOrders);
+  }, [initialOrders]);
 
   const baseRows = useMemo(() => unifiedRowsFromOrders(orders), [orders]);
 
@@ -78,6 +88,59 @@ export function SalesListClient({ orders }: Props) {
 
   const total = filtered.reduce((s, r) => s + r.amount, 0);
 
+  const visibleKeys = useMemo(() => filtered.map((r) => r.key), [filtered]);
+
+  const selectedOrderIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of filtered) {
+      if (selectedKeys.has(r.key) && r.orderId) ids.add(r.orderId);
+    }
+    return [...ids];
+  }, [filtered, selectedKeys]);
+
+  function toggleRowSelected(key: string) {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedKeys((prev) => {
+      const allOn = visibleKeys.length > 0 && visibleKeys.every((k) => prev.has(k));
+      if (allOn) return new Set();
+      return new Set(visibleKeys);
+    });
+  }
+
+  function clearSelection() {
+    setSelectedKeys(new Set());
+  }
+
+  function bulkDeleteSelected() {
+    const ids = selectedOrderIds;
+    if (ids.length === 0) return;
+    ask({
+      title: ids.length === 1 ? "Delete order?" : `Delete ${ids.length} orders?`,
+      description:
+        ids.length === 1
+          ? "Permanently delete this order from the system? This cannot be undone."
+          : `Permanently delete ${ids.length} selected orders? This cannot be undone.`,
+      confirmLabel: ids.length === 1 ? "Delete order" : `Delete ${ids.length} orders`,
+      onConfirm: async () => {
+        const { error } = await supabase.from("orders").delete().in("id", ids);
+        if (error) {
+          alert(error.message);
+          return;
+        }
+        setOrders((prev) => prev.filter((o) => !ids.includes(String(o.id))));
+        clearSelection();
+      },
+    });
+  }
+
   function applyPreset(p: "month" | "30" | "7" | "all") {
     setAllTime(p === "all");
     if (p === "all") return;
@@ -100,6 +163,7 @@ export function SalesListClient({ orders }: Props) {
 
   return (
     <div className="space-y-4">
+      {confirmDialog}
       {/* Date range controls */}
       <Card>
         <CardContent className="space-y-4 p-4 sm:p-5">
@@ -203,12 +267,39 @@ export function SalesListClient({ orders }: Props) {
         </span>
       </div>
 
+      {selectedKeys.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="destructive" size="sm" onClick={bulkDeleteSelected}>
+            <Trash2 className="mr-1 h-3.5 w-3.5" />
+            Delete selected ({selectedOrderIds.length} order{selectedOrderIds.length !== 1 ? "s" : ""})
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={clearSelection}>
+            Clear selection
+          </Button>
+        </div>
+      )}
+
       {/* Table */}
       <Card>
         <CardContent className="overflow-x-auto p-0">
           <table className="w-full min-w-[780px] text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
+                <th className="w-10 px-2 py-3 text-center">
+                  <input
+                    type="checkbox"
+                    disabled={visibleKeys.length === 0}
+                    className="h-4 w-4 cursor-pointer rounded border-input accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Select all visible rows"
+                    checked={visibleKeys.length > 0 && visibleKeys.every((k) => selectedKeys.has(k))}
+                    ref={(el) => {
+                      if (!el) return;
+                      const n = visibleKeys.filter((k) => selectedKeys.has(k)).length;
+                      el.indeterminate = n > 0 && n < visibleKeys.length;
+                    }}
+                    onChange={toggleSelectAllVisible}
+                  />
+                </th>
                 <th className="px-4 py-3 font-medium">Date</th>
                 <th className="font-medium">Order</th>
                 <th className="font-medium">Customer</th>
@@ -221,11 +312,16 @@ export function SalesListClient({ orders }: Props) {
             </thead>
             <tbody>
               {filtered.map((r) => (
-                <SalesRow key={r.key} row={r} />
+                <SalesRow
+                  key={r.key}
+                  row={r}
+                  selected={selectedKeys.has(r.key)}
+                  onToggleSelect={() => toggleRowSelected(r.key)}
+                />
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">
                     No rows match. Widen the date range or clear filters.
                   </td>
                 </tr>
@@ -238,7 +334,15 @@ export function SalesListClient({ orders }: Props) {
   );
 }
 
-function SalesRow({ row }: { row: UnifiedSaleListRow }) {
+function SalesRow({
+  row,
+  selected,
+  onToggleSelect,
+}: {
+  row: UnifiedSaleListRow;
+  selected: boolean;
+  onToggleSelect: () => void;
+}) {
   const ch =
     row.isBigSeller
       ? "purple"
@@ -254,7 +358,18 @@ function SalesRow({ row }: { row: UnifiedSaleListRow }) {
   const dateLabel = formatSalesDateTime(new Date(row.atMs).toISOString());
 
   return (
-    <tr className={`border-t hover:bg-muted/30 ${row.isDeposit ? "bg-amber-50/30 dark:bg-amber-900/10" : ""}`}>
+    <tr
+      className={`border-t hover:bg-muted/30 ${row.isDeposit ? "bg-amber-50/30 dark:bg-amber-900/10" : ""} ${selected ? "bg-primary/5" : ""}`}
+    >
+      <td className="w-10 px-2 py-3 text-center align-top">
+        <input
+          type="checkbox"
+          className="h-4 w-4 cursor-pointer rounded border-input accent-primary"
+          checked={selected}
+          aria-label={row.orderNo != null ? `Select order #${row.orderNo}` : "Select row"}
+          onChange={onToggleSelect}
+        />
+      </td>
       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{dateLabel}</td>
       <td className="py-3 font-mono text-xs">
         <div>

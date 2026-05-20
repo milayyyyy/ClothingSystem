@@ -7,8 +7,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { peso } from "@/lib/utils";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
+import { useConfirmAction } from "@/components/confirm-dialog";
+import { BigSellerDuplicateAlert } from "@/components/bigseller-duplicate-alert";
+import {
+  buildBigSellerDuplicateIndex,
+  formatBigSellerDuplicateReasons,
+} from "@/lib/bigseller-duplicate-detection";
+import { BigSellerItemNamesCell } from "@/components/bigseller-item-names-cell";
+import { parseBigSellerLineItems } from "@/lib/bigseller-line-items";
 
 type Order = any;
 type FinanceAccount = { id: string; name: string; kind: string; balance?: number | null };
@@ -24,10 +32,13 @@ export function BigSellerSalesClient({
   financeAccounts: FinanceAccount[];
 }) {
   const supabase = createClient();
+  const { ask, dialog: confirmDialog } = useConfirmAction();
   const [orders, setOrders] = useState<Order[]>(initialOrders);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [search, setSearch] = useState("");
   const [storeFilter, setStoreFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "partial" | "withdrawn">("all");
+  const [duplicatesOnly, setDuplicatesOnly] = useState(false);
 
   // Withdraw panel state
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -147,9 +158,12 @@ export function BigSellerSalesClient({
     }
   }
 
+  const bigsellerDuplicateIndex = useMemo(() => buildBigSellerDuplicateIndex(orders), [orders]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return orders.filter((o) => {
+      if (duplicatesOnly && !bigsellerDuplicateIndex.byOrderId.get(String(o.id))?.isDuplicate) return false;
       if (storeFilter !== "all" && o.store?.name !== storeFilter) return false;
       const total = Number(o.total || 0);
       const withdrawn = Number(o.down_payment || 0);
@@ -157,19 +171,75 @@ export function BigSellerSalesClient({
       if (statusFilter === "partial" && (withdrawn <= 0 || withdrawn >= total)) return false;
       if (statusFilter === "withdrawn" && withdrawn < total) return false;
       if (q) {
-        const blob = [o.order_no, o.customer_name, o.external_order_no, o.waybill_no, o.sku_code, o.store?.name]
-          .join(" ").toLowerCase();
+        const blob = [
+          o.order_no,
+          o.customer_name,
+          o.external_order_no,
+          o.waybill_no,
+          o.sku_code,
+          o.design_ref,
+          ...parseBigSellerLineItems(o.bigseller_line_items),
+          o.store?.name,
+        ]
+          .join(" ")
+          .toLowerCase();
         if (!blob.includes(q)) return false;
       }
       return true;
     });
-  }, [orders, search, storeFilter, statusFilter]);
+  }, [orders, search, storeFilter, statusFilter, duplicatesOnly, bigsellerDuplicateIndex]);
+
+  const visibleIds = useMemo(() => filtered.map((o) => String(o.id)), [filtered]);
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedIds((prev) => {
+      const allOn = visibleIds.length > 0 && visibleIds.every((id) => prev.has(id));
+      if (allOn) return new Set();
+      return new Set(visibleIds);
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  function bulkDeleteSelected() {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    ask({
+      title: ids.length === 1 ? "Delete order?" : `Delete ${ids.length} orders?`,
+      description:
+        ids.length === 1
+          ? "Permanently delete this BigSeller order? This cannot be undone."
+          : `Permanently delete ${ids.length} selected BigSeller orders? This cannot be undone.`,
+      confirmLabel: ids.length === 1 ? "Delete order" : `Delete ${ids.length} orders`,
+      onConfirm: async () => {
+        const { error } = await supabase.from("orders").delete().in("id", ids);
+        if (error) {
+          alert(error.message);
+          return;
+        }
+        setOrders((prev) => prev.filter((o) => !ids.includes(String(o.id))));
+        clearSelection();
+      },
+    });
+  }
 
   const amtNum = Number(withdrawAmount);
   const afterPending = Math.max(0, totals.pending - amtNum);
 
   return (
     <>
+      {confirmDialog}
       {/* Summary cards */}
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border bg-card p-4">
@@ -287,6 +357,11 @@ export function BigSellerSalesClient({
         </div>
       )}
 
+      <BigSellerDuplicateAlert
+        groups={bigsellerDuplicateIndex.groups}
+        onFilterValue={(value) => setSearch(value)}
+      />
+
       {/* Filters */}
       <Card className="mb-4">
         <CardContent className="flex flex-wrap items-end gap-3 p-4">
@@ -324,6 +399,19 @@ export function BigSellerSalesClient({
               <option value="withdrawn">Fully withdrawn</option>
             </select>
           </div>
+          {bigsellerDuplicateIndex.groups.length > 0 && (
+            <div className="flex items-end pb-1">
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-input accent-primary"
+                  checked={duplicatesOnly}
+                  onChange={(e) => setDuplicatesOnly(e.target.checked)}
+                />
+                Duplicates only
+              </label>
+            </div>
+          )}
           <div className="self-end pb-1 text-xs text-muted-foreground">
             {filtered.length} of {orders.length} orders
           </div>
@@ -336,7 +424,10 @@ export function BigSellerSalesClient({
                 { header: "External #",    value: (r: any) => r.external_order_no ?? "" },
                 { header: "Waybill",       value: (r: any) => r.waybill_no ?? "" },
                 { header: "Customer",      value: (r: any) => r.customer_name ?? "" },
-                { header: "Store",         value: (r: any) => r.source ?? "" },
+                { header: "Qty",           value: (r: any) => r.quantity ?? 1 },
+                { header: "Item",          value: (r: any) => r.design_ref ?? "" },
+                { header: "Extra items",   value: (r: any) => parseBigSellerLineItems(r.bigseller_line_items).join("; ") },
+                { header: "Store",         value: (r: any) => r.store?.name ?? "" },
                 { header: "Stage",         value: (r: any) => r.stage ?? "" },
                 { header: "Sale Total",    value: (r: any) => r.total ?? 0 },
                 { header: "Withdrawn",     value: (r: any) => r.withdrawn_amount ?? 0 },
@@ -356,15 +447,43 @@ export function BigSellerSalesClient({
         </CardContent>
       </Card>
 
+      {selectedIds.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Button type="button" variant="destructive" size="sm" onClick={bulkDeleteSelected}>
+            <Trash2 className="mr-1 h-3.5 w-3.5" />
+            Delete selected ({selectedIds.size})
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={clearSelection}>
+            Clear selection
+          </Button>
+        </div>
+      )}
+
       {/* Table */}
       <Card>
         <CardContent className="overflow-x-auto p-0">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="w-full min-w-[920px] text-sm">
             <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
+                <th className="w-10 px-2 py-3 text-center">
+                  <input
+                    type="checkbox"
+                    disabled={visibleIds.length === 0}
+                    className="h-4 w-4 cursor-pointer rounded border-input accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label="Select all visible orders"
+                    checked={visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id))}
+                    ref={(el) => {
+                      if (!el) return;
+                      const n = visibleIds.filter((id) => selectedIds.has(id)).length;
+                      el.indeterminate = n > 0 && n < visibleIds.length;
+                    }}
+                    onChange={toggleSelectAllVisible}
+                  />
+                </th>
                 <th className="px-4 py-3 text-left font-medium">#</th>
                 <th className="py-3 text-left font-medium">External / Waybill</th>
                 <th className="py-3 text-left font-medium">Customer</th>
+                <th className="min-w-[12rem] py-3 text-left font-medium">Item</th>
                 <th className="py-3 text-left font-medium">Store</th>
                 <th className="py-3 text-left font-medium">Stage</th>
                 <th className="py-3 text-right font-medium">Sale total</th>
@@ -381,14 +500,33 @@ export function BigSellerSalesClient({
                 const isCompleted = stage === "completed" || stage === "for_pickup";
                 const fullyWithdrawn = total > 0 && withdrawn >= total;
 
+                const selected = selectedIds.has(o.id);
+                const dupInfo = bigsellerDuplicateIndex.byOrderId.get(String(o.id));
                 return (
                   <tr
                     key={o.id}
-                    className={`border-t hover:bg-muted/20 ${fullyWithdrawn ? "opacity-60" : ""}`}
+                    className={`border-t hover:bg-muted/20 ${fullyWithdrawn ? "opacity-60" : ""} ${selected ? "bg-primary/5" : ""} ${dupInfo?.isDuplicate ? "bg-amber-50/40 dark:bg-amber-950/20" : ""}`}
                   >
+                    <td className="w-10 px-2 py-2.5 text-center align-top">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 cursor-pointer rounded border-input accent-primary"
+                        checked={selected}
+                        aria-label={`Select order #${o.order_no}`}
+                        onChange={() => toggleSelected(o.id)}
+                      />
+                    </td>
                     <td className="px-4 py-2.5 font-mono text-xs">
                       #{o.order_no}
                       {o.sku_code && <div className="text-[10px] text-muted-foreground">{o.sku_code}</div>}
+                      {dupInfo?.isDuplicate && (
+                        <Badge
+                          variant="outline"
+                          className="mt-1 border-amber-300 text-[10px] text-amber-900 dark:border-amber-700 dark:text-amber-200"
+                        >
+                          Duplicate — {formatBigSellerDuplicateReasons(dupInfo.reasons)}
+                        </Badge>
+                      )}
                     </td>
                     <td className="py-2.5 text-xs">
                       {o.external_order_no && <div className="font-mono">{o.external_order_no}</div>}
@@ -398,6 +536,14 @@ export function BigSellerSalesClient({
                     <td className="py-2.5">
                       <div className="font-medium">{o.customer_name}</div>
                       {o.customer_social && <div className="text-[11px] text-muted-foreground">{o.customer_social}</div>}
+                    </td>
+                    <td className="min-w-[12rem] max-w-[18rem] py-2.5 align-top text-xs">
+                      <BigSellerItemNamesCell
+                        designRef={o.design_ref}
+                        lineItems={o.bigseller_line_items}
+                        quantity={o.quantity}
+                        showQuantity
+                      />
                     </td>
                     <td className="py-2.5 text-xs text-muted-foreground">{o.store?.name || "—"}</td>
                     <td className="py-2.5">
@@ -421,7 +567,7 @@ export function BigSellerSalesClient({
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">
                     No BigSeller orders match the current filters.
                   </td>
                 </tr>

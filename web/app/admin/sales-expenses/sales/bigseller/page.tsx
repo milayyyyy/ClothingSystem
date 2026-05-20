@@ -12,7 +12,9 @@ function isBigSellerOrder(o: { source?: string | null; notes?: string | null; ki
   if (src.includes("bigseller")) return true;
   const notes = String(o?.notes || "").toLowerCase();
   if (notes.includes("imported from bigseller pdf")) return true;
+  if (notes.includes("imported from bigseller excel")) return true;
   if (notes.includes("bigseller") && notes.includes("pdf") && notes.includes("import")) return true;
+  if (notes.includes("bigseller") && notes.includes("excel") && notes.includes("import")) return true;
   return false;
 }
 
@@ -22,7 +24,7 @@ export default async function BigSellerSalesPage() {
   const [{ data: ordersRaw }, { data: accounts }] = await Promise.all([
     supabase
       .from("orders")
-      .select("id, order_no, customer_name, customer_social, external_order_no, waybill_no, sku_code, source, notes, kind, order_type, stage, status, total, down_payment, updated_at, created_at, store:stores(id,name)")
+      .select("id, order_no, customer_name, customer_social, external_order_no, waybill_no, sku_code, design_ref, quantity, bigseller_line_items, source, notes, kind, order_type, stage, status, total, down_payment, updated_at, created_at, store:stores(id,name)")
       .or("source.ilike.%bigseller%,notes.ilike.%bigseller%")
       .order("updated_at", { ascending: false }),
     supabase.from("finance_accounts").select("id, name, kind, balance").order("name"),

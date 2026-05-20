@@ -22,7 +22,7 @@ export default async function AdminBigSellerOrdersPage() {
     <div>
       <PageHeader
         title="BigSeller orders"
-        description="BigSeller PDF imports; filter by the PDF printed date and search including printed time."
+        description="BigSeller PDF or historical Excel imports; filter by printed date and search including printed time."
         action={
           <Link
             href="/admin/orders?type=walkin_online"

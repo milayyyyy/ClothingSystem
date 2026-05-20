@@ -11,6 +11,9 @@ export type SupplierWithCategories = {
   social_media_url?: string | null;
   notes?: string | null;
   pricelist_image_url?: string | null;
+  days_open?: string[];
+  opens_at?: string | null;
+  closes_at?: string | null;
   category_ids: string[];
 };
 

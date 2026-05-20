@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Pencil, Plus, Trash2, Mail, Phone, MapPin, Share2, ListOrdered, Tags } from "lucide-react";
+import { Pencil, Plus, Trash2, Mail, Phone, MapPin, Share2, ListOrdered, Tags, Clock } from "lucide-react";
 import { SupplierPricelistDialog } from "./supplier-pricelist-dialog";
 import {
   SupplierCategoriesDialog,
@@ -19,6 +19,11 @@ import {
   syncSupplierCategoryLinks,
   type SupplierWithCategories,
 } from "@/lib/supplier-categories";
+import {
+  formatSupplierHoursSummary,
+  SUPPLIER_WEEKDAYS,
+  toTimeInputValue,
+} from "@/lib/supplier-hours";
 
 type S = SupplierWithCategories;
 
@@ -31,6 +36,9 @@ const SUPPLIER_FORM_EMPTY = {
   google_maps_pin_url: "",
   social_media_url: "",
   notes: "",
+  days_open: [] as string[],
+  opens_at: "",
+  closes_at: "",
   category_ids: [] as string[],
 };
 
@@ -208,6 +216,12 @@ export function SuppliersClient({
                 {s.phone && <div className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-muted-foreground" />{s.phone}</div>}
                 {s.email && <div className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-muted-foreground" />{s.email}</div>}
                 {s.address && <div className="text-xs text-muted-foreground">{s.address}</div>}
+                {formatSupplierHoursSummary(s) && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Clock className="h-3.5 w-3.5 shrink-0" />
+                    {formatSupplierHoursSummary(s)}
+                  </div>
+                )}
                 {(s.google_maps_pin_url || s.social_media_url) && (
                   <div className="flex flex-wrap gap-x-3 gap-y-1 pt-0.5 text-xs">
                     {s.google_maps_pin_url && (
@@ -319,6 +333,9 @@ function SupplierForm({
             ...SUPPLIER_FORM_EMPTY,
             ...supplier,
             category_ids: [...(supplier.category_ids || [])],
+            days_open: [...(supplier.days_open || [])],
+            opens_at: toTimeInputValue(supplier.opens_at),
+            closes_at: toTimeInputValue(supplier.closes_at),
           }
         : { ...SUPPLIER_FORM_EMPTY },
     );
@@ -330,6 +347,16 @@ function SupplierForm({
       if (checked) ids.add(categoryId);
       else ids.delete(categoryId);
       return { ...f, category_ids: [...ids] };
+    });
+  }
+
+  function toggleDay(dayKey: string, checked: boolean) {
+    setForm((f: typeof SUPPLIER_FORM_EMPTY) => {
+      const ids = new Set(f.days_open || []);
+      if (checked) ids.add(dayKey);
+      else ids.delete(dayKey);
+      const ordered = SUPPLIER_WEEKDAYS.map((d) => d.key).filter((k) => ids.has(k));
+      return { ...f, days_open: ordered };
     });
   }
 
@@ -348,6 +375,9 @@ function SupplierForm({
       google_maps_pin_url: form.google_maps_pin_url?.trim() || null,
       social_media_url: form.social_media_url?.trim() || null,
       notes: form.notes?.trim() || null,
+      days_open: SUPPLIER_WEEKDAYS.map((d) => d.key).filter((k) => (form.days_open || []).includes(k)),
+      opens_at: form.opens_at?.trim() || null,
+      closes_at: form.closes_at?.trim() || null,
     };
     const categoryIds: string[] = form.category_ids || [];
     try {
@@ -423,6 +453,46 @@ function SupplierForm({
         <div className="col-span-2">
           <Label>Address</Label>
           <Input value={form.address || ""} onChange={(e) => set("address", e.target.value)} />
+        </div>
+        <div className="col-span-2">
+          <Label>Days open</Label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {SUPPLIER_WEEKDAYS.map((d) => (
+              <label
+                key={d.key}
+                className={cn(
+                  "flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  (form.days_open || []).includes(d.key)
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "hover:bg-muted",
+                )}
+              >
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={(form.days_open || []).includes(d.key)}
+                  onChange={(e) => toggleDay(d.key, e.target.checked)}
+                />
+                {d.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div>
+          <Label>Opens</Label>
+          <Input
+            type="time"
+            value={form.opens_at || ""}
+            onChange={(e) => set("opens_at", e.target.value)}
+          />
+        </div>
+        <div>
+          <Label>Closes</Label>
+          <Input
+            type="time"
+            value={form.closes_at || ""}
+            onChange={(e) => set("closes_at", e.target.value)}
+          />
         </div>
         <div className="col-span-2">
           <Label>Google Maps link</Label>

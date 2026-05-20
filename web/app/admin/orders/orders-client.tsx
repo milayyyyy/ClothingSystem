@@ -11,9 +11,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { peso, formatDate, formatDateTime, formatSupabaseError } from "@/lib/utils";
 import { parseBigSellerPrintedTimeFromPdfText } from "@/lib/bigseller-printed-time";
+import { formatBigSellerPrintedAt } from "@/lib/bigseller-datetime";
+import { BigSellerItemNamesCell } from "@/components/bigseller-item-names-cell";
 import { ChevronDown, Eye, FileText, FileUp, Pencil, Plus, Settings2, Table2, Trash2, ArrowRight } from "lucide-react";
 import { BIGSELLER_KNOWN_STORES_SORTED } from "@/lib/bigseller-store-labels";
 import { ADMIN_ORDERS_SELECT } from "@/lib/admin-orders-select";
+import { BigSellerExcelImportButton } from "@/components/bigseller-excel-import-button";
+import { BigSellerDuplicateAlert } from "@/components/bigseller-duplicate-alert";
+import {
+  buildBigSellerDuplicateIndex,
+  formatBigSellerDuplicateReasons,
+} from "@/lib/bigseller-duplicate-detection";
 import {
   ORDER_SERVICE_LABEL,
   ORDER_SERVICE_STAGES,
@@ -251,8 +259,10 @@ function isBigSellerOnlineOrder(order: any): boolean {
   if (src.includes("bigseller")) return true;
   const notes = String(order?.notes || "").toLowerCase();
   if (notes.includes("imported from bigseller pdf")) return true;
-  // Broader match if notes wording changes slightly but still mentions BigSeller + PDF import.
+  if (notes.includes("imported from bigseller excel")) return true;
+  // Broader match if notes wording changes slightly but still mentions BigSeller + PDF/Excel import.
   if (notes.includes("bigseller") && notes.includes("pdf") && notes.includes("import")) return true;
+  if (notes.includes("bigseller") && notes.includes("excel") && notes.includes("import")) return true;
   return false;
 }
 
@@ -1005,7 +1015,6 @@ export function OrdersClient({
   const [bulkForwardTarget, setBulkForwardTarget] = useState("");
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
   const [jobTypesMgrOpen, setJobTypesMgrOpen] = useState(false);
-  const [dupOpen, setDupOpen] = useState(false);
   const [financeAccounts, setFinanceAccounts] = useState<FinanceAccount[]>([]);
   const [paymentOrder, setPaymentOrder] = useState<Order | null>(null);
 
@@ -1097,52 +1106,11 @@ export function OrdersClient({
     });
   }, [orders, kindFilter, stageFilter, search, hideKindTabs, printedFrom, printedTo]);
 
-  // Duplicate detection: groups of orders sharing the same waybill_no, external_order_no, or sku_code
-  const duplicateGroups = useMemo(() => {
-    if (!hideNewOrder) return [];
-    // Build maps: field-value → order ids
-    const waybillMap = new Map<string, Order[]>();
-    const externalMap = new Map<string, Order[]>();
-    const skuMap = new Map<string, Order[]>();
-    for (const o of orders) {
-      if (o.waybill_no?.trim()) {
-        const k = String(o.waybill_no).trim().toLowerCase();
-        if (!waybillMap.has(k)) waybillMap.set(k, []);
-        waybillMap.get(k)!.push(o);
-      }
-      if (o.external_order_no?.trim()) {
-        const k = String(o.external_order_no).trim().toLowerCase();
-        if (!externalMap.has(k)) externalMap.set(k, []);
-        externalMap.get(k)!.push(o);
-      }
-      if (o.sku_code?.trim()) {
-        const k = String(o.sku_code).trim().toLowerCase();
-        if (!skuMap.has(k)) skuMap.set(k, []);
-        skuMap.get(k)!.push(o);
-      }
-    }
-    const groups: { field: string; value: string; orders: Order[] }[] = [];
-    const seen = new Set<string>(); // dedupe by "field:value"
-    for (const [v, list] of waybillMap) {
-      if (list.length > 1 && !seen.has(`w:${v}`)) {
-        seen.add(`w:${v}`);
-        groups.push({ field: "Waybill", value: list[0].waybill_no, orders: list });
-      }
-    }
-    for (const [v, list] of externalMap) {
-      if (list.length > 1 && !seen.has(`e:${v}`)) {
-        seen.add(`e:${v}`);
-        groups.push({ field: "External order #", value: list[0].external_order_no, orders: list });
-      }
-    }
-    for (const [v, list] of skuMap) {
-      if (list.length > 1 && !seen.has(`s:${v}`)) {
-        seen.add(`s:${v}`);
-        groups.push({ field: "BigSeller code", value: list[0].sku_code, orders: list });
-      }
-    }
-    return groups;
-  }, [orders, hideNewOrder]);
+  const bigsellerDuplicateIndex = useMemo(
+    () => (hideKindTabs ? buildBigSellerDuplicateIndex(orders) : { groups: [], byOrderId: new Map() }),
+    [orders, hideKindTabs],
+  );
+  const duplicateGroups = bigsellerDuplicateIndex.groups;
 
   useEffect(() => {
     if (kindFilter === "online") setSelectedListOrderIds(new Set());
@@ -1563,31 +1531,58 @@ export function OrdersClient({
             </>
           )}
           {hideKindTabs && (
-            <BigSellerPdfImportButton
-              onImported={(inserted) => {
-                setStageFilter("all");
-                setPrintedFrom("");
-                setPrintedTo("");
-                if (inserted.length > 0) {
-                  setOrders((prev) => {
-                    const mapped = inserted.map(normalizeOrderAssigneesRow);
-                    const byId = new Map<string, any>();
-                    for (const o of mapped) {
-                      if (o?.id) byId.set(o.id, o);
-                    }
-                    for (const o of prev) {
-                      if (o?.id && !byId.has(o.id)) byId.set(o.id, o);
-                    }
-                    return [...byId.values()].sort(
-                      (a, b) =>
-                        new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
-                    );
-                  });
-                }
-                void refresh();
-                router.refresh();
-              }}
-            />
+            <>
+              <BigSellerPdfImportButton
+                onImported={(inserted) => {
+                  setStageFilter("all");
+                  setPrintedFrom("");
+                  setPrintedTo("");
+                  if (inserted.length > 0) {
+                    setOrders((prev) => {
+                      const mapped = inserted.map(normalizeOrderAssigneesRow);
+                      const byId = new Map<string, any>();
+                      for (const o of mapped) {
+                        if (o?.id) byId.set(o.id, o);
+                      }
+                      for (const o of prev) {
+                        if (o?.id && !byId.has(o.id)) byId.set(o.id, o);
+                      }
+                      return [...byId.values()].sort(
+                        (a, b) =>
+                          new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
+                      );
+                    });
+                  }
+                  void refresh();
+                  router.refresh();
+                }}
+              />
+              <BigSellerExcelImportButton
+                onImported={(inserted) => {
+                  setStageFilter("all");
+                  setPrintedFrom("");
+                  setPrintedTo("");
+                  if (inserted.length > 0) {
+                    setOrders((prev) => {
+                      const mapped = inserted.map(normalizeOrderAssigneesRow);
+                      const byId = new Map<string, any>();
+                      for (const o of mapped) {
+                        if (o?.id) byId.set(o.id, o);
+                      }
+                      for (const o of prev) {
+                        if (o?.id && !byId.has(o.id)) byId.set(o.id, o);
+                      }
+                      return [...byId.values()].sort(
+                        (a, b) =>
+                          new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
+                      );
+                    });
+                  }
+                  void refresh();
+                  router.refresh();
+                }}
+              />
+            </>
           )}
           {kindFilter === "services" && (
             <Button
@@ -1612,44 +1607,11 @@ export function OrdersClient({
         </div>
       </div>
 
-      {/* Duplicate order alert — BigSeller page only */}
-      {duplicateGroups.length > 0 && (
-        <div className="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-900/20">
-          <button
-            className="flex w-full items-center justify-between px-4 py-3 text-left"
-            onClick={() => setDupOpen((v) => !v)}
-          >
-            <div className="flex items-center gap-2 text-sm font-semibold text-yellow-800 dark:text-yellow-300">
-              <span>⚠️</span>
-              <span>{duplicateGroups.length} duplicate{duplicateGroups.length > 1 ? "s" : ""} detected</span>
-            </div>
-            <ChevronDown className={`h-4 w-4 text-yellow-700 transition-transform dark:text-yellow-400 ${dupOpen ? "rotate-180" : ""}`} />
-          </button>
-          {dupOpen && (
-            <div className="border-t border-yellow-200 px-4 pb-3 pt-2 dark:border-yellow-700">
-              <p className="mb-2 text-[11px] text-yellow-700 dark:text-yellow-500">
-                Click a value to filter the list by that duplicate.
-              </p>
-              <div className="space-y-1.5">
-                {duplicateGroups.map((g, i) => (
-                  <div key={i} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-yellow-800 dark:text-yellow-400">
-                    <span className="font-medium">{g.field}:</span>
-                    <button
-                      className="rounded bg-yellow-100 px-1.5 py-0.5 font-mono hover:bg-yellow-200 dark:bg-yellow-800/40 dark:hover:bg-yellow-700/60"
-                      title={`Filter list by "${g.value}"`}
-                      onClick={() => { setSearch(g.value); setDupOpen(false); }}
-                    >
-                      {g.value}
-                    </button>
-                    <span className="text-yellow-600 dark:text-yellow-500">
-                      ({g.orders.length} orders: {g.orders.map((o) => `#${o.order_no}`).join(", ")})
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+      {hideKindTabs && (
+        <BigSellerDuplicateAlert
+          groups={duplicateGroups}
+          onFilterValue={(value) => setSearch(value)}
+        />
       )}
 
       <Card>
@@ -1686,7 +1648,9 @@ export function OrdersClient({
                   <th className="w-12 px-1 py-3 text-center font-medium">Qty</th>
                   <th className="w-[8%] min-w-[5rem] px-1 py-3 text-left font-medium">Status</th>
                   <th className="w-[9%] min-w-[5rem] px-2 py-3 text-right font-medium">Unit price</th>
-                  <th className="w-[10%] min-w-[9rem] px-2 py-3 text-left font-medium">Printed (PDF)</th>
+                  <th className="w-[11%] min-w-[8.5rem] px-2 py-3 text-left font-medium whitespace-nowrap">
+                    Printed (PDF)
+                  </th>
                   <th className="w-[7.25rem] shrink-0 whitespace-nowrap px-2 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -1694,8 +1658,15 @@ export function OrdersClient({
                 {filtered.map((o) => {
                   const stageLabel =
                     ORDER_SERVICE_LABEL[normalizeOrderServiceStage(o.stage)] || normalizeOrderServiceStage(o.stage);
+                  const dupInfo = hideKindTabs ? bigsellerDuplicateIndex.byOrderId.get(o.id) : undefined;
                   return (
-                    <tr key={o.id} className="border-t row-hover hover:bg-muted/30">
+                    <tr
+                      key={o.id}
+                      className={
+                        "border-t row-hover hover:bg-muted/30 " +
+                        (dupInfo?.isDuplicate ? "bg-amber-50/40 dark:bg-amber-950/20" : "")
+                      }
+                    >
                       <td className="w-10 px-2 py-3 text-center align-top">
                         <input
                           type="checkbox"
@@ -1706,7 +1677,19 @@ export function OrdersClient({
                         />
                       </td>
                       <td className="w-[36%] min-w-[16rem] px-3 py-3 align-top">
-                        <div className="line-clamp-5 break-words text-foreground">{o.design_ref || "—"}</div>
+                        {hideKindTabs ? (
+                          <BigSellerItemNamesCell designRef={o.design_ref} lineItems={o.bigseller_line_items} />
+                        ) : (
+                          <div className="line-clamp-5 break-words text-foreground">{o.design_ref || "—"}</div>
+                        )}
+                        {dupInfo?.isDuplicate && (
+                          <Badge
+                            variant="outline"
+                            className="mt-1 border-amber-300 text-[10px] text-amber-900 dark:border-amber-700 dark:text-amber-200"
+                          >
+                            Duplicate — {formatBigSellerDuplicateReasons(dupInfo.reasons)}
+                          </Badge>
+                        )}
                       </td>
                       <td className="w-[11%] min-w-[6.5rem] px-2 py-3 align-top text-xs leading-snug">
                         <div className="break-words">{o.shirt_type || "—"}</div>
@@ -1726,11 +1709,21 @@ export function OrdersClient({
                       <td className="w-[9%] min-w-[5rem] whitespace-nowrap px-2 py-3 text-right align-top">
                         {peso(Number(o.unit_price || 0))}
                       </td>
-                      <td
-                        className="w-[10%] min-w-[9rem] px-2 py-3 align-top text-xs text-muted-foreground"
-                        title={o.bigseller_printed_at ? formatDateTime(o.bigseller_printed_at) : undefined}
-                      >
-                        <div className="line-clamp-2 break-words leading-snug pr-1">{formatDateTime(o.bigseller_printed_at)}</div>
+                      <td className="w-[11%] min-w-[8.5rem] px-2 py-3 align-top text-xs">
+                        {(() => {
+                          const printed = formatBigSellerPrintedAt(o.bigseller_printed_at);
+                          if (!printed) {
+                            return <span className="text-muted-foreground">—</span>;
+                          }
+                          return (
+                            <div className="leading-snug" title={printed.full}>
+                              <div className="whitespace-nowrap font-medium text-foreground tabular-nums">
+                                {printed.date}
+                              </div>
+                              <div className="whitespace-nowrap tabular-nums text-foreground">{printed.time}</div>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="w-[7.25rem] shrink-0 align-middle pr-2">
                         <div className="flex items-center justify-end gap-0.5">

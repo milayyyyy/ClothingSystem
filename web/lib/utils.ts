@@ -26,6 +26,7 @@ export function formatDateTime(d: string | Date | null | undefined) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
   });
 }
 
