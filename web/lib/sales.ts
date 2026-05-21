@@ -92,6 +92,7 @@ export function isBigSellerOnlineOrder(order: {
   const notes = String(order?.notes || "").toLowerCase();
   if (notes.includes("imported from bigseller pdf")) return true;
   if (notes.includes("imported from bigseller excel")) return true;
+  if (notes.includes("marketplace excel") && notes.includes("historical")) return true;
   if (notes.includes("bigseller") && notes.includes("pdf") && notes.includes("import")) return true;
   if (notes.includes("bigseller") && notes.includes("excel") && notes.includes("import")) return true;
   return false;

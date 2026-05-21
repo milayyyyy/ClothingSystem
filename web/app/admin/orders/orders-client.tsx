@@ -22,6 +22,7 @@ import {
   buildBigSellerDuplicateIndex,
   formatBigSellerDuplicateReasons,
 } from "@/lib/bigseller-duplicate-detection";
+import { ORDERS_SORT_OPTIONS, sortOrders, type OrdersSortKey } from "@/lib/orders-sort";
 import {
   ORDER_SERVICE_LABEL,
   ORDER_SERVICE_STAGES,
@@ -263,6 +264,7 @@ function isBigSellerOnlineOrder(order: any): boolean {
   // Broader match if notes wording changes slightly but still mentions BigSeller + PDF/Excel import.
   if (notes.includes("bigseller") && notes.includes("pdf") && notes.includes("import")) return true;
   if (notes.includes("bigseller") && notes.includes("excel") && notes.includes("import")) return true;
+  if (notes.includes("marketplace excel") && notes.includes("historical")) return true;
   return false;
 }
 
@@ -1003,6 +1005,7 @@ export function OrdersClient({
     normalizeOrdersTabKind(params.get("type"), initialKind, pathname),
   );
   const [search, setSearch] = useState(defaultSearch || "");
+  const [sortBy, setSortBy] = useState<OrdersSortKey>("latest");
   const [printedFrom, setPrintedFrom] = useState("");
   const [printedTo, setPrintedTo] = useState("");
   const [open, setOpen] = useState(false);
@@ -1047,7 +1050,7 @@ export function OrdersClient({
     setStageFilter("all");
   }, [params, initialKind, pathname, router]);
 
-  const filtered = useMemo(() => {
+  const filteredRows = useMemo(() => {
     return orders.filter((o) => {
       const k = getOrderKind(o);
 
@@ -1105,6 +1108,8 @@ export function OrdersClient({
       return true;
     });
   }, [orders, kindFilter, stageFilter, search, hideKindTabs, printedFrom, printedTo]);
+
+  const filtered = useMemo(() => sortOrders(filteredRows, sortBy), [filteredRows, sortBy]);
 
   const bigsellerDuplicateIndex = useMemo(
     () => (hideKindTabs ? buildBigSellerDuplicateIndex(orders) : { groups: [], byOrderId: new Map() }),
@@ -1446,6 +1451,24 @@ export function OrdersClient({
             onChange={(e) => setSearch(e.target.value)}
             className="w-64"
           />
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="orders-sort" className="sr-only">
+              Sort by
+            </Label>
+            <span className="whitespace-nowrap text-xs text-muted-foreground">Sort by</span>
+            <select
+              id="orders-sort"
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as OrdersSortKey)}
+            >
+              {ORDERS_SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
           {hideKindTabs && (
             <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               <span className="whitespace-nowrap">Printed</span>

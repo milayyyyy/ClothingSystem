@@ -15,6 +15,7 @@ function isBigSellerOrder(o: { source?: string | null; notes?: string | null; ki
   if (notes.includes("imported from bigseller excel")) return true;
   if (notes.includes("bigseller") && notes.includes("pdf") && notes.includes("import")) return true;
   if (notes.includes("bigseller") && notes.includes("excel") && notes.includes("import")) return true;
+  if (notes.includes("marketplace excel") && notes.includes("historical")) return true;
   return false;
 }
 

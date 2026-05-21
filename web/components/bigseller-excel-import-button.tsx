@@ -15,6 +15,11 @@ import {
   type BigSellerExcelGroupedOrder,
 } from "@/lib/bigseller-excel-import";
 import { resolveStoreId, type StoreOption } from "@/lib/bigseller-store-resolve";
+import {
+  fetchExistingImportDedupeSets,
+  orderMatchesImportDedupe,
+  type ImportDedupeSets,
+} from "@/lib/bigseller-import-dedupe";
 
 const selectClass = cn(
   "flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm",
@@ -50,42 +55,35 @@ export function BigSellerExcelImportButton({
   const [stores, setStores] = useState<StoreOption[]>([]);
   /** Applies to every order in this import when set (overrides file store column). */
   const [manualStoreId, setManualStoreId] = useState("");
-  const [existingPackages, setExistingPackages] = useState<Set<string>>(new Set());
-  const [existingExternal, setExistingExternal] = useState<Set<string>>(new Set());
-  const [existingWaybills, setExistingWaybills] = useState<Set<string>>(new Set());
+  const [dedupeSets, setDedupeSets] = useState<ImportDedupeSets>({
+    packages: new Set(),
+    external: new Set(),
+    waybills: new Set(),
+  });
+  const [dedupeLoading, setDedupeLoading] = useState(false);
+
+  async function refreshDedupeSets() {
+    setDedupeLoading(true);
+    const { sets, error } = await fetchExistingImportDedupeSets(supabase);
+    setDedupeSets(sets);
+    setDedupeLoading(false);
+    if (error) console.warn("Could not load existing orders for duplicate check:", error);
+    return sets;
+  }
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const [{ data: storeData }, { data: existing }] = await Promise.all([
-        supabase.from("stores").select("id,name,pdf_label").order("name"),
-        supabase
-          .from("orders")
-          .select("sku_code,external_order_no,waybill_no")
-          .eq("order_type", "online")
-          .or("source.ilike.%bigseller%,notes.ilike.%bigseller%"),
-      ]);
+      const { data: storeData } = await supabase.from("stores").select("id,name,pdf_label").order("name");
       if (cancelled) return;
       setStores((storeData as StoreOption[]) || []);
-      const pkg = new Set<string>();
-      const ext = new Set<string>();
-      const wb = new Set<string>();
-      for (const row of existing || []) {
-        const p = String((row as { sku_code?: string }).sku_code || "").trim().toLowerCase();
-        const e = String((row as { external_order_no?: string }).external_order_no || "").trim().toLowerCase();
-        const w = String((row as { waybill_no?: string }).waybill_no || "").trim().toLowerCase();
-        if (p) pkg.add(p);
-        if (e) ext.add(e);
-        if (w) wb.add(w);
-      }
-      setExistingPackages(pkg);
-      setExistingExternal(ext);
-      setExistingWaybills(wb);
+      if (!cancelled) await refreshDedupeSets();
     })();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, supabase]);
 
   useEffect(() => {
@@ -102,18 +100,11 @@ export function BigSellerExcelImportButton({
     const dup: BigSellerExcelGroupedOrder[] = [];
     const ok: BigSellerExcelGroupedOrder[] = [];
     for (const o of orders) {
-      const pkgKey = o.packageNo.trim().toLowerCase();
-      const extKey = o.externalOrderNo.trim().toLowerCase();
-      const wbKey = (o.waybillNo || "").trim().toLowerCase();
-      const isDup =
-        (pkgKey && existingPackages.has(pkgKey)) ||
-        (extKey && existingExternal.has(extKey)) ||
-        (wbKey && existingWaybills.has(wbKey));
-      if (isDup) dup.push(o);
+      if (orderMatchesImportDedupe(o, dedupeSets)) dup.push(o);
       else ok.push(o);
     }
     return { toImport: ok, duplicates: dup };
-  }, [orders, existingPackages, existingExternal, existingWaybills]);
+  }, [orders, dedupeSets]);
 
   const ordersMissingStoreInFile = useMemo(
     () => toImport.filter((o) => !o.storeName.trim()).length,
@@ -130,6 +121,7 @@ export function BigSellerExcelImportButton({
       if (!sheetName) throw new Error("Workbook has no sheets.");
       const sheet = wb.Sheets[sheetName];
       const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+      await refreshDedupeSets();
       const result = parseBigSellerExcelRows(rawRows);
       setOrders(result.orders);
       setSkippedRows(result.skippedRows);
@@ -209,6 +201,7 @@ export function BigSellerExcelImportButton({
         inserted = (fullRows as Record<string, unknown>[]) ?? [];
       }
 
+      await refreshDedupeSets();
       setOpen(false);
       onImported(inserted);
     } catch (e: unknown) {
@@ -256,7 +249,11 @@ export function BigSellerExcelImportButton({
                 e.target.value = "";
               }}
             />
-            {parsing && <p className="mt-2 text-xs text-muted-foreground">Reading spreadsheet…</p>}
+            {parsing && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {dedupeLoading ? "Checking existing orders & reading spreadsheet…" : "Reading spreadsheet…"}
+              </p>
+            )}
           </div>
 
           {orders.length > 0 && (

@@ -37,10 +37,25 @@ function normHeader(h: string): string {
   return h.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function formatExcelCellString(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "number" && Number.isFinite(v)) {
+    if (Number.isInteger(v) || Math.abs(v) >= 1e11) return String(Math.trunc(v));
+  }
+  let s = String(v).trim();
+  if (s.startsWith("'")) s = s.slice(1).trim();
+  if (/^\d+(?:\.\d+)?[eE][+-]?\d+$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) s = String(Math.trunc(n));
+  }
+  return s;
+}
+
 function cellStr(row: Record<string, unknown>, ...keys: string[]): string {
   for (const k of keys) {
     const v = row[k];
-    if (v != null && String(v).trim() !== "" && String(v).trim() !== "--") return String(v).trim();
+    const s = formatExcelCellString(v);
+    if (s && s !== "--") return s;
   }
   return "";
 }
@@ -105,7 +120,17 @@ export function parseBigSellerExcelRows(rawRows: Record<string, unknown>[]): Big
     return "";
   }
 
-  const kOrderNo = col("Order No", "Order No.", "Order ID", "Platform Order No");
+  const kOrderNo = col(
+    "Order No",
+    "Order No.",
+    "Order ID",
+    "Order Id",
+    "Ordersn",
+    "Order SN",
+    "Order Sn",
+    "Platform Order No",
+    "Platform Order ID",
+  );
   const kPackageNo = col("Package No", "Package No.");
   const kOrderStatus = col("Order Status", "Marketplace Status");
   const kStore = col("BigSeller Store Nickname", "Marketplace Store", "Marketplace");
@@ -235,7 +260,7 @@ export function buildHistoricalBigSellerOrderPayload(
   const quantity = Math.max(1, Math.round(order.orderQuantity) || 1);
   const unitPrice = Math.round(order.orderTotal * 100) / 100;
   const orderTotal = unitPrice;
-  let notes = `Imported from marketplace Excel (historical, completed + withdrawn) (${opts.fileName || "file"}).`;
+  let notes = `Imported from BigSeller marketplace Excel (historical, completed + withdrawn) (${opts.fileName || "file"}).`;
   if (order.storeName && !opts.storeId) {
     notes += ` Store "${order.storeName}" — set PDF label under Admin → Stores to link.`;
   }
