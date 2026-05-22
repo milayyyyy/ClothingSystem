@@ -6,10 +6,11 @@ import { Badge, StatusBadge } from "@/components/ui/badge";
 import { peso } from "@/lib/utils";
 import { Store, Globe, Sparkles, TrendingUp, Clock, Wrench } from "lucide-react";
 import {
-  isPendingPipelineOrder,
-  isSalesRecognized,
+  countsTowardMainSales,
   formatSalesDateTime,
   getOrderKind,
+  isBigSellerOnlineOrder,
+  isPendingPipelineOrder,
   orderTypeLabel,
   SALES_CHANNELS,
   storeOrPlatform,
@@ -25,8 +26,8 @@ export function AdminSalesBlock({
   orders: any[];
   compactHeader?: boolean;
 }) {
-  const completedRows = orders.filter((o) => isSalesRecognized(o));
-  const pendingRows = orders.filter((o) => isPendingPipelineOrder(o));
+  const completedRows = orders.filter((o) => countsTowardMainSales(o));
+  const pendingRows = orders.filter((o) => isPendingPipelineOrder(o) && !isBigSellerOnlineOrder(o));
   const rows = completedRows;
 
   const pendingTotal = pendingRows.reduce((s, o) => s + Number(o.total || 0), 0);
@@ -75,9 +76,10 @@ export function AdminSalesBlock({
           <h2 className="text-lg font-semibold tracking-tight">Sales</h2>
           <p className="text-sm text-muted-foreground">
             Completed sales use orders with status <span className="font-medium text-foreground">Ready</span> or{" "}
-            <span className="font-medium text-foreground">Delivered</span> only. In-progress orders appear further down as{" "}
-            <span className="font-medium text-foreground">Pending</span> (not included in totals or charts). Cancelled orders are omitted
-            everywhere.
+            <span className="font-medium text-foreground">Delivered</span> only.{" "}
+            <span className="font-medium text-foreground">BigSeller</span> marketplace sales are tracked separately and are not included here.
+            In-progress orders appear further down as <span className="font-medium text-foreground">Pending</span> (not included in totals or
+            charts). Cancelled orders are omitted everywhere.
           </p>
         </div>
       )}

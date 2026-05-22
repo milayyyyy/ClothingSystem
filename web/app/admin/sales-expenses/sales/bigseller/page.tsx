@@ -1,7 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/page-header";
 import { BigSellerSalesClient } from "./bigseller-sales-client";
+import { fetchAllBigSellerSalesOrders } from "@/lib/bigseller-orders-query";
 import Link from "next/link";
+
+const BIGSELLER_SALES_SELECT =
+  "id, order_no, customer_name, customer_social, external_order_no, waybill_no, sku_code, design_ref, quantity, bigseller_line_items, source, notes, kind, order_type, stage, status, total, down_payment, updated_at, created_at, store:stores(id,name)";
 
 export const dynamic = "force-dynamic";
 
@@ -22,16 +26,15 @@ function isBigSellerOrder(o: { source?: string | null; notes?: string | null; ki
 export default async function BigSellerSalesPage() {
   const supabase = createClient();
 
-  const [{ data: ordersRaw }, { data: accounts }] = await Promise.all([
-    supabase
-      .from("orders")
-      .select("id, order_no, customer_name, customer_social, external_order_no, waybill_no, sku_code, design_ref, quantity, bigseller_line_items, source, notes, kind, order_type, stage, status, total, down_payment, updated_at, created_at, store:stores(id,name)")
-      .or("source.ilike.%bigseller%,notes.ilike.%bigseller%")
-      .order("updated_at", { ascending: false }),
+  const [{ data: ordersRaw, error: ordersError }, { data: accounts }] = await Promise.all([
+    fetchAllBigSellerSalesOrders(supabase, BIGSELLER_SALES_SELECT),
     supabase.from("finance_accounts").select("id, name, kind, balance").order("name"),
   ]);
 
-  // Filter to completed BigSeller orders only, keep all for "all orders" view
+  if (ordersError) {
+    console.error("BigSeller sales orders load:", ordersError);
+  }
+
   const orders = (ordersRaw || []).filter(isBigSellerOrder);
 
   return (

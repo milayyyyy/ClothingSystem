@@ -12,6 +12,9 @@ import { FileSpreadsheet } from "lucide-react";
 import {
   buildHistoricalBigSellerOrderPayload,
   parseBigSellerExcelRows,
+  parsePlatformSkuVariation,
+  pickMarketplaceOrderSheetName,
+  type BigSellerExcelFormat,
   type BigSellerExcelGroupedOrder,
 } from "@/lib/bigseller-excel-import";
 import { resolveStoreId, type StoreOption } from "@/lib/bigseller-store-resolve";
@@ -20,6 +23,7 @@ import {
   orderMatchesImportDedupe,
   type ImportDedupeSets,
 } from "@/lib/bigseller-import-dedupe";
+import { fetchOrdersByIdsBatched, insertOrdersBatched } from "@/lib/orders-batch-db";
 
 const selectClass = cn(
   "flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm",
@@ -46,7 +50,11 @@ export function BigSellerExcelImportButton({
   const supabase = createClient();
   const [open, setOpen] = useState(false);
   const [fileName, setFileName] = useState("");
+  const [orderFormat, setOrderFormat] = useState<BigSellerExcelFormat | null>(null);
   const [orders, setOrders] = useState<BigSellerExcelGroupedOrder[]>([]);
+  const [pendingSettlementCount, setPendingSettlementCount] = useState(0);
+  const [sheetRows, setSheetRows] = useState(0);
+  const [mergedSkuRows, setMergedSkuRows] = useState(0);
   const [skippedRows, setSkippedRows] = useState(0);
   const [skipReasons, setSkipReasons] = useState<string[]>([]);
   const [parsing, setParsing] = useState(false);
@@ -92,9 +100,42 @@ export function BigSellerExcelImportButton({
     setSkippedRows(0);
     setSkipReasons([]);
     setFileName("");
+    setOrderFormat(null);
+    setPendingSettlementCount(0);
+    setSheetRows(0);
+    setMergedSkuRows(0);
     setError("");
     setManualStoreId("");
   }, [open]);
+
+  function applyParseResult(
+    result: ReturnType<typeof parseBigSellerExcelRows>,
+    orderFileLabel: string,
+  ) {
+    setOrders(result.orders);
+    setSkippedRows(result.skippedRows);
+    setSkipReasons(result.skipReasons);
+    setOrderFormat(result.format);
+    setPendingSettlementCount(result.orders.filter((o) => o.unitPricePendingSettlement).length);
+    setSheetRows(result.sheetRows);
+    setMergedSkuRows(result.mergedSkuRows);
+    setFileName(orderFileLabel);
+    if (result.orders.length === 0) {
+      setError(
+        result.skipReasons.length
+          ? `No orders to import. Skipped: ${result.skipReasons.join(", ")}.`
+          : "No completed orders found in this file.",
+      );
+    } else {
+      setError("");
+    }
+  }
+
+  async function runParse(rawRows: Record<string, unknown>[], orderFileLabel: string) {
+    await refreshDedupeSets();
+    const result = parseBigSellerExcelRows(rawRows);
+    applyParseResult(result, orderFileLabel);
+  }
 
   const { toImport, duplicates } = useMemo(() => {
     const dup: BigSellerExcelGroupedOrder[] = [];
@@ -111,31 +152,21 @@ export function BigSellerExcelImportButton({
     [toImport],
   );
 
-  async function parseFile(file: File) {
+  async function parseOrdersFile(file: File) {
     setParsing(true);
     setError("");
     try {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: "array" });
-      const sheetName = wb.SheetNames[0];
+      const sheetName = pickMarketplaceOrderSheetName(wb);
       if (!sheetName) throw new Error("Workbook has no sheets.");
-      const sheet = wb.Sheets[sheetName];
-      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-      await refreshDedupeSets();
-      const result = parseBigSellerExcelRows(rawRows);
-      setOrders(result.orders);
-      setSkippedRows(result.skippedRows);
-      setSkipReasons(result.skipReasons);
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheetName], {
+        defval: "",
+      });
       setManualStoreId("");
-      if (result.orders.length === 0) {
-        setError(
-          result.skipReasons.length
-            ? `No orders to import. Skipped: ${result.skipReasons.join(", ")}.`
-            : "No completed orders found. Use Order-SKU (BigSeller) or Order.completed (Shopee) export.",
-        );
-      }
+      await runParse(rawRows, file.name);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to read Excel file");
+      setError(e instanceof Error ? e.message : "Failed to read orders file");
       setOrders([]);
     } finally {
       setParsing(false);
@@ -173,32 +204,47 @@ export function BigSellerExcelImportButton({
         });
       });
 
-      const { data: idRows, error: insertError } = await supabase.from("orders").insert(payload).select("id");
-      if (insertError) {
-        setError(formatSupabaseError(insertError));
+      let ids: string[] = [];
+      try {
+        const result = await insertOrdersBatched(supabase, payload);
+        ids = result.ids;
+      } catch (insertErr: unknown) {
+        const msg = formatSupabaseError(insertErr);
+        const details = (insertErr as { details?: string })?.details;
+        setError(
+          details
+            ? `${msg} ${details} Refresh the page before importing again — some rows may have been saved.`
+            : msg,
+        );
+        await refreshDedupeSets();
         return;
       }
-      const ids = (idRows ?? []).map((r: { id: string }) => r.id).filter(Boolean);
+
       if (payload.length > 0 && ids.length === 0) {
         setError("Import may have succeeded but no row ids returned. Refresh before importing again.");
         onImported([]);
         return;
       }
 
+      if (ids.length < payload.length) {
+        setError(
+          `Only ${ids.length} of ${payload.length} orders were saved. Refresh the page — do not import the full file again.`,
+        );
+        await refreshDedupeSets();
+        return;
+      }
+
       let inserted: Record<string, unknown>[] = [];
-      if (ids.length > 0) {
-        const { data: fullRows, error: loadError } = await supabase
-          .from("orders")
-          .select(ADMIN_ORDERS_SELECT)
-          .in("id", ids);
-        if (loadError) {
-          setError(
-            `${formatSupabaseError(loadError)} — Orders may exist. Refresh the page; do not import again.`,
-          );
-          onImported([]);
-          return;
-        }
-        inserted = (fullRows as Record<string, unknown>[]) ?? [];
+      try {
+        inserted = await fetchOrdersByIdsBatched(supabase, ids, ADMIN_ORDERS_SELECT);
+      } catch (loadErr: unknown) {
+        setError(
+          `Imported ${ids.length} order(s), but could not load them for preview (${formatSupabaseError(loadErr)}). Refresh the page — do not import again.`,
+        );
+        await refreshDedupeSets();
+        setOpen(false);
+        onImported([]);
+        return;
       }
 
       await refreshDedupeSets();
@@ -222,35 +268,37 @@ export function BigSellerExcelImportButton({
         open={open}
         onClose={() => setOpen(false)}
         title="Import BigSeller Excel (historical)"
-        description="BigSeller Order-SKU or Shopee Order.completed exports — recorded as completed and fully withdrawn (no finance entries)."
+        description="BigSeller, Shopee, or TikTok Shop completed order exports — recorded as completed and fully withdrawn (no finance entries)."
         size="xl"
       >
         <div className="space-y-4">
           <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
-            Upload <span className="font-medium text-foreground">Order-SKU</span> (BigSeller) or{" "}
-            <span className="font-medium text-foreground">Order.completed</span> (Shopee) export (.xlsx).
-            Each package or order ID becomes one order with{" "}
-            <span className="font-medium text-foreground">stage: completed</span> and{" "}
-            <span className="font-medium text-foreground">unit price &amp; total = Products&apos; Price Paid by Buyer (PHP)</span>, qty from{" "}
-            <span className="font-medium text-foreground">Number of Items in Order</span> (fully withdrawn in BigSeller
-            Sales). Finance accounts are not updated.
+            Upload <span className="font-medium text-foreground">Order-SKU</span> (BigSeller),{" "}
+            <span className="font-medium text-foreground">Order.completed</span> (Shopee), or{" "}
+            <span className="font-medium text-foreground">Completed order</span> (TikTok Shop).
+            Shopee uses <span className="font-medium text-foreground">Products&apos; Price Paid by Buyer</span>. TikTok
+            orders import with no price until you run{" "}
+            <span className="font-medium text-foreground">Apply TikTok settlement</span> with the Finance settlement file.
           </div>
-          <div>
-            <input
-              type="file"
-              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              className="block w-full text-sm"
-              disabled={parsing || saving}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (!f) return;
-                setFileName(f.name);
-                void parseFile(f);
-                e.target.value = "";
-              }}
-            />
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="bigseller-orders-file">Orders export (.xlsx)</Label>
+              <input
+                id="bigseller-orders-file"
+                type="file"
+                accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="mt-1 block w-full text-sm"
+                disabled={parsing || saving}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (!f) return;
+                  void parseOrdersFile(f);
+                  e.target.value = "";
+                }}
+              />
+            </div>
             {parsing && (
-              <p className="mt-2 text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {dedupeLoading ? "Checking existing orders & reading spreadsheet…" : "Reading spreadsheet…"}
               </p>
             )}
@@ -297,8 +345,19 @@ export function BigSellerExcelImportButton({
           {orders.length > 0 && (
             <div className="rounded-md border p-3 text-sm">
               <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {sheetRows > 0 && (
+                  <span>
+                    <span className="font-medium text-foreground">{sheetRows}</span> row(s) in file
+                  </span>
+                )}
                 <span>
-                  <span className="font-medium text-foreground">{orders.length}</span> package(s) in file
+                  <span className="font-medium text-foreground">{orders.length}</span> order(s)
+                  {mergedSkuRows > 0 && (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      ({mergedSkuRows} extra product line{mergedSkuRows === 1 ? "" : "s"} merged)
+                    </span>
+                  )}
                 </span>
                 <span>
                   <span className="font-medium text-emerald-700 dark:text-emerald-400">{toImport.length}</span> to import
@@ -312,8 +371,17 @@ export function BigSellerExcelImportButton({
                 {skippedRows > 0 && (
                   <span className="text-muted-foreground">{skippedRows} row(s) skipped in file</span>
                 )}
+                {orderFormat === "tiktok_order_sku" && (
+                  <span className="text-muted-foreground">TikTok Shop format</span>
+                )}
               </div>
-              {toImport.length > 0 && (
+              {pendingSettlementCount > 0 && orderFormat === "tiktok_order_sku" && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Totals are hidden until settlement — run{" "}
+                  <span className="font-medium text-foreground">Apply TikTok settlement</span> to set unit prices.
+                </p>
+              )}
+              {toImport.length > 0 && orderFormat !== "tiktok_order_sku" && (
                 <p className="mt-2 text-muted-foreground">
                   Import total (new orders): <span className="font-medium text-foreground">{peso(importTotal)}</span>
                 </p>
@@ -329,7 +397,14 @@ export function BigSellerExcelImportButton({
                     <th className="px-2 py-1 text-left">Package</th>
                     <th className="px-2 py-1 text-left">Order no.</th>
                     <th className="px-2 py-1 text-left">Store</th>
-                    <th className="px-2 py-1 text-right">Total</th>
+                    {orderFormat === "tiktok_order_sku" ? (
+                      <>
+                        <th className="px-2 py-1 text-left">Type</th>
+                        <th className="px-2 py-1 text-left">Size</th>
+                      </>
+                    ) : (
+                      <th className="px-2 py-1 text-right">Total</th>
+                    )}
                     <th className="px-2 py-1 text-left">Items</th>
                   </tr>
                 </thead>
@@ -339,7 +414,21 @@ export function BigSellerExcelImportButton({
                       <td className="px-2 py-1 font-mono">{o.packageNo}</td>
                       <td className="px-2 py-1 font-mono">{o.externalOrderNo}</td>
                       <td className="px-2 py-1">{storeLabelForOrder(stores, o, manualStoreId)}</td>
-                      <td className="px-2 py-1 text-right tabular-nums">{peso(o.orderTotal)}</td>
+                      {orderFormat === "tiktok_order_sku" ? (
+                        <>
+                          {(() => {
+                            const v = parsePlatformSkuVariation(o.lineItems[0]?.variation || "");
+                            return (
+                              <>
+                                <td className="px-2 py-1">{v.shirtType || "—"}</td>
+                                <td className="px-2 py-1">{v.shirtSize || "—"}</td>
+                              </>
+                            );
+                          })()}
+                        </>
+                      ) : (
+                        <td className="px-2 py-1 text-right tabular-nums">{peso(o.orderTotal)}</td>
+                      )}
                       <td className="px-2 py-1">
                         <div className="line-clamp-2 max-w-[14rem]">{o.lineItems[0]?.title || "—"}</div>
                         {o.lineItems.length > 1 && (

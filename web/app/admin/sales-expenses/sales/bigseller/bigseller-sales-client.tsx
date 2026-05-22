@@ -245,6 +245,9 @@ export function BigSellerSalesClient({
         <div className="rounded-lg border bg-card p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total Sales</div>
           <div className="mt-1 text-2xl font-bold">{peso(totals.saleTotal)}</div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {completedOrders.length} completed order{completedOrders.length === 1 ? "" : "s"}
+          </p>
           <div className="text-xs text-muted-foreground">{completedOrders.length} completed orders</div>
         </div>
 

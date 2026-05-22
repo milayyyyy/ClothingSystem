@@ -12,11 +12,12 @@ import { peso, formatDate, cn } from "@/lib/utils";
 import { defaultSalesListDateRange } from "@/lib/sales-list";
 import { FileImage, Pencil, Plus, Trash2 } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
-
-const CATS = [
-  "Materials", "Fabrics", "Salary", "Employee Expenses", "Marketing",
-  "Utilities", "Maintenance", "Logistics", "Supplies", "Equipment", "Rent", "Other",
-];
+import { ExpensesExcelImportButton } from "@/components/expenses-excel-import-button";
+import {
+  ExpenseCategoriesDialog,
+  type ExpenseCategoryRow,
+} from "@/components/expense-categories-dialog";
+import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
 
 const RECEIPT_BUCKET = "expense-receipts";
 
@@ -84,12 +85,14 @@ function inDateRange(dateKey: string, from: string, to: string, allTime: boolean
 
 export function ExpensesClient({
   initial,
+  initialCategories,
   suppliers,
   financeAccounts,
   inventoryItems = [],
   employees = [],
 }: {
   initial: ExpenseRow[];
+  initialCategories: ExpenseCategoryRow[];
   suppliers: SupplierOption[];
   financeAccounts: FinanceAccountOption[];
   inventoryItems?: InventoryPickerRow[];
@@ -97,6 +100,7 @@ export function ExpensesClient({
 }) {
   const supabase = createClient();
   const [list, setList] = useState<ExpenseRow[]>(initial);
+  const [categories, setCategories] = useState<ExpenseCategoryRow[]>(initialCategories);
   const [open, setOpen] = useState(false);
   const [editRow, setEditRow] = useState<ExpenseRow | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -117,9 +121,27 @@ export function ExpensesClient({
     [financeAccounts],
   );
 
+  const categoryNames = useMemo(() => {
+    const fromDb = categories.map((c) => c.name);
+    return fromDb.length > 0 ? fromDb : [...EXPENSE_CATEGORIES];
+  }, [categories]);
+
   useEffect(() => {
     setList(initial);
   }, [initial]);
+
+  useEffect(() => {
+    setCategories(initialCategories);
+  }, [initialCategories]);
+
+  async function refreshCategories() {
+    const { data } = await supabase
+      .from("expense_categories")
+      .select("id,name,sort_order")
+      .order("sort_order")
+      .order("name");
+    setCategories((data as ExpenseCategoryRow[]) || []);
+  }
 
   const supplierNameById = useMemo(
     () => Object.fromEntries(suppliers.map((s) => [s.id, s.name])),
@@ -325,7 +347,14 @@ export function ExpensesClient({
               />
             </div>
             <div>
-              <Label htmlFor="ex-cat">Category</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="ex-cat">Category</Label>
+                <ExpenseCategoriesDialog
+                  categories={categories}
+                  onCategoriesChange={refreshCategories}
+                  triggerVariant="ghost"
+                />
+              </div>
               <select
                 id="ex-cat"
                 className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
@@ -333,7 +362,7 @@ export function ExpensesClient({
                 onChange={(e) => setCategory(e.target.value)}
               >
                 <option value="all">All categories</option>
-                {CATS.map((c) => (
+                {categoryNames.map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>
@@ -398,6 +427,15 @@ export function ExpensesClient({
           )}
         </div>
         <div className="flex gap-2">
+          <ExpensesExcelImportButton
+            existing={list.map((e) => ({
+              expense_date: e.expense_date,
+              category: e.category,
+              description: e.description,
+              amount: Number(e.amount),
+            }))}
+            onImported={() => void refresh()}
+          />
           <CsvExportDialog
             label="Export CSV"
             filename="expenses"
@@ -511,6 +549,7 @@ export function ExpensesClient({
         financeAccounts={financeAccounts}
         inventoryItems={inventoryItems}
         employees={employees}
+        categoryNames={categoryNames}
       />
 
       <ExpenseEditDialog
@@ -520,6 +559,7 @@ export function ExpensesClient({
         onSaved={refresh}
         suppliers={suppliers}
         financeAccounts={financeAccounts}
+        categoryNames={categoryNames}
       />
     </>
   );
@@ -552,11 +592,11 @@ type ExpenseFormState = {
   employee_id: string;
 };
 
-function emptyForm(defaultAccountId: string): ExpenseFormState {
+function emptyForm(defaultAccountId: string, defaultCategory: string): ExpenseFormState {
   return {
     expense_purpose: "general",
     expense_date: new Date().toISOString().slice(0, 10),
-    category: "Materials",
+    category: defaultCategory,
     description: "",
     amount: 0,
     notes: "",
@@ -577,6 +617,7 @@ function ExpenseForm({
   financeAccounts,
   inventoryItems,
   employees,
+  categoryNames,
 }: {
   open: boolean;
   onClose: () => void;
@@ -585,10 +626,12 @@ function ExpenseForm({
   financeAccounts: FinanceAccountOption[];
   inventoryItems: InventoryPickerRow[];
   employees: EmployeePickerRow[];
+  categoryNames: string[];
 }) {
   const supabase = createClient();
   const defaultAccountId = financeAccounts[0]?.id || "";
-  const [form, setForm] = useState<ExpenseFormState>(() => emptyForm(defaultAccountId));
+  const defaultCategory = categoryNames[0] || "Materials";
+  const [form, setForm] = useState<ExpenseFormState>(() => emptyForm(defaultAccountId, defaultCategory));
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [invSearch, setInvSearch] = useState("");
@@ -604,10 +647,10 @@ function ExpenseForm({
 
   useEffect(() => {
     if (!open) return;
-    setForm(emptyForm(financeAccounts[0]?.id || ""));
+    setForm(emptyForm(financeAccounts[0]?.id || "", defaultCategory));
     setReceiptFile(null);
     setInvSearch("");
-  }, [open, financeAccounts]);
+  }, [open, financeAccounts, defaultCategory]);
 
   function set(k: keyof ExpenseFormState, v: string | number) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -950,7 +993,7 @@ function ExpenseForm({
             disabled={purpose === "salary"}
             onChange={(e) => set("category", e.target.value)}
           >
-            {CATS.map((c) => (
+            {categoryNames.map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
@@ -1062,6 +1105,7 @@ function ExpenseEditDialog({
   onSaved,
   suppliers,
   financeAccounts,
+  categoryNames,
 }: {
   row: ExpenseRow | null;
   open: boolean;
@@ -1069,6 +1113,7 @@ function ExpenseEditDialog({
   onSaved: () => void | Promise<void>;
   suppliers: SupplierOption[];
   financeAccounts: FinanceAccountOption[];
+  categoryNames: string[];
 }) {
   const supabase = createClient();
   const [form, setForm] = useState<EditExpenseFormState>({
@@ -1204,7 +1249,7 @@ function ExpenseEditDialog({
             value={form.category}
             onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
           >
-            {CATS.map((c) => (
+            {categoryNames.map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>

@@ -13,19 +13,25 @@ import { peso } from "@/lib/utils";
 import { useConfirmAction } from "@/components/confirm-dialog";
 import { formatSalesDateTime, orderTypeLabel } from "@/lib/sales";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
+import { RevenueExcelImportButton } from "@/components/revenue-excel-import-button";
+import { ONLINE_SHOP_FILTERS, onlineShopLabel } from "@/lib/online-shops";
 import {
   defaultSalesListDateRange,
+  mergeUnifiedSaleRows,
   rowMatchesTab,
-  unifiedRowsFromOrders,
+  type ManualSaleRow,
+  type OnlineShopFilter,
   type SalesTab,
   type UnifiedSaleListRow,
 } from "@/lib/sales-list";
 
-type Props = { orders: any[] };
+type Props = { orders: any[]; initialManualSales: ManualSaleRow[] };
 
 const TABS: Array<{ key: SalesTab; label: string }> = [
   { key: "all", label: "All" },
   { key: "walkin_online", label: "Walk-in & Online" },
+  { key: "online_shops", label: "Online Shops" },
+  { key: "others", label: "Others" },
   { key: "services", label: "Services" },
   { key: "sublimation", label: "Sublimation" },
 ];
@@ -37,29 +43,47 @@ function inDateRange(dateKey: string, from: string, to: string, allTime: boolean
   return true;
 }
 
-export function SalesListClient({ orders: initialOrders }: Props) {
+export function SalesListClient({ orders: initialOrders, initialManualSales }: Props) {
   const supabase = createClient();
   const { ask, dialog: confirmDialog } = useConfirmAction();
   const [orders, setOrders] = useState(initialOrders);
+  const [manualSales, setManualSales] = useState(initialManualSales);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
   const defaults = defaultSalesListDateRange();
   const [from, setFrom] = useState(defaults.from);
   const [to, setTo] = useState(defaults.to);
   const [allTime, setAllTime] = useState(false);
   const [tab, setTab] = useState<SalesTab>("all");
+  const [onlineShopFilter, setOnlineShopFilter] = useState<OnlineShopFilter>("all");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
     setOrders(initialOrders);
   }, [initialOrders]);
 
-  const baseRows = useMemo(() => unifiedRowsFromOrders(orders), [orders]);
+  useEffect(() => {
+    setManualSales(initialManualSales);
+  }, [initialManualSales]);
+
+  async function refreshManualSales() {
+    const { data } = await supabase
+      .from("manual_sales")
+      .select("id, sale_date, amount, description, channel, revenue_channel, product_service, notes, import_key")
+      .order("sale_date", { ascending: false });
+    setManualSales((data as ManualSaleRow[]) || []);
+  }
+
+  async function refreshAll() {
+    await refreshManualSales();
+  }
+
+  const baseRows = useMemo(() => mergeUnifiedSaleRows(orders, manualSales), [orders, manualSales]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return baseRows.filter((r) => {
       if (!inDateRange(r.dateKey, from, to, allTime)) return false;
-      if (!rowMatchesTab(r, tab)) return false;
+      if (!rowMatchesTab(r, tab, onlineShopFilter)) return false;
       if (q) {
         const blob = [
           r.customerOrTitle,
@@ -76,27 +100,53 @@ export function SalesListClient({ orders: initialOrders }: Props) {
       }
       return true;
     });
-  }, [baseRows, from, to, allTime, tab, search]);
+  }, [baseRows, from, to, allTime, tab, onlineShopFilter, search]);
 
   /** Per-tab totals for the summary bar */
   const tabTotals = useMemo(() => {
     const inRange = baseRows.filter((r) => inDateRange(r.dateKey, from, to, allTime));
     return Object.fromEntries(
-      TABS.map(({ key }) => [key, inRange.filter((r) => rowMatchesTab(r, key)).reduce((s, r) => s + r.amount, 0)]),
+      TABS.map(({ key }) => [
+        key,
+        inRange.filter((r) => rowMatchesTab(r, key, "all")).reduce((s, r) => s + r.amount, 0),
+      ]),
     ) as Record<SalesTab, number>;
+  }, [baseRows, from, to, allTime]);
+
+  const onlineShopSubTotals = useMemo(() => {
+    const inRange = baseRows.filter((r) => inDateRange(r.dateKey, from, to, allTime) && rowMatchesTab(r, "online_shops", "all"));
+    return Object.fromEntries(
+      ONLINE_SHOP_FILTERS.map(({ key }) => [
+        key,
+        inRange.filter((r) => rowMatchesTab(r, "online_shops", key)).reduce((s, r) => s + r.amount, 0),
+      ]),
+    ) as Record<OnlineShopFilter, number>;
   }, [baseRows, from, to, allTime]);
 
   const total = filtered.reduce((s, r) => s + r.amount, 0);
 
   const visibleKeys = useMemo(() => filtered.map((r) => r.key), [filtered]);
 
+  const selectedRows = useMemo(
+    () => filtered.filter((r) => selectedKeys.has(r.key)),
+    [filtered, selectedKeys],
+  );
+
   const selectedOrderIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const r of filtered) {
-      if (selectedKeys.has(r.key) && r.orderId) ids.add(r.orderId);
+    for (const r of selectedRows) {
+      if (r.orderId) ids.add(r.orderId);
     }
     return [...ids];
-  }, [filtered, selectedKeys]);
+  }, [selectedRows]);
+
+  const selectedManualSaleIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of selectedRows) {
+      if (r.manualSaleId) ids.add(r.manualSaleId);
+    }
+    return [...ids];
+  }, [selectedRows]);
 
   function toggleRowSelected(key: string) {
     setSelectedKeys((prev) => {
@@ -119,23 +169,44 @@ export function SalesListClient({ orders: initialOrders }: Props) {
     setSelectedKeys(new Set());
   }
 
+  async function deleteIdsBatched(table: "orders" | "manual_sales", ids: string[]) {
+    const chunkSize = 50;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const { error } = await supabase.from(table).delete().in("id", chunk);
+      if (error) throw error;
+    }
+  }
+
   function bulkDeleteSelected() {
-    const ids = selectedOrderIds;
-    if (ids.length === 0) return;
+    const orderIds = selectedOrderIds;
+    const manualIds = selectedManualSaleIds;
+    const total = orderIds.length + manualIds.length;
+    if (total === 0) return;
+
+    const parts: string[] = [];
+    if (orderIds.length) parts.push(`${orderIds.length} order${orderIds.length !== 1 ? "s" : ""}`);
+    if (manualIds.length) parts.push(`${manualIds.length} revenue row${manualIds.length !== 1 ? "s" : ""}`);
+
     ask({
-      title: ids.length === 1 ? "Delete order?" : `Delete ${ids.length} orders?`,
+      title: total === 1 ? "Delete selected row?" : `Delete ${total} selected rows?`,
       description:
-        ids.length === 1
-          ? "Permanently delete this order from the system? This cannot be undone."
-          : `Permanently delete ${ids.length} selected orders? This cannot be undone.`,
-      confirmLabel: ids.length === 1 ? "Delete order" : `Delete ${ids.length} orders`,
+        total === 1
+          ? "Permanently delete this row? This cannot be undone."
+          : `Permanently delete ${parts.join(" and ")}? This cannot be undone.`,
+      confirmLabel: total === 1 ? "Delete" : `Delete ${total} rows`,
       onConfirm: async () => {
-        const { error } = await supabase.from("orders").delete().in("id", ids);
-        if (error) {
-          alert(error.message);
+        try {
+          if (orderIds.length) await deleteIdsBatched("orders", orderIds);
+          if (manualIds.length) await deleteIdsBatched("manual_sales", manualIds);
+        } catch (e: unknown) {
+          alert(e instanceof Error ? e.message : "Delete failed");
           return;
         }
-        setOrders((prev) => prev.filter((o) => !ids.includes(String(o.id))));
+        const orderSet = new Set(orderIds);
+        const manualSet = new Set(manualIds);
+        setOrders((prev) => prev.filter((o) => !orderSet.has(String(o.id))));
+        setManualSales((prev) => prev.filter((m) => !manualSet.has(m.id)));
         clearSelection();
       },
     });
@@ -202,9 +273,21 @@ export function SalesListClient({ orders: initialOrders }: Props) {
           <p className="text-xs text-muted-foreground">
             Completed orders show the full amount. Pending orders with a recorded{" "}
             <span className="font-medium text-foreground">down payment</span> appear as{" "}
-            <span className="font-medium text-amber-600 dark:text-amber-400">Deposit</span> rows.
+            <span className="font-medium text-amber-600 dark:text-amber-400">Deposit</span> rows.{" "}
+            <span className="font-medium text-foreground">Revenue</span> rows come from Excel import (bookkeeping).
           </p>
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <RevenueExcelImportButton
+              existing={manualSales.map((m) => ({
+                sale_date: String(m.sale_date).slice(0, 10),
+                revenue_channel: m.revenue_channel ?? null,
+                product_service: m.product_service ?? null,
+                description: m.description,
+                amount: Number(m.amount),
+                import_key: m.import_key ?? null,
+              }))}
+              onImported={() => void refreshAll()}
+            />
             <CsvExportDialog
               label="Export CSV"
               filename="sales_list"
@@ -239,7 +322,10 @@ export function SalesListClient({ orders: initialOrders }: Props) {
               <button
                 key={key}
                 type="button"
-                onClick={() => setTab(key)}
+                onClick={() => {
+                  setTab(key);
+                  if (key !== "online_shops") setOnlineShopFilter("all");
+                }}
                 className={
                   "flex flex-col items-center rounded-md px-4 py-2 text-xs font-medium transition-colors " +
                   (active
@@ -257,6 +343,38 @@ export function SalesListClient({ orders: initialOrders }: Props) {
         </div>
       </div>
 
+      {tab === "online_shops" && (
+        <div className="overflow-x-auto">
+          <div className="flex min-w-max flex-wrap gap-1 rounded-lg border border-primary/20 bg-primary/[0.04] p-1">
+            {ONLINE_SHOP_FILTERS.map(({ key, label }) => {
+              const active = onlineShopFilter === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setOnlineShopFilter(key)}
+                  className={
+                    "flex flex-col items-center rounded-md px-3 py-1.5 text-xs font-medium transition-colors " +
+                    (active
+                      ? "bg-background shadow text-foreground"
+                      : "text-muted-foreground hover:bg-background/60 hover:text-foreground")
+                  }
+                >
+                  <span>{label}</span>
+                  <span className={`mt-0.5 font-semibold tabular-nums ${active ? "text-primary" : "text-muted-foreground"}`}>
+                    {peso(onlineShopSubTotals[key] ?? 0)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Mensahe and Likha marketplace revenue only. Adjustments and misc entries are under the{" "}
+            <span className="font-medium text-foreground">Others</span> tab.
+          </p>
+        </div>
+      )}
+
       {/* Summary line */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <span className="text-muted-foreground">
@@ -271,7 +389,7 @@ export function SalesListClient({ orders: initialOrders }: Props) {
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" variant="destructive" size="sm" onClick={bulkDeleteSelected}>
             <Trash2 className="mr-1 h-3.5 w-3.5" />
-            Delete selected ({selectedOrderIds.length} order{selectedOrderIds.length !== 1 ? "s" : ""})
+            Delete selected ({selectedRows.length})
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={clearSelection}>
             Clear selection
@@ -354,7 +472,15 @@ function SalesRow({
             ? "amber"
             : "blue";
 
-  const channelLabel = row.isBigSeller ? "BigSeller" : orderTypeLabel(row.channel);
+  const channelLabel = row.onlineShop
+    ? onlineShopLabel(row.onlineShop)
+    : row.isOthersList
+      ? "Others"
+      : row.isManualSale
+        ? "Revenue"
+        : row.isBigSeller
+          ? "BigSeller"
+          : orderTypeLabel(row.channel);
   const dateLabel = formatSalesDateTime(new Date(row.atMs).toISOString());
 
   return (
@@ -366,7 +492,13 @@ function SalesRow({
           type="checkbox"
           className="h-4 w-4 cursor-pointer rounded border-input accent-primary"
           checked={selected}
-          aria-label={row.orderNo != null ? `Select order #${row.orderNo}` : "Select row"}
+          aria-label={
+            row.orderNo != null
+              ? `Select order #${row.orderNo}`
+              : row.isManualSale
+                ? `Select revenue row ${row.customerOrTitle}`
+                : "Select row"
+          }
           onChange={onToggleSelect}
         />
       </td>
@@ -395,6 +527,12 @@ function SalesRow({
           <Badge variant={ch as "purple" | "teal" | "blue" | "amber"}>{channelLabel}</Badge>
           {row.isDeposit && (
             <Badge variant="amber" className="text-[10px]">Deposit</Badge>
+          )}
+          {row.isManualSale && !row.onlineShop && (
+            <Badge variant="muted" className="text-[10px]">Bookkeeping</Badge>
+          )}
+          {row.isOthersList && (
+            <Badge variant="amber" className="text-[10px]">Others</Badge>
           )}
         </div>
       </td>

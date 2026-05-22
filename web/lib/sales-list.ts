@@ -1,7 +1,23 @@
 import type { SalesChannel } from "@/lib/sales";
-import { getOrderKind, isSalesRecognized, storeOrPlatform } from "@/lib/sales";
+import { getOrderKind, isBigSellerOnlineOrder, isSalesRecognized, storeOrPlatform } from "@/lib/sales";
+import { mapRevenueChannelToKind } from "@/lib/revenue-excel-import";
+import { resolveOnlineShop, resolveOthersListRow, type OnlineShopFilter, type OnlineShopKey } from "@/lib/online-shops";
 
-export type SalesTab = "all" | "walkin_online" | "services" | "sublimation";
+export type ManualSaleRow = {
+  id: string;
+  sale_date: string;
+  amount: number;
+  description: string;
+  channel: SalesChannel;
+  revenue_channel?: string | null;
+  product_service?: string | null;
+  notes?: string | null;
+  import_key?: string | null;
+};
+
+export type SalesTab = "all" | "walkin_online" | "online_shops" | "others" | "services" | "sublimation";
+
+export type { OnlineShopFilter, OnlineShopKey };
 
 export type UnifiedSaleListRow = {
   key: string;
@@ -15,6 +31,9 @@ export type UnifiedSaleListRow = {
   hasTeamsSheet: boolean;
   /** True when this row represents a recorded down payment on a pending order. */
   isDeposit: boolean;
+  /** Bookkeeping / Excel revenue import (manual_sales). */
+  isManualSale: boolean;
+  manualSaleId: string;
   amount: number;
   /** Full order total (for context on deposit rows). */
   orderTotal: number;
@@ -30,6 +49,10 @@ export type UnifiedSaleListRow = {
   externalOrderNo: string;
   skuCode: string;
   status?: string;
+  /** Set when row belongs to a named online shop (Mensahe/Likha marketplace). */
+  onlineShop: OnlineShopKey | null;
+  /** Adjustments and misc revenue (separate Others tab, not Online Shops). */
+  isOthersList: boolean;
 };
 
 function pad2(n: number) {
@@ -43,22 +66,11 @@ export function localDateKeyFromIso(iso: string | null | undefined): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-function detectBigSeller(o: any): boolean {
-  if (getOrderKind(o) !== "online") return false;
-  const src = String(o?.source || "").toLowerCase();
-  if (src.includes("bigseller")) return true;
-  const notes = String(o?.notes || "").toLowerCase();
-  if (notes.includes("imported from bigseller pdf")) return true;
-  if (notes.includes("imported from bigseller excel")) return true;
-  if (notes.includes("bigseller") && notes.includes("pdf") && notes.includes("import")) return true;
-  if (notes.includes("bigseller") && notes.includes("excel") && notes.includes("import")) return true;
-  return false;
-}
-
 /** Completed orders + deposit (down payment) rows → unified rows for sales list browsing. */
 export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
   const out: UnifiedSaleListRow[] = [];
   for (const o of orders || []) {
+    if (isBigSellerOnlineOrder(o)) continue;
     const recognized = isSalesRecognized(o);
     const dp = Number(o.down_payment || 0);
 
@@ -71,7 +83,7 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
     const dateKey = localDateKeyFromIso(iso);
     const atMs = new Date(iso || o.created_at).getTime();
     const channel = getOrderKind(o);
-    const isBigSeller = detectBigSeller(o);
+    const isBigSeller = false;
     const hasTeamsSheet =
       channel === "sublimation" ||
       channel === "services" ||
@@ -81,6 +93,9 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
 
     const notes = String(o.notes || "").trim();
     const designRef = String(o.design_ref || "").trim();
+    const storeLabel = storeOrPlatform(o);
+    const onlineShop = resolveOnlineShop(storeLabel, { channel, isManualSale: false });
+    const isOthersList = resolveOthersListRow(storeLabel, { channel, isManualSale: false });
     // Build description: prefer notes, fall back to design_ref
     const baseDesc = notes || designRef;
 
@@ -89,13 +104,13 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
       out.push({
         key: `o-${o.id}`,
         dateKey, atMs, channel, isBigSeller, hasTeamsSheet,
-        isDeposit: false,
+        isDeposit: false, isManualSale: false, manualSaleId: "", onlineShop, isOthersList,
         amount: orderTotal,
         orderTotal,
         orderId: String(o.id || ""),
         orderNo: o.order_no,
         customerOrTitle: String(o.customer_name || "—"),
-        storeOrNotes: storeOrPlatform(o),
+        storeOrNotes: storeLabel,
         designRef,
         description: baseDesc,
         waybillNo: String(o.waybill_no || ""),
@@ -108,13 +123,13 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
       out.push({
         key: `dp-${o.id}`,
         dateKey, atMs, channel, isBigSeller, hasTeamsSheet,
-        isDeposit: true,
+        isDeposit: true, isManualSale: false, manualSaleId: "", onlineShop, isOthersList,
         amount: dp,
         orderTotal,
         orderId: String(o.id || ""),
         orderNo: o.order_no,
         customerOrTitle: String(o.customer_name || "—"),
-        storeOrNotes: storeOrPlatform(o),
+        storeOrNotes: storeLabel,
         designRef,
         description: baseDesc,
         waybillNo: String(o.waybill_no || ""),
@@ -124,13 +139,81 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
       });
     }
   }
-  out.sort((a, b) => b.atMs - a.atMs);
   return out;
 }
 
-export function rowMatchesTab(r: UnifiedSaleListRow, tab: SalesTab): boolean {
+/** Revenue workbook rows stored in manual_sales. */
+export function unifiedRowsFromManualSales(manual: ManualSaleRow[]): UnifiedSaleListRow[] {
+  const out: UnifiedSaleListRow[] = [];
+  for (const m of manual || []) {
+    const dateKey = String(m.sale_date || "").slice(0, 10);
+    if (!dateKey) continue;
+    const atMs = new Date(`${dateKey}T12:00:00`).getTime();
+    const channel =
+      (m.channel as SalesChannel) ||
+      mapRevenueChannelToKind(String(m.revenue_channel || ""));
+    const revenueChannel = String(m.revenue_channel || "").trim();
+    const onlineShop = resolveOnlineShop(revenueChannel, { isManualSale: true, channel });
+    const isOthersList = resolveOthersListRow(revenueChannel, { isManualSale: true, channel });
+    const product = String(m.product_service || "").trim();
+    const desc = String(m.description || "").trim();
+    const notes = String(m.notes || "").trim();
+    const description = [product, desc, notes].filter(Boolean).join(" · ") || "Revenue";
+
+    out.push({
+      key: `ms-${m.id}`,
+      dateKey,
+      atMs,
+      channel,
+      isBigSeller: false,
+      hasTeamsSheet: false,
+      isDeposit: false,
+      isManualSale: true,
+      manualSaleId: m.id,
+      onlineShop,
+      isOthersList,
+      amount: Number(m.amount || 0),
+      orderTotal: Number(m.amount || 0),
+      orderId: "",
+      orderNo: null,
+      customerOrTitle: product || desc || "Revenue",
+      storeOrNotes: revenueChannel || "—",
+      designRef: "",
+      description,
+      waybillNo: "",
+      externalOrderNo: "",
+      skuCode: "",
+    });
+  }
+  return out;
+}
+
+export function mergeUnifiedSaleRows(orders: any[], manual: ManualSaleRow[]): UnifiedSaleListRow[] {
+  const combined = [...unifiedRowsFromOrders(orders), ...unifiedRowsFromManualSales(manual)];
+  combined.sort((a, b) => b.atMs - a.atMs);
+  return combined;
+}
+
+export function rowMatchesTab(
+  r: UnifiedSaleListRow,
+  tab: SalesTab,
+  onlineShopFilter: OnlineShopFilter = "all",
+): boolean {
   if (tab === "all") return true;
-  if (tab === "walkin_online") return (r.channel === "local" || r.channel === "online") && !r.isBigSeller;
+  if (tab === "walkin_online") {
+    return (
+      (r.channel === "local" || r.channel === "online") &&
+      !r.isBigSeller &&
+      r.onlineShop == null &&
+      !r.isOthersList
+    );
+  }
+  if (tab === "online_shops") {
+    if (!r.onlineShop) return false;
+    if (onlineShopFilter === "all") return true;
+    return r.onlineShop === onlineShopFilter;
+  }
+  if (tab === "others") return r.isOthersList;
   if (tab === "services") return r.channel === "services";
   if (tab === "sublimation") return r.channel === "sublimation";
   return true;

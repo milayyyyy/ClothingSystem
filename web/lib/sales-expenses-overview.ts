@@ -1,4 +1,4 @@
-import { getOrderKind, isSalesRecognized, orderTypeLabel, SALES_CHANNELS, type SalesChannel } from "@/lib/sales";
+import { countsTowardMainSales, getOrderKind, orderTypeLabel, SALES_CHANNELS, type SalesChannel } from "@/lib/sales";
 
 function inCalendarMonth(iso: string | null | undefined, ref = new Date()) {
   if (!iso) return false;
@@ -16,7 +16,7 @@ export function computeSalesMonthSnapshot(orders: any[], ref = new Date()): Sale
   let orderTotal = 0;
   let orderCount = 0;
   (orders || []).forEach((o) => {
-    if (!isSalesRecognized(o)) return;
+    if (!countsTowardMainSales(o)) return;
     const ts = String(o.updated_at || o.created_at || "");
     if (!inCalendarMonth(ts, ref)) return;
     orderTotal += Number(o.total || 0);
@@ -25,7 +25,7 @@ export function computeSalesMonthSnapshot(orders: any[], ref = new Date()): Sale
 
   const byChannel: Record<SalesChannel, number> = { local: 0, online: 0, sublimation: 0, services: 0 };
   (orders || []).forEach((o) => {
-    if (!isSalesRecognized(o)) return;
+    if (!countsTowardMainSales(o)) return;
     const ts = String(o.updated_at || o.created_at || "");
     if (!inCalendarMonth(ts, ref)) return;
     const k = getOrderKind(o);

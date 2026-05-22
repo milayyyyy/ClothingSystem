@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { ADMIN_ORDERS_SELECT } from "@/lib/admin-orders-select";
-import { BIGSELLER_ORDERS_OR_FILTER } from "@/lib/bigseller-orders-query";
+import { fetchAllBigSellerOrders } from "@/lib/bigseller-orders-query";
 import { PageHeader } from "@/components/page-header";
 import { OrdersClient } from "@/app/admin/orders/orders-client";
 
@@ -9,14 +9,15 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminBigSellerOrdersPage() {
   const supabase = createClient();
-  const [{ data: orders }, { data: employees }] = await Promise.all([
-    supabase
-      .from("orders")
-      .select(ADMIN_ORDERS_SELECT)
-      .or(BIGSELLER_ORDERS_OR_FILTER)
-      .order("created_at", { ascending: false }),
+  const [{ data: orders, error: ordersError }, { data: employees }, user] = await Promise.all([
+    fetchAllBigSellerOrders(supabase, ADMIN_ORDERS_SELECT),
     supabase.from("profiles").select("id, full_name, email, role").in("role", ["employee", "sub_admin"]),
+    getSessionUser(),
   ]);
+  const canCreate = user?.profile?.role === "admin" || user?.profile?.role === "sub_admin";
+  if (ordersError) {
+    console.error("BigSeller orders load:", ordersError);
+  }
 
   return (
     <div>
@@ -38,6 +39,7 @@ export default async function AdminBigSellerOrdersPage() {
         initialKind="online"
         hideKindTabs
         hideNewOrder
+        canCreate={canCreate}
       />
     </div>
   );

@@ -16,7 +16,8 @@ export function SalesExpensesHubOverview({
       <div>
         <h2 className="text-lg font-semibold tracking-tight">Overview</h2>
         <p className="text-sm text-muted-foreground">
-          This month: completed sales (ready or delivered orders) and logged expenses. Open Sales or Expenses below for full detail.
+          This month: completed sales (ready or delivered orders, excluding BigSeller marketplace) and logged expenses. Open Sales or
+          Expenses below for full detail.
         </p>
       </div>
       <div className="grid gap-8 lg:grid-cols-2">

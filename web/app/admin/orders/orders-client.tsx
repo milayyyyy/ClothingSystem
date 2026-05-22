@@ -17,6 +17,10 @@ import { ChevronDown, Eye, FileText, FileUp, Pencil, Plus, Settings2, Table2, Tr
 import { BIGSELLER_KNOWN_STORES_SORTED } from "@/lib/bigseller-store-labels";
 import { ADMIN_ORDERS_SELECT } from "@/lib/admin-orders-select";
 import { BigSellerExcelImportButton } from "@/components/bigseller-excel-import-button";
+import { TikTokSettlementUpdateButton } from "@/components/tiktok-settlement-update-button";
+import { isTikTokSettlementPending } from "@/lib/tiktok-settlement-update";
+import { fetchAllBigSellerOrders } from "@/lib/bigseller-orders-query";
+import { parseBigSellerLineItems } from "@/lib/bigseller-line-items";
 import { BigSellerDuplicateAlert } from "@/components/bigseller-duplicate-alert";
 import {
   buildBigSellerDuplicateIndex,
@@ -1073,27 +1077,34 @@ export function OrdersClient({
       }
 
       if (search) {
-        const s = search.toLowerCase();
+        const s = search.toLowerCase().trim();
+        const tokens = s.split(/\s+/).filter(Boolean);
         const printed = o.bigseller_printed_at ? formatDateTime(o.bigseller_printed_at).toLowerCase() : "";
+        const extraItems = parseBigSellerLineItems(o.bigseller_line_items).join(" ");
         const blob = [
           o.customer_name,
           String(o.order_no),
           o.external_order_no,
           o.waybill_no,
           o.sku_code,
+          o.design_ref,
           o.variation,
           o.shirt_type,
           o.shirt_size,
           o.source,
           o.notes,
           o.store?.name,
+          extraItems,
           printed,
           String(o.bigseller_printed_at || ""),
         ]
           .map((x) => String(x || ""))
           .join(" ")
           .toLowerCase();
-        if (!blob.includes(s)) return false;
+        const matches =
+          tokens.length === 0 ||
+          tokens.every((t) => blob.includes(t));
+        if (!matches) return false;
       }
 
       if (hideKindTabs && (printedFrom || printedTo)) {
@@ -1126,6 +1137,14 @@ export function OrdersClient({
     () => (kindFilter === "online" ? filtered.map((o) => o.id) : []),
     [kindFilter, filtered],
   );
+
+  const noStoreOrderIds = useMemo(() => {
+    if (!hideKindTabs) return [] as string[];
+    return orders.filter((o) => !o.store_id && !String(o.store?.name || "").trim()).map((o) => o.id);
+  }, [orders, hideKindTabs]);
+
+  const allNoStoreSelected =
+    noStoreOrderIds.length > 0 && noStoreOrderIds.every((id) => selectedOnlineIds.has(id));
 
   useEffect(() => {
     if (kindFilter !== "online") return;
@@ -1160,19 +1179,36 @@ export function OrdersClient({
 
   async function refresh() {
     const onBigSellerPage = hideKindTabs && pathname?.includes("/admin/orders/bigseller");
-    // BigSeller: fetch recent rows and filter in-app (server list uses `BIGSELLER_ORDERS_OR_FILTER` in bigseller/page).
-    const q = supabase.from("orders").select(ADMIN_ORDERS_SELECT).order("created_at", { ascending: false }).limit(8000);
-    const { data, error } = await q;
+    if (onBigSellerPage) {
+      const { data, error } = await fetchAllBigSellerOrders(supabase, ADMIN_ORDERS_SELECT);
+      if (error) {
+        console.error(error);
+        alert(`Could not reload orders: ${error}`);
+        return;
+      }
+      setOrders(((data as any[]) || []).map(normalizeOrderAssigneesRow));
+      return;
+    }
+    const { data, error } = await supabase
+      .from("orders")
+      .select(ADMIN_ORDERS_SELECT)
+      .order("created_at", { ascending: false })
+      .limit(8000);
     if (error) {
       console.error(error);
       alert(`Could not reload orders: ${error.message}`);
       return;
     }
-    let list = ((data as any[]) || []).map(normalizeOrderAssigneesRow);
-    if (onBigSellerPage) {
-      list = list.filter((o) => isBigSellerOnlineOrder(o));
+    setOrders(((data as any[]) || []).map(normalizeOrderAssigneesRow));
+  }
+
+  async function deleteOrdersByIds(ids: string[]) {
+    const chunkSize = 100;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const slice = ids.slice(i, i + chunkSize);
+      const { error } = await supabase.from("orders").delete().in("id", slice);
+      if (error) throw error;
     }
-    setOrders(list);
   }
   function remove(id: string) {
     const o = orders.find((x) => x.id === id);
@@ -1231,9 +1267,10 @@ export function OrdersClient({
           : `Delete ${ids.length} selected orders? This cannot be undone.`,
       confirmLabel: ids.length === 1 ? "Delete order" : `Delete ${ids.length} orders`,
       onConfirm: async () => {
-        const { error } = await supabase.from("orders").delete().in("id", ids);
-        if (error) {
-          alert(error.message);
+        try {
+          await deleteOrdersByIds(ids);
+        } catch (e: unknown) {
+          alert(formatSupabaseError(e));
           return;
         }
         setSelectedOnlineIds(new Set());
@@ -1270,9 +1307,10 @@ export function OrdersClient({
           : `Delete ${ids.length} selected orders? This cannot be undone.`,
       confirmLabel: ids.length === 1 ? "Delete order" : `Delete ${ids.length} orders`,
       onConfirm: async () => {
-        const { error } = await supabase.from("orders").delete().in("id", ids);
-        if (error) {
-          alert(error.message);
+        try {
+          await deleteOrdersByIds(ids);
+        } catch (e: unknown) {
+          alert(formatSupabaseError(e));
           return;
         }
         setSelectedListOrderIds(new Set());
@@ -1489,7 +1527,54 @@ export function OrdersClient({
               />
             </div>
           )}
-          {kindFilter === "online" && selectedOnlineIds.size > 0 && (
+          {hideKindTabs && filtered.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                const ids = filtered.map((o) => o.id);
+                const allOn = ids.length > 0 && ids.every((id) => selectedOnlineIds.has(id));
+                if (allOn) setSelectedOnlineIds(new Set());
+                else setSelectedOnlineIds(new Set(ids));
+              }}
+            >
+              {filtered.every((o) => selectedOnlineIds.has(o.id)) && filtered.length > 0
+                ? "Clear selection"
+                : `Select all ${filtered.length} shown`}
+            </Button>
+          )}
+          {hideKindTabs && noStoreOrderIds.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              title="Select every loaded order with no store linked (Admin → Stores)"
+              onClick={() => {
+                if (allNoStoreSelected) {
+                  setSelectedOnlineIds((prev) => {
+                    const next = new Set(prev);
+                    for (const id of noStoreOrderIds) next.delete(id);
+                    return next;
+                  });
+                } else {
+                  setSelectedOnlineIds((prev) => {
+                    const next = new Set(prev);
+                    for (const id of noStoreOrderIds) next.add(id);
+                    return next;
+                  });
+                }
+              }}
+            >
+              {allNoStoreSelected
+                ? `Clear no-store (${noStoreOrderIds.length})`
+                : `Select no store (${noStoreOrderIds.length})`}
+            </Button>
+          )}
+          {hideKindTabs && selectedOnlineIds.size > 0 && canCreate && (
+            <Button type="button" variant="destructive" onClick={() => void removeSelectedOnline()}>
+              <Trash2 className="h-3.5 w-3.5" /> Delete selected ({selectedOnlineIds.size})
+            </Button>
+          )}
+          {kindFilter === "online" && !hideKindTabs && selectedOnlineIds.size > 0 && (
             <>
               <Button
                 type="button"
@@ -1605,6 +1690,12 @@ export function OrdersClient({
                   router.refresh();
                 }}
               />
+              <TikTokSettlementUpdateButton
+                onUpdated={() => {
+                  void refresh();
+                  router.refresh();
+                }}
+              />
             </>
           )}
           {kindFilter === "services" && (
@@ -1635,6 +1726,28 @@ export function OrdersClient({
           groups={duplicateGroups}
           onFilterValue={(value) => setSearch(value)}
         />
+      )}
+
+      {hideKindTabs && orders.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          <span className="font-medium text-foreground">{filtered.length}</span>
+          {search.trim() || printedFrom || printedTo ? " matching" : ""} order(s)
+          {(search.trim() || printedFrom || printedTo) && filtered.length !== orders.length
+            ? ` of ${orders.length} loaded`
+            : ` (${orders.length} total)`}
+          {noStoreOrderIds.length > 0 && (
+            <span>
+              {" "}
+              · <span className="font-medium text-foreground">{noStoreOrderIds.length}</span> without store
+            </span>
+          )}
+          {selectedOnlineIds.size > 0 && (
+            <span>
+              {" "}
+              · <span className="font-medium text-foreground">{selectedOnlineIds.size}</span> selected
+            </span>
+          )}
+        </p>
       )}
 
       <Card>
@@ -1730,7 +1843,11 @@ export function OrdersClient({
                         </Badge>
                       </td>
                       <td className="w-[9%] min-w-[5rem] whitespace-nowrap px-2 py-3 text-right align-top">
-                        {peso(Number(o.unit_price || 0))}
+                        {isTikTokSettlementPending(o.notes, o.unit_price) ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          peso(Number(o.unit_price || 0))
+                        )}
                       </td>
                       <td className="w-[11%] min-w-[8.5rem] px-2 py-3 align-top text-xs">
                         {(() => {

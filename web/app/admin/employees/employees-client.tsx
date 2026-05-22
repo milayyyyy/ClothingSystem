@@ -14,6 +14,7 @@ import { OnCallStaffPanel, type OnCallStaff } from "./on-call-staff-panel";
 import { Camera, Eye, EyeOff, Pencil, Plus, ScanFace, Settings2, ShieldCheck, Trash2 } from "lucide-react";
 import { FaceEnrollDialog } from "@/components/face-enroll-dialog";
 import { RoleSettingsDialog } from "@/components/role-settings-dialog";
+import { useConfirmAction } from "@/components/confirm-dialog";
 
 type EmpPosition = { id: string; name: string; sort_order: number };
 
@@ -38,6 +39,7 @@ export function EmployeesClient({
   initialOnCall: OnCallStaff[];
 }) {
   const supabase = createClient();
+  const { ask, dialog: confirmDialog } = useConfirmAction();
   const [permanentList, setPermanentList] = useState<P[]>(initialPermanent);
   const [onCallList, setOnCallList] = useState<OnCallStaff[]>(initialOnCall);
   const [categoryTab, setCategoryTab] = useState<EmploymentCategory>("permanent");
@@ -77,6 +79,30 @@ export function EmployeesClient({
     setOnCallList((onCall as OnCallStaff[]) || []);
   }
 
+  function deleteEmployee(employee: P) {
+    const name = employee.full_name?.trim() || employee.email || "this employee";
+    ask({
+      title: "Delete employee?",
+      description: `Permanently remove ${name}? Their login, profile, and assignee links will be deleted. This cannot be undone.`,
+      confirmLabel: "Delete employee",
+      onConfirm: async () => {
+        const res = await fetch("/api/admin/delete-employee", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: employee.id }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(j.error || "Could not delete employee");
+          return;
+        }
+        if (editing?.id === employee.id) setEditing(null);
+        if (enrollTarget?.id === employee.id) setEnrollTarget(null);
+        await refresh();
+      },
+    });
+  }
+
   function handleEnrolled() {
     void refresh();
     if (enrollTarget) {
@@ -87,6 +113,7 @@ export function EmployeesClient({
 
   return (
     <>
+      {confirmDialog}
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="inline-flex rounded-lg border bg-muted/30 p-0.5">
           <button
@@ -168,13 +195,24 @@ export function EmployeesClient({
                     {p.phone && <div className="text-xs text-muted-foreground">{p.phone}</div>}
                   </div>
                 </div>
-                <button
-                  onClick={() => setEditing(p)}
-                  className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  title="Edit employee"
-                >
-                  <Pencil className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditing(p)}
+                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    title="Edit employee"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteEmployee(p)}
+                    className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    title="Delete employee"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
@@ -243,7 +281,14 @@ export function EmployeesClient({
         onClose={() => setPositionsMgrOpen(false)}
         onChanged={fetchPositions}
       />
-      <EditEmployee open={!!editing} onClose={() => setEditing(null)} employee={editing} positions={positions} onSaved={refresh} />
+      <EditEmployee
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        employee={editing}
+        positions={positions}
+        onSaved={refresh}
+        onDelete={editing ? () => deleteEmployee(editing) : undefined}
+      />
       <AddEmployee open={adding} onClose={() => setAdding(false)} positions={positions} onSaved={refresh} />
       <FaceEnrollDialog
         open={!!enrollTarget}
@@ -511,7 +556,21 @@ function AddEmployee({
   );
 }
 
-function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: boolean; onClose: () => void; employee: P | null; positions: EmpPosition[]; onSaved: () => void }) {
+function EditEmployee({
+  open,
+  onClose,
+  employee,
+  positions,
+  onSaved,
+  onDelete,
+}: {
+  open: boolean;
+  onClose: () => void;
+  employee: P | null;
+  positions: EmpPosition[];
+  onSaved: () => void;
+  onDelete?: () => void;
+}) {
   const supabase = createClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState<any>({});
@@ -704,9 +763,19 @@ function EditEmployee({ open, onClose, employee, positions, onSaved }: { open: b
           )}
         </div>
 
-        <div className="col-span-2 flex justify-end gap-2 pt-2">
-          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
+        <div className="col-span-2 flex flex-wrap justify-between gap-2 pt-2">
+          {onDelete ? (
+            <Button type="button" variant="destructive" size="sm" onClick={onDelete}>
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              Delete employee
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
+          </div>
         </div>
       </form>
     </Dialog>

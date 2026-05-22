@@ -60,11 +60,32 @@ export function isPendingPipelineOrder(
   return !isSalesRecognized(s);
 }
 
-/** @alias */
+type OrderSalesFields = {
+  status?: string | null;
+  stage?: string | null;
+  return_status?: string | null;
+  kind?: string | null;
+  order_type?: string | null;
+  source?: string | null;
+  notes?: string | null;
+};
+
+/** Completed sales counted in main Sales (walk-in, services, sublimation, non-BigSeller online). */
+export function countsTowardMainSales(
+  statusOrOrder: string | null | undefined | OrderSalesFields,
+): boolean {
+  if (!isSalesRecognized(statusOrOrder)) return false;
+  if (statusOrOrder !== null && typeof statusOrOrder === "object") {
+    return !isBigSellerOnlineOrder(statusOrOrder);
+  }
+  return true;
+}
+
+/** @alias — excludes BigSeller marketplace imports from main sales totals. */
 export function countsTowardSales(
-  statusOrOrder: string | null | undefined | { status?: string | null; stage?: string | null },
+  statusOrOrder: string | null | undefined | OrderSalesFields,
 ) {
-  return isSalesRecognized(statusOrOrder);
+  return countsTowardMainSales(statusOrOrder);
 }
 
 export function storeOrPlatform(o: { source?: string | null }) {
