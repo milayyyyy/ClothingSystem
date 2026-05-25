@@ -13,6 +13,12 @@ import { cn, formatDateTime } from "@/lib/utils";
 import { History, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
 import { useConfirmAction } from "@/components/confirm-dialog";
+import {
+  isOnlineEcommerceSupplier,
+  normalizeSupplierLinkUrl,
+  supplierProductLinkLabel,
+  type InventorySupplierOption,
+} from "@/lib/inventory-supplier-link";
 
 type Item = {
   id: string;
@@ -24,6 +30,7 @@ type Item = {
   min_level?: number | null;
   unit_cost?: number | null;
   supplier?: string | null;
+  supplier_link?: string | null;
   notes?: string | null;
   product_store?: string | null;
   store_id?: string | null;
@@ -94,6 +101,7 @@ function itemMatchesSearch(i: Item, raw: string): boolean {
     i.category,
     i.item_type,
     i.supplier,
+    i.supplier_link,
     i.notes,
     i.product_store,
     String(i.quantity ?? ""),
@@ -606,6 +614,7 @@ export function InventoryClient({
               { header: "Min Level", value: (r) => r.min_level ?? "" },
               { header: "Unit Cost", value: (r) => r.unit_cost ?? "" },
               { header: "Supplier",  value: (r) => r.supplier ?? "" },
+              { header: "Supplier link", value: (r) => r.supplier_link ?? "" },
               { header: "Notes",     value: (r) => r.notes ?? "" },
             ]}
             fetchRows={async (from, to) => {
@@ -729,6 +738,17 @@ export function InventoryClient({
                     <td className="p-2 whitespace-nowrap"><Badge variant={s.v}>{s.label}</Badge></td>
                     <td className="p-2 text-muted-foreground">
                       <span className="block truncate" title={i.supplier || ""}>{i.supplier || "—"}</span>
+                      {i.supplier_link && (
+                        <a
+                          href={i.supplier_link.startsWith("http") ? i.supplier_link : `https://${i.supplier_link}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-0.5 block truncate text-xs text-primary underline-offset-4 hover:underline"
+                          title={i.supplier_link}
+                        >
+                          View listing
+                        </a>
+                      )}
                     </td>
                     <td className="p-2">
                       {note ? (
@@ -1014,11 +1034,12 @@ function ItemForm({
     min_level: 0,
     unit_cost: 0,
     supplier: "",
+    supplier_link: "",
     notes: "",
   }), [defaultCategoryForNew]);
 
   const [form, setForm] = useState<Item>(() => item || empty);
-  const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
+  const [suppliers, setSuppliers] = useState<InventorySupplierOption[]>([]);
   const [suppliersLoading, setSuppliersLoading] = useState(false);
   const [typeOptions, setTypeOptions] = useState<Array<{ id: string; name: string }>>([]);
 
@@ -1033,7 +1054,7 @@ function ItemForm({
     (async () => {
       setSuppliersLoading(true);
       const [{ data: supData }, { data: typeData }] = await Promise.all([
-        supabase.from("suppliers").select("id,name").order("name"),
+        supabase.from("suppliers").select("id,name,online_store_url,social_media_url").order("name"),
         supabase.from("inventory_type_options").select("id,name").order("name"),
       ]);
       if (!alive) return;
@@ -1051,6 +1072,11 @@ function ItemForm({
   const derivedStatus = statusOf(form);
   const categoryLabels = useMemo(() => new Set(categories.map((c) => c.name)), [categories]);
   const categoryKnown = !form.category || categoryLabels.has(form.category);
+  const showSupplierLink = isOnlineEcommerceSupplier(form.supplier, suppliers);
+  const selectedSupplierRow = useMemo(
+    () => suppliers.find((s) => s.name === form.supplier),
+    [suppliers, form.supplier],
+  );
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -1063,6 +1089,7 @@ function ItemForm({
       min_level: Number(form.min_level) || 0,
       unit_cost: Number(form.unit_cost) || 0,
       supplier: form.supplier?.trim() || null,
+      supplier_link: showSupplierLink ? normalizeSupplierLinkUrl(form.supplier_link || "") || null : null,
       notes: form.notes?.trim() || null,
     };
     if (item) {
@@ -1165,7 +1192,13 @@ function ItemForm({
           <Label>Supplier</Label>
           <select
             value={form.supplier || ""}
-            onChange={(e) => set("supplier", e.target.value)}
+            onChange={(e) => {
+              const name = e.target.value;
+              set("supplier", name);
+              if (!isOnlineEcommerceSupplier(name, suppliers)) {
+                set("supplier_link", "");
+              }
+            }}
             className={cn(
               "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background focus-visible:border-primary",
@@ -1181,6 +1214,38 @@ function ItemForm({
               <option key={s.id} value={s.name}>{s.name}</option>
             ))}
           </select>
+          {showSupplierLink && (
+            <div className="mt-3 space-y-2 rounded-md border border-primary/20 bg-primary/[0.04] p-3">
+              <Label htmlFor="inv-supplier-link">{supplierProductLinkLabel(form.supplier)}</Label>
+              <Input
+                id="inv-supplier-link"
+                type="url"
+                value={form.supplier_link || ""}
+                onChange={(e) => set("supplier_link", e.target.value)}
+                placeholder="https://shopee.ph/product/…"
+              />
+              {selectedSupplierRow?.online_store_url && (
+                <p className="text-xs text-muted-foreground">
+                  Supplier store:{" "}
+                  <a
+                    href={
+                      selectedSupplierRow.online_store_url.startsWith("http")
+                        ? selectedSupplierRow.online_store_url
+                        : `https://${selectedSupplierRow.online_store_url}`
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline-offset-4 hover:underline"
+                  >
+                    Open shop
+                  </a>
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Paste the product listing URL so you can reorder this item from Shopee or another online store.
+              </p>
+            </div>
+          )}
         </div>
         <div className="col-span-2">
           <Label>Notes</Label>

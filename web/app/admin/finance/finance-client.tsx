@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FinanceCsvExportDialog } from "@/components/finance-csv-export-dialog";
 import { useConfirmAction } from "@/components/confirm-dialog";
+import { ArrowLeftRight } from "lucide-react";
 
 type FinanceAccountRow = {
   id: string;
@@ -62,6 +63,15 @@ function isoDate(d: Date) {
 
 function uiSelectClassName() {
   return "h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+}
+
+function isTransferTx(notes: string | null | undefined) {
+  return String(notes || "").startsWith("transfer:");
+}
+
+function newTransferId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `t-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
 export function FinanceClient({
@@ -146,6 +156,14 @@ export function FinanceClient({
   const [txDir, setTxDir] = useState<"in" | "out">("in");
   const [txAmount, setTxAmount] = useState("");
   const [txDesc, setTxDesc] = useState("");
+
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferFromId, setTransferFromId] = useState("");
+  const [transferToId, setTransferToId] = useState("");
+  const [transferDate, setTransferDate] = useState(isoDate(new Date()));
+  const [transferAmount, setTransferAmount] = useState("");
+  const [transferMemo, setTransferMemo] = useState("");
+  const [transferBusy, setTransferBusy] = useState(false);
 
   const byId = useMemo(() => {
     const m = new Map<string, FinanceAccountRow>();
@@ -276,6 +294,77 @@ export function FinanceClient({
     });
   }
 
+  function openTransfer(fromAccountId?: string) {
+    const list = accounts || [];
+    if (list.length < 2) {
+      alert("Create at least two accounts before transferring between them.");
+      return;
+    }
+    const fromId = fromAccountId || list[0]?.id || "";
+    const toDefault = list.find((a) => a.id !== fromId)?.id || "";
+    setTransferFromId(fromId);
+    setTransferToId(toDefault);
+    setTransferDate(isoDate(new Date()));
+    setTransferAmount("");
+    setTransferMemo("");
+    setTransferOpen(true);
+  }
+
+  async function saveTransfer() {
+    if (!transferFromId || !transferToId) return alert("Choose both accounts.");
+    if (transferFromId === transferToId) return alert("From and To must be different accounts.");
+    const amt = Number(transferAmount);
+    if (Number.isNaN(amt) || amt <= 0) return alert("Enter an amount greater than zero.");
+    if (!transferDate) return alert("Date is required.");
+
+    const fromAcc = byId.get(transferFromId);
+    const toAcc = byId.get(transferToId);
+    if (!fromAcc || !toAcc) return alert("Account not found.");
+
+    const fromBal = Number(fromAcc.balance || 0);
+    if (amt > fromBal) {
+      const ok = confirm(
+        `"${fromAcc.name}" only has ${money(fromBal)}. Transfer ${money(amt)} anyway? The balance will go negative.`,
+      );
+      if (!ok) return;
+    }
+
+    const transferId = newTransferId();
+    const memo = transferMemo.trim();
+    const descOut = memo || `Transfer to ${toAcc.name}`;
+    const descIn = memo || `Transfer from ${fromAcc.name}`;
+    const note = `transfer:${transferId}`;
+
+    setTransferBusy(true);
+    const { error } = await supabase.from("finance_transactions").insert([
+      {
+        occurred_at: transferDate,
+        account_id: transferFromId,
+        direction: "out",
+        amount: amt,
+        description: descOut,
+        notes: note,
+      },
+      {
+        occurred_at: transferDate,
+        account_id: transferToId,
+        direction: "in",
+        amount: amt,
+        description: descIn,
+        notes: note,
+      },
+    ]);
+    setTransferBusy(false);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    setTransferOpen(false);
+    router.refresh();
+  }
+
   function openCreateTx() {
     setEditingTx(null);
     setTxDate(isoDate(new Date()));
@@ -382,7 +471,17 @@ export function FinanceClient({
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
           <CardTitle>Accounts</CardTitle>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => openTransfer()}
+              disabled={(accounts || []).length < 2}
+            >
+              <ArrowLeftRight className="mr-1 h-4 w-4" />
+              Transfer balance
+            </Button>
             <Button type="button" size="sm" onClick={openCreateAccount}>
               Add account
             </Button>
@@ -400,7 +499,7 @@ export function FinanceClient({
                   <TableHead className="text-right">Balance</TableHead>
                   <TableHead className="min-w-[260px]">Description</TableHead>
                   <TableHead className="w-[90px]">QR</TableHead>
-                  <TableHead className="w-[140px]"></TableHead>
+                  <TableHead className="w-[200px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -434,6 +533,17 @@ export function FinanceClient({
                         )}
                       </TableCell>
                       <TableCell className="text-right whitespace-nowrap">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openTransfer(r.id)}
+                          className="mr-2"
+                          disabled={(accounts || []).length < 2}
+                          title="Transfer from this account"
+                        >
+                          Transfer
+                        </Button>
                         <Button type="button" size="sm" variant="outline" onClick={() => openEditAccount(r)} className="mr-2">
                           Edit
                         </Button>
@@ -543,7 +653,14 @@ export function FinanceClient({
                           <TableCell className="text-right tabular-nums text-rose-700 dark:text-rose-300">
                             {dir === "out" ? money(Number(t.amount || 0)) : "—"}
                           </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{t.description || "—"}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            <span>{t.description || "—"}</span>
+                            {isTransferTx(t.notes) && (
+                              <span className="ml-1.5 inline-flex rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                Transfer
+                              </span>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right whitespace-nowrap">
                             <Button type="button" size="sm" variant="outline" onClick={() => openEditTx(t)} className="mr-2">
                               Edit
@@ -656,6 +773,110 @@ export function FinanceClient({
               Cancel
             </Button>
             <Button type="submit">{editingAccount ? "Save changes" : "Create account"}</Button>
+          </div>
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={transferOpen}
+        onClose={() => !transferBusy && setTransferOpen(false)}
+        title="Transfer balance"
+        description="Move money from one account to another. Both accounts update automatically."
+        size="md"
+      >
+        <form
+          className="grid gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveTransfer();
+          }}
+        >
+          <div className="grid gap-1">
+            <Label htmlFor="xfer-date">Date</Label>
+            <Input
+              id="xfer-date"
+              type="date"
+              value={transferDate}
+              onChange={(e) => setTransferDate(e.target.value)}
+              disabled={transferBusy}
+            />
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="xfer-from">From account</Label>
+            <select
+              id="xfer-from"
+              className={uiSelectClassName()}
+              value={transferFromId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setTransferFromId(id);
+                if (id === transferToId) {
+                  const other = (accounts || []).find((a) => a.id !== id);
+                  if (other) setTransferToId(other.id);
+                }
+              }}
+              disabled={transferBusy}
+            >
+              {(accounts || []).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {labelKind(a.kind)} — {a.name} ({money(Number(a.balance || 0))})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="xfer-to">To account</Label>
+            <select
+              id="xfer-to"
+              className={uiSelectClassName()}
+              value={transferToId}
+              onChange={(e) => setTransferToId(e.target.value)}
+              disabled={transferBusy}
+            >
+              {(accounts || [])
+                .filter((a) => a.id !== transferFromId)
+                .map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {labelKind(a.kind)} — {a.name} ({money(Number(a.balance || 0))})
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="xfer-amount">Amount</Label>
+            <Input
+              id="xfer-amount"
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={transferAmount}
+              onChange={(e) => setTransferAmount(e.target.value)}
+              placeholder="0.00"
+              disabled={transferBusy}
+            />
+            {transferFromId && byId.get(transferFromId) && (
+              <p className="text-xs text-muted-foreground">
+                Available in source: {money(Number(byId.get(transferFromId)!.balance || 0))}
+              </p>
+            )}
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="xfer-memo">Memo (optional)</Label>
+            <Input
+              id="xfer-memo"
+              value={transferMemo}
+              onChange={(e) => setTransferMemo(e.target.value)}
+              placeholder="e.g. Float for payroll, Move to GCash"
+              disabled={transferBusy}
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" onClick={() => setTransferOpen(false)} disabled={transferBusy}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={transferBusy}>
+              {transferBusy ? "Transferring…" : "Transfer"}
+            </Button>
           </div>
         </form>
       </Dialog>
