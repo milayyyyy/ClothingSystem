@@ -55,24 +55,71 @@ export function BigSellerSalesClient({
     return Array.from(s).sort();
   }, [orders]);
 
-  const completedOrders = useMemo(() =>
-    orders.filter((o) => {
-      const s = String(o.stage || "").toLowerCase();
-      return s === "completed" || s === "for_pickup";
-    }), [orders]);
+  const isCompletedOrder = (o: Order) => {
+    const s = String(o.stage || "").toLowerCase();
+    return s === "completed" || s === "for_pickup";
+  };
+
+  const bigsellerDuplicateIndex = useMemo(() => buildBigSellerDuplicateIndex(orders), [orders]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return orders.filter((o) => {
+      if (duplicatesOnly && !bigsellerDuplicateIndex.byOrderId.get(String(o.id))?.isDuplicate) return false;
+      if (storeFilter !== "all" && o.store?.name !== storeFilter) return false;
+      const total = Number(o.total || 0);
+      const withdrawn = Number(o.down_payment || 0);
+      if (statusFilter === "pending" && withdrawn > 0) return false;
+      if (statusFilter === "partial" && (withdrawn <= 0 || withdrawn >= total)) return false;
+      if (statusFilter === "withdrawn" && withdrawn < total) return false;
+      if (q) {
+        const blob = [
+          o.order_no,
+          o.customer_name,
+          o.external_order_no,
+          o.waybill_no,
+          o.sku_code,
+          o.design_ref,
+          ...parseBigSellerLineItems(o.bigseller_line_items),
+          o.store?.name,
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!blob.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [orders, search, storeFilter, statusFilter, duplicatesOnly, bigsellerDuplicateIndex]);
+
+  const hasActiveFilters =
+    storeFilter !== "all" ||
+    statusFilter !== "all" ||
+    duplicatesOnly ||
+    search.trim().length > 0;
+
+  const summaryScopeLabel = useMemo(() => {
+    if (storeFilter !== "all") return storeFilter;
+    if (hasActiveFilters) return "Filtered";
+    return null;
+  }, [storeFilter, hasActiveFilters]);
+
+  const scopedCompletedOrders = useMemo(
+    () => filtered.filter((o) => isCompletedOrder(o)),
+    [filtered],
+  );
 
   // Orders with pending amount, sorted oldest-first (FIFO for distribution)
   const pendingOrders = useMemo(() =>
-    completedOrders
+    scopedCompletedOrders
       .filter((o) => Number(o.total || 0) > Number(o.down_payment || 0))
       .sort((a, b) => new Date(a.updated_at || a.created_at || 0).getTime() - new Date(b.updated_at || b.created_at || 0).getTime()),
-    [completedOrders]);
+    [scopedCompletedOrders]);
 
   const totals = useMemo(() => {
-    const saleTotal = completedOrders.reduce((s, o) => s + Number(o.total || 0), 0);
-    const totalWithdrawn = completedOrders.reduce((s, o) => s + Number(o.down_payment || 0), 0);
+    const saleTotal = scopedCompletedOrders.reduce((s, o) => s + Number(o.total || 0), 0);
+    const totalWithdrawn = scopedCompletedOrders.reduce((s, o) => s + Number(o.down_payment || 0), 0);
     return { saleTotal, totalWithdrawn, pending: saleTotal - totalWithdrawn };
-  }, [completedOrders]);
+  }, [scopedCompletedOrders]);
 
   // Preview: how the entered amount distributes across pending orders (FIFO)
   const withdrawPreview = useMemo(() => {
@@ -158,37 +205,6 @@ export function BigSellerSalesClient({
     }
   }
 
-  const bigsellerDuplicateIndex = useMemo(() => buildBigSellerDuplicateIndex(orders), [orders]);
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return orders.filter((o) => {
-      if (duplicatesOnly && !bigsellerDuplicateIndex.byOrderId.get(String(o.id))?.isDuplicate) return false;
-      if (storeFilter !== "all" && o.store?.name !== storeFilter) return false;
-      const total = Number(o.total || 0);
-      const withdrawn = Number(o.down_payment || 0);
-      if (statusFilter === "pending" && withdrawn > 0) return false;
-      if (statusFilter === "partial" && (withdrawn <= 0 || withdrawn >= total)) return false;
-      if (statusFilter === "withdrawn" && withdrawn < total) return false;
-      if (q) {
-        const blob = [
-          o.order_no,
-          o.customer_name,
-          o.external_order_no,
-          o.waybill_no,
-          o.sku_code,
-          o.design_ref,
-          ...parseBigSellerLineItems(o.bigseller_line_items),
-          o.store?.name,
-        ]
-          .join(" ")
-          .toLowerCase();
-        if (!blob.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [orders, search, storeFilter, statusFilter, duplicatesOnly, bigsellerDuplicateIndex]);
-
   const visibleIds = useMemo(() => filtered.map((o) => String(o.id)), [filtered]);
 
   function toggleSelected(id: string) {
@@ -243,16 +259,20 @@ export function BigSellerSalesClient({
       {/* Summary cards */}
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border bg-card p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total Sales</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Total Sales{summaryScopeLabel ? ` · ${summaryScopeLabel}` : ""}
+          </div>
           <div className="mt-1 text-2xl font-bold">{peso(totals.saleTotal)}</div>
           <p className="mt-1 text-xs text-muted-foreground">
-            {completedOrders.length} completed order{completedOrders.length === 1 ? "" : "s"}
+            {scopedCompletedOrders.length} completed order{scopedCompletedOrders.length === 1 ? "" : "s"}
+            {hasActiveFilters ? " in filter" : ""}
           </p>
-          <div className="text-xs text-muted-foreground">{completedOrders.length} completed orders</div>
         </div>
 
         <div className="rounded-lg border bg-card p-4">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total Withdrawn</div>
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Total Withdrawn{summaryScopeLabel ? ` · ${summaryScopeLabel}` : ""}
+          </div>
           <div className="mt-1 text-2xl font-bold text-green-600 dark:text-green-400">{peso(totals.totalWithdrawn)}</div>
           <div className="text-xs text-muted-foreground">Received in finance accounts</div>
         </div>
@@ -261,7 +281,9 @@ export function BigSellerSalesClient({
         <div className={`rounded-lg border p-4 transition-colors ${withdrawOpen ? "border-amber-400 bg-amber-50/60 dark:border-amber-700 dark:bg-amber-900/20" : "border-amber-200 bg-amber-50/40 dark:border-amber-800 dark:bg-amber-900/10"}`}>
           <div className="flex items-start justify-between gap-2">
             <div>
-              <div className="text-xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">Pending Withdrawal</div>
+              <div className="text-xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                Pending Withdrawal{summaryScopeLabel ? ` · ${summaryScopeLabel}` : ""}
+              </div>
               <div className="mt-1 text-2xl font-bold text-amber-700 dark:text-amber-400">{peso(totals.pending)}</div>
               <div className="text-xs text-amber-600/80 dark:text-amber-500">
                 {pendingOrders.length} order{pendingOrders.length !== 1 ? "s" : ""} in marketplace wallet
