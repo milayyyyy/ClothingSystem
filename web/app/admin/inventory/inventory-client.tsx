@@ -602,7 +602,7 @@ export function InventoryClient({
             <History className="mr-1 h-4 w-4" />
             Stock history
           </Button>
-          <CsvExportDialog
+          <CsvExportDialog<Item>
             label="Export CSV"
             filename="inventory"
             columns={[

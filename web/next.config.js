@@ -19,6 +19,9 @@ const nextConfig = {
         : config.externals
         ? [config.externals, "face-api.js"]
         : ["face-api.js"];
+    } else {
+      // face-api.js optionally imports Node fs; not used in the browser bundle.
+      config.resolve.fallback = { ...config.resolve.fallback, fs: false };
     }
     return config;
   },
