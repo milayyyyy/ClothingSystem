@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, ShieldOff, KeyRound, Mail, Phone, QrCode } from "lucide-react";
+import { ShieldCheck, ShieldOff, KeyRound, Mail, Phone, QrCode, Smartphone } from "lucide-react";
 import Image from "next/image";
+import { PwaInstallButton } from "@/components/pwa-install-button";
 
 type TotpFactor = { id: string; friendly_name?: string; factor_type: string; status: string };
 
@@ -203,6 +204,19 @@ export function SettingsClient({ initialEmail, initialPhone }: { initialEmail: s
           <Msg msg={acMsg} />
           <Button type="submit" disabled={acBusy}>{acBusy ? "Saving…" : "Save account info"}</Button>
         </form>
+      </Section>
+
+      <Section
+        title="Mobile app"
+        description="Install PrintShop on your phone for a full-screen app experience (works on iPhone and Android)."
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground flex items-start gap-2">
+            <Smartphone className="mt-0.5 h-4 w-4 shrink-0" />
+            Use over HTTPS in production. After installing, open PrintShop from your home screen.
+          </p>
+          <PwaInstallButton />
+        </div>
       </Section>
 
       {/* Password */}

@@ -18,6 +18,7 @@ import {
   type ExpenseCategoryRow,
 } from "@/components/expense-categories-dialog";
 import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
+import { employmentCategoryLabel, normalizeEmploymentCategory } from "@/lib/employment-category";
 
 const RECEIPT_BUCKET = "expense-receipts";
 
@@ -46,10 +47,14 @@ export type InventoryPickerRow = {
 };
 
 export type EmployeePickerRow = {
+  picker_id: string;
+  kind: "profile" | "on_call";
   id: string;
   full_name: string | null;
-  email: string;
+  email: string | null;
   role: string;
+  employment_category?: string | null;
+  position?: string | null;
 };
 
 type ExpensePurpose = "inventory" | "salary" | "general";
@@ -569,6 +574,34 @@ function employeeLabel(e: EmployeePickerRow) {
   return e.full_name?.trim() || e.email || "—";
 }
 
+function employeeOptionSuffix(e: EmployeePickerRow) {
+  if (e.kind === "on_call") {
+    const pos = (e.position || "").trim();
+    return pos ? `On call · ${pos}` : "On call";
+  }
+  const cat = normalizeEmploymentCategory(e.employment_category);
+  if (cat === "on_call") return `${e.role} · ${employmentCategoryLabel(cat)}`;
+  return e.role;
+}
+
+function parseEmployeePickerRef(ref: string): { kind: "profile" | "on_call"; id: string } | null {
+  const v = ref.trim();
+  if (!v) return null;
+  if (v.startsWith("profile:")) return { kind: "profile", id: v.slice(8) };
+  if (v.startsWith("oncall:")) return { kind: "on_call", id: v.slice(7) };
+  return { kind: "profile", id: v };
+}
+
+function findEmployeePicker(employees: EmployeePickerRow[], ref: string) {
+  const parsed = parseEmployeePickerRef(ref);
+  if (!parsed) return null;
+  return (
+    employees.find((x) => x.picker_id === ref) ||
+    employees.find((x) => x.kind === parsed.kind && x.id === parsed.id) ||
+    null
+  );
+}
+
 function inventoryOptionLabel(i: InventoryPickerRow) {
   const q = Number(i.quantity ?? 0);
   const u = (i.unit || "").trim();
@@ -690,15 +723,9 @@ function ExpenseForm({
     const amt = Number(form.amount) || 0;
     const purpose = form.expense_purpose;
 
-    if (purpose === "salary") {
-      if (!form.employee_id) {
-        alert("Select an employee for this salary expense.");
-        return;
-      }
-      if (amt <= 0) {
-        alert("Enter a positive amount for the salary payment.");
-        return;
-      }
+    if (purpose === "salary" && amt <= 0) {
+      alert("Enter a positive amount for the salary payment.");
+      return;
     }
 
     if (purpose === "inventory" && Number(form.stock_qty) > 0) {
@@ -728,8 +755,8 @@ function ExpenseForm({
         if (inv) extraNotes.push(`Inventory: ${inv.name}`);
       }
       if (purpose === "salary" && form.employee_id) {
-        const emp = employees.find((x) => x.id === form.employee_id);
-        if (emp) extraNotes.push(`Salary payout: ${employeeLabel(emp)}`);
+        const emp = findEmployeePicker(employees, form.employee_id);
+        if (emp) extraNotes.push(`Salary payout: ${employeeLabel(emp)} (${employeeOptionSuffix(emp)})`);
       }
       const mergedNotes = [form.notes.trim(), ...extraNotes].filter(Boolean).join("\n") || null;
 
@@ -798,10 +825,15 @@ function ExpenseForm({
         }
       }
 
-      if (purpose === "salary") {
+      if (purpose === "salary" && form.employee_id) {
+        const payee = parseEmployeePickerRef(form.employee_id);
+        if (!payee) {
+          alert("Invalid employee selection.");
+          await rollbackExpenseLedger(id, invPrev);
+          return;
+        }
         const period = form.expense_date;
-        const { error: salErr } = await supabase.from("salaries").insert({
-          user_id: form.employee_id,
+        const salaryRow: Record<string, unknown> = {
           period_start: period,
           period_end: period,
           days_worked: 1,
@@ -810,7 +842,11 @@ function ExpenseForm({
           net_pay: amt,
           paid: true,
           paid_at: new Date().toISOString(),
-        });
+          expense_id: id,
+        };
+        if (payee.kind === "profile") salaryRow.user_id = payee.id;
+        else salaryRow.on_call_staff_id = payee.id;
+        const { error: salErr } = await supabase.from("salaries").insert(salaryRow);
         if (salErr) {
           alert(salErr.message);
           await rollbackExpenseLedger(id, invPrev);
@@ -842,7 +878,7 @@ function ExpenseForm({
   const submitDisabled =
     saving ||
     (Number(form.amount) > 0 && (financeAccounts.length === 0 || !form.finance_account_id)) ||
-    (purpose === "salary" && (!form.employee_id || Number(form.amount) <= 0)) ||
+    (purpose === "salary" && Number(form.amount) <= 0) ||
     (purpose === "inventory" && Number(form.stock_qty) > 0 && !form.inventory_id);
 
   return (
@@ -954,10 +990,10 @@ function ExpenseForm({
               className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
               value={form.employee_id}
               onChange={(e) => {
-                const empId = e.target.value;
+                const empRef = e.target.value;
                 setForm((f) => {
-                  const emp = employees.find((x) => x.id === empId);
-                  const next = { ...f, employee_id: empId };
+                  const emp = findEmployeePicker(employees, empRef);
+                  const next = { ...f, employee_id: empRef };
                   if (emp && !f.description.trim()) {
                     next.description = `Salary — ${employeeLabel(emp)}`;
                   }
@@ -965,18 +1001,21 @@ function ExpenseForm({
                 });
               }}
             >
-              <option value="">Select employee…</option>
+              <option value="">No employee (expense only)</option>
               {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>
-                  {employeeLabel(emp)} ({emp.role})
+                <option key={emp.picker_id} value={emp.picker_id}>
+                  {employeeLabel(emp)} ({employeeOptionSuffix(emp)})
                 </option>
               ))}
             </select>
             {employees.length === 0 && (
-              <p className="text-xs text-muted-foreground">No employee profiles found (roles employee / sub_admin).</p>
+              <p className="text-xs text-muted-foreground">
+                No staff found. Add permanent employees or on-call contacts under Employees.
+              </p>
             )}
             <p className="text-[11px] text-muted-foreground">
-              Creates a paid salary row for the amount and date (same list as Salary). Finance account is still debited.
+              Optional. When someone is selected, creates a paid salary row for the amount and date. On-call workers appear
+              from the Employees → On call list. Finance account is still debited either way.
             </p>
           </div>
         )}

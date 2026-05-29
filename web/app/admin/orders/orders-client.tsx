@@ -125,7 +125,6 @@ const ORDER_TOP_TABS = [
   { href: "/admin/orders?type=walkin_online", kind: "walkin_online" as const, label: "Walk In & Online" },
   { href: "/admin/orders?type=services", kind: "services" as const, label: "Services" },
   { href: "/admin/orders?type=sublimation", kind: "sublimation" as const, label: "Sublimation" },
-  { href: "/admin/orders/bigseller", kind: "bigseller" as const, label: "BigSeller" },
 ] as const;
 
 const SUB_STAGES = [
@@ -164,7 +163,6 @@ function normalizeOrdersTabKind(
   initial: string | undefined,
   pathname: string | null | undefined,
 ): OrdersTabKind {
-  if (pathname?.includes("/admin/orders/bigseller")) return "online";
   const fromParam = String(raw ?? "").trim().toLowerCase();
   if (fromParam === "local" || fromParam === "online") return "walkin_online";
   if (fromParam && VALID_ORDERS_TAB_KINDS.has(fromParam)) return fromParam as OrdersTabKind;
@@ -1051,8 +1049,7 @@ export function OrdersClient({
     const raw = params.get("type");
     const normalized = normalizeOrdersTabKind(raw ?? undefined, initialKind, pathname);
     if (raw != null && String(raw).trim() !== "" && String(raw).trim().toLowerCase() !== normalized) {
-      if (pathname?.includes("/admin/orders/bigseller")) router.replace("/admin/orders/bigseller");
-      else router.replace(`/admin/orders?type=${normalized}`);
+      router.replace(`/admin/orders?type=${normalized}`);
     }
     setKindFilter(normalized);
     setStageFilter("all");
@@ -1434,9 +1431,7 @@ export function OrdersClient({
       <div className="mb-4 border-b">
         <div className="flex flex-wrap items-end gap-1">
           {ORDER_TOP_TABS.map((t) => {
-            const onBigSeller = pathname?.includes("/admin/orders/bigseller") ?? false;
-            const active =
-              t.kind === "bigseller" ? onBigSeller : !onBigSeller && kindFilter === t.kind;
+            const active = kindFilter === t.kind;
             return (
               <Link
                 key={t.href}

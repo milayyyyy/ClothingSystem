@@ -77,7 +77,7 @@ export function AdminSalesBlock({
           <p className="text-sm text-muted-foreground">
             Completed sales use orders with status <span className="font-medium text-foreground">Ready</span> or{" "}
             <span className="font-medium text-foreground">Delivered</span> only.{" "}
-            <span className="font-medium text-foreground">BigSeller</span> marketplace sales are tracked separately and are not included here.
+            Marketplace import orders are excluded from this total.
             In-progress orders appear further down as <span className="font-medium text-foreground">Pending</span> (not included in totals or
             charts). Cancelled orders are omitted everywhere.
           </p>

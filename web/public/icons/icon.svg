@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PrintShop">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="50%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <path fill="#fff" d="M144 168h224c13.3 0 24 10.7 24 24v48c0 13.3-10.7 24-24 24H144c-13.3 0-24-10.7-24-24v-48c0-13.3 10.7-24 24-24zm32 72h160v136c0 13.3-10.7 24-24 24H200c-13.3 0-24-10.7-24-24V240zm48 40h64v24h-64v-24z"/>
+</svg>

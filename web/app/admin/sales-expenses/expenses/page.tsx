@@ -12,6 +12,7 @@ export default async function AdminExpensesSubPage() {
     { data: financeAccounts },
     { data: inventoryRows },
     { data: employeeRows },
+    { data: onCallRows },
     { data: expenseCategories, error: categoriesError },
   ] = await Promise.all([
     supabase.from("expenses").select("*").order("expense_date", { ascending: false }),
@@ -20,11 +21,41 @@ export default async function AdminExpensesSubPage() {
     supabase.from("inventory").select("id,name,category,item_type,quantity,unit").order("name"),
     supabase
       .from("profiles")
-      .select("id,full_name,email,role")
+      .select("id,full_name,email,role,employment_category")
       .in("role", ["employee", "sub_admin"])
+      .order("full_name", { ascending: true }),
+    supabase
+      .from("on_call_staff")
+      .select("id,full_name,position,active")
+      .eq("active", true)
       .order("full_name", { ascending: true }),
     supabase.from("expense_categories").select("id,name,sort_order").order("sort_order").order("name"),
   ]);
+
+  const employeePicker = [
+    ...(employeeRows || []).map((p) => ({
+      picker_id: `profile:${p.id}`,
+      kind: "profile" as const,
+      id: p.id,
+      full_name: p.full_name,
+      email: p.email,
+      role: p.role,
+      employment_category: (p as { employment_category?: string }).employment_category ?? null,
+    })),
+    ...(onCallRows || []).map((o) => ({
+      picker_id: `oncall:${o.id}`,
+      kind: "on_call" as const,
+      id: o.id,
+      full_name: o.full_name,
+      email: null as string | null,
+      role: "On call",
+      position: (o as { position?: string | null }).position ?? null,
+    })),
+  ].sort((a, b) => {
+    const na = (a.full_name || a.email || "").toLowerCase();
+    const nb = (b.full_name || b.email || "").toLowerCase();
+    return na.localeCompare(nb);
+  });
   return (
     <div>
       <PageHeader
@@ -42,7 +73,7 @@ export default async function AdminExpensesSubPage() {
         suppliers={suppliers || []}
         financeAccounts={(financeAccounts || []) as { id: string; name: string; kind: string }[]}
         inventoryItems={(inventoryRows || []) as { id: string; name: string; category: string | null; item_type: string | null; quantity: number | null; unit: string | null }[]}
-        employees={(employeeRows || []) as { id: string; full_name: string | null; email: string; role: string }[]}
+        employees={employeePicker}
       />
     </div>
   );

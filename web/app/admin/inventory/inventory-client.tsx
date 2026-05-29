@@ -11,7 +11,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDateTime } from "@/lib/utils";
 import { History, Pencil, Plus, Search, Trash2 } from "lucide-react";
-import { CsvExportDialog } from "@/components/csv-export-dialog";
+import { CsvExportDialog, type CsvColumn } from "@/components/csv-export-dialog";
+import { InventoryFullStockExportButton } from "@/components/inventory-full-stock-export-button";
+import { fetchAllInventoryStock } from "@/lib/inventory-stock-export";
 import { useConfirmAction } from "@/components/confirm-dialog";
 import {
   isOnlineEcommerceSupplier,
@@ -608,25 +610,29 @@ export function InventoryClient({
             <History className="mr-1 h-4 w-4" />
             Stock history
           </Button>
+          <InventoryFullStockExportButton compact />
           <CsvExportDialog<Item>
-            label="Export CSV"
+            label="Export filtered tab"
             filename="inventory"
-            columns={[
-              { header: "Name",      value: (r) => r.name },
-              { header: "Category",  value: (r) => r.category ?? "" },
-              { header: "Type",      value: (r) => r.item_type ?? "" },
-              { header: "Quantity",  value: (r) => r.quantity ?? 0 },
-              { header: "Unit",      value: (r) => r.unit ?? "" },
-              { header: "Min Level", value: (r) => r.min_level ?? "" },
-              { header: "Unit Cost", value: (r) => r.unit_cost ?? "" },
-              { header: "Supplier",  value: (r) => r.supplier ?? "" },
-              { header: "Supplier link", value: (r) => r.supplier_link ?? "" },
-              { header: "Notes",     value: (r) => r.notes ?? "" },
-            ]}
+            columns={
+              [
+                { header: "Name", value: (r) => r.name },
+                { header: "Category", value: (r) => r.category ?? "" },
+                { header: "Type", value: (r) => r.item_type ?? "" },
+                { header: "Quantity", value: (r) => r.quantity ?? 0 },
+                { header: "Unit", value: (r) => r.unit ?? "" },
+                { header: "Min Level", value: (r) => r.min_level ?? "" },
+                { header: "Unit Cost", value: (r) => r.unit_cost ?? "" },
+                { header: "Supplier", value: (r) => r.supplier ?? "" },
+                { header: "Supplier link", value: (r) => r.supplier_link ?? "" },
+                { header: "Notes", value: (r) => r.notes ?? "" },
+              ] satisfies CsvColumn<Item>[]
+            }
             fetchRows={async (from, to) => {
+              if (!from && !to) return fetchAllInventoryStock(supabase) as unknown as Item[];
               let q = supabase.from("inventory").select("*").order("name");
               if (from) q = q.gte("created_at", from);
-              if (to)   q = q.lte("created_at", to + "T23:59:59");
+              if (to) q = q.lte("created_at", to + "T23:59:59");
               const { data } = await q;
               return (data as Item[]) || [];
             }}

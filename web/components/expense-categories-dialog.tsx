@@ -103,7 +103,7 @@ function ExpenseCategoryEditDialog({
           ? `Renaming updates all expenses that used "${row.name}".`
           : "New categories appear in filters and when adding expenses."
       }
-      size="sm"
+      size="md"
     >
       <form onSubmit={submit} className="grid gap-3">
         <div>

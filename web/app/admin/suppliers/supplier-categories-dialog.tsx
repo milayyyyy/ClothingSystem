@@ -76,11 +76,12 @@ export function SupplierCategoriesDialog({
         await load();
         onChanged();
       }
-    } else if (editing) {
+    } else if (editing && typeof editing === "object") {
+      const row = editing;
       const { error } = await supabase
         .from("supplier_categories")
         .update({ name: trimmed })
-        .eq("id", editing.id);
+        .eq("id", row.id);
       if (error) setMsg(error.message);
       else {
         setEditing(null);

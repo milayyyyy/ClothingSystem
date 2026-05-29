@@ -50,11 +50,15 @@
     --sidebar: 224 71% 5%;
   }
   * { @apply border-border; }
-  html { font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
+  html {
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-text-size-adjust: 100%;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: 'rlig' 1, 'calt' 1;
     font-weight: 400;
+    min-height: 100dvh;
   }
 
   /* Light mode — give cards elevation so the UI has depth */
@@ -113,6 +117,23 @@
 }
 
 @layer utilities {
+  .pt-safe {
+    padding-top: max(0px, env(safe-area-inset-top));
+  }
+  .pb-safe {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+  .px-safe {
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
+  /* Wide data tables: horizontal scroll on phones without breaking layout */
+  .mobile-table-wrap {
+    @apply -mx-3 w-[calc(100%+1.5rem)] overflow-x-auto overscroll-x-contain sm:mx-0 sm:w-full;
+  }
+  .mobile-table-wrap > table {
+    @apply min-w-[640px];
+  }
   @keyframes shimmer {
     0% { background-position: -200% 0; }
     100% { background-position: 200% 0; }

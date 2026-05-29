@@ -529,7 +529,7 @@ function SalesRow({
             <Badge variant="amber" className="text-[10px]">Deposit</Badge>
           )}
           {row.isManualSale && !row.onlineShop && (
-            <Badge variant="muted" className="text-[10px]">Bookkeeping</Badge>
+            <Badge variant="outline" className="text-[10px]">Bookkeeping</Badge>
           )}
           {row.isOthersList && (
             <Badge variant="amber" className="text-[10px]">Others</Badge>

@@ -77,7 +77,7 @@ export function CsvExportDialog<T>({ label = "Export CSV", filename, columns, fe
         {label}
       </Button>
 
-      <Dialog open={open} onClose={() => setOpen(false)} title="Export to CSV" size="sm">
+      <Dialog open={open} onClose={() => setOpen(false)} title="Export to CSV" size="md">
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <input

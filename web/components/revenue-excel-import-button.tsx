@@ -133,7 +133,7 @@ export function RevenueExcelImportButton({
         <div className="space-y-4">
           <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
             Reads the <span className="font-medium text-foreground">Revenue</span> sheet (e.g. 2.1 Revenue). Each row
-            is saved as a manual sale and appears in this sales list. BigSeller marketplace orders stay separate.
+            is saved as a manual sale and appears in this sales list.
           </div>
 
           <div>

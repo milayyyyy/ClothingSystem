@@ -166,7 +166,7 @@ export function ReportsClient(props: ReportsRawData) {
         <StatCard
           label="Total sales (Sales list)"
           value={peso(summary.totalCompletedSales)}
-          hint={`${summary.orderCountCompleted} rows — excludes BigSeller marketplace`}
+          hint={`${summary.orderCountCompleted} rows — excludes marketplace imports`}
           icon={TrendingUp}
           accent="primary"
         />
@@ -197,7 +197,7 @@ export function ReportsClient(props: ReportsRawData) {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-base">Revenue breakdown</CardTitle>
-            <CardDescription>Same scope as Sales list (BigSeller tracked separately)</CardDescription>
+            <CardDescription>Same scope as Sales list</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <BreakdownRow label="Completed orders (shop / walk-in / online)" value={summary.completedMainSales} />
@@ -207,12 +207,12 @@ export function ReportsClient(props: ReportsRawData) {
               <span>{peso(summary.totalCompletedSales)}</span>
             </div>
             <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-              <BreakdownRow label="BigSeller marketplace (excluded)" value={summary.bigSellerSales} />
-              <p className="mt-1">Not included above — view totals on the BigSeller Sales page.</p>
+              <BreakdownRow label="Marketplace imports (excluded)" value={summary.bigSellerSales} />
+              <p className="mt-1">Historical Shopee / TikTok / Lazada imports are not included in Sales list totals.</p>
             </div>
             <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground space-y-1">
               <p>
-                <span className="font-medium text-foreground">All orders (gross, excl. BigSeller):</span>{" "}
+                <span className="font-medium text-foreground">All orders (gross, excl. imports):</span>{" "}
                 {peso(summary.allOrdersGross)} ({summary.orderCountAll} orders)
               </p>
               <p>
@@ -232,7 +232,7 @@ export function ReportsClient(props: ReportsRawData) {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">BIR estimate (Non-VAT)</CardTitle>
-            <CardDescription>3% on Sales list total (excludes BigSeller)</CardDescription>
+            <CardDescription>3% on Sales list total</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <p>
@@ -253,7 +253,7 @@ export function ReportsClient(props: ReportsRawData) {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Monthly summary</CardTitle>
-            <CardDescription>Net uses Sales list revenue only; BigSeller column is reference</CardDescription>
+            <CardDescription>Net uses Sales list revenue only</CardDescription>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto">
             <table className="w-full min-w-[520px] text-sm">
@@ -261,7 +261,7 @@ export function ReportsClient(props: ReportsRawData) {
                 <tr>
                   <th className="px-4 py-3 font-medium">Month</th>
                   <th className="font-medium text-right">Sales</th>
-                  <th className="font-medium text-right">BigSeller</th>
+                  <th className="font-medium text-right">Imports</th>
                   <th className="font-medium text-right">Revenue imp.</th>
                   <th className="font-medium text-right">Expenses</th>
                   <th className="font-medium text-right">Payroll</th>
@@ -345,8 +345,8 @@ export function ReportsClient(props: ReportsRawData) {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Sales totals match the Sales list: completed shop orders plus bookkeeping imports. BigSeller marketplace orders
-        are excluded from sales, net profit, and tax estimate. Cancelled and returned orders are excluded.
+        Sales totals match the Sales list: completed shop orders plus bookkeeping imports. Marketplace import orders are
+        excluded from sales, net profit, and tax estimate. Cancelled and returned orders are excluded.
       </p>
     </div>
   );

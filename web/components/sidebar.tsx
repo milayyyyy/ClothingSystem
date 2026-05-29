@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import {
   LayoutDashboard, ShoppingBag, Package, Users, Clock, Wallet, Receipt,
   BarChart3, LogOut, Printer, ChevronDown, Truck, ListChecks, Activity,
-  Store, Globe, Sparkles, Warehouse, LayoutGrid, Wrench, TrendingUp, List, Landmark, Briefcase, Settings, PackageX,
+  Store, Sparkles, Warehouse, LayoutGrid, Wrench, TrendingUp, List, Landmark, Briefcase, Settings, PackageX,
 } from "lucide-react";
 import {
   canView,
@@ -39,7 +39,6 @@ const STAFF_GROUPS: Group[] = [
       href: "/admin/orders", label: "Orders", icon: ShoppingBag,
       children: [
         { href: "/admin/orders?type=walkin_online", label: "Walk In & Online", icon: Store, query: { type: "walkin_online" } },
-        { href: "/admin/orders/bigseller",        label: "BigSeller",    icon: Globe },
         { href: "/admin/orders?type=services",    label: "Services",     icon: Briefcase, query: { type: "services" } },
         { href: "/admin/orders?type=sublimation", label: "Sublimation",  icon: Sparkles, query: { type: "sublimation" } },
       ],
@@ -55,7 +54,6 @@ const STAFF_GROUPS: Group[] = [
       children: [
         { href: "/admin/sales-expenses/sales", label: "Sales", icon: TrendingUp },
         { href: "/admin/sales-expenses/sales/list", label: "Sales list", icon: List },
-        { href: "/admin/sales-expenses/sales/bigseller", label: "BigSeller sales", icon: Globe },
         { href: "/admin/sales-expenses/expenses", label: "Expenses", icon: Receipt },
       ],
     },
@@ -118,10 +116,15 @@ export function Sidebar({
   role,
   name,
   permissions,
+  mobileOpen = false,
+  onNavigate,
 }: {
   role: Role;
   name: string;
   permissions?: Permissions;
+  /** Slide-in drawer on phones */
+  mobileOpen?: boolean;
+  onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const params = useSearchParams();
@@ -184,8 +187,18 @@ export function Sidebar({
     router.push("/login");
   }
 
+  function closeMobileNav() {
+    onNavigate?.();
+  }
+
   return (
-    <aside className="flex h-screen w-64 flex-col border-r" style={{ background: "hsl(var(--sidebar))" }}>
+    <aside
+      className={cn(
+        "fixed left-0 top-0 z-40 flex h-[100dvh] w-[min(18rem,88vw)] flex-col border-r shadow-xl transition-transform duration-200 ease-out lg:relative lg:z-auto lg:h-screen lg:w-64 lg:translate-x-0 lg:shadow-none",
+        mobileOpen ? "translate-x-0" : "-translate-x-full",
+      )}
+      style={{ background: "hsl(var(--sidebar))" }}
+    >
       <div className="flex items-center gap-3 px-5 py-5">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg gradient-brand text-white shadow-sm">
           <Printer className="h-4 w-4" />
@@ -224,6 +237,7 @@ export function Sidebar({
                         <Link
                           href={item.href}
                           prefetch
+                          onClick={closeMobileNav}
                           className="flex flex-1 items-center gap-2.5 px-3 py-2 text-sm font-medium"
                         >
                           <Icon className={cn("h-4 w-4 shrink-0", highlightParent ? "text-primary" : "")} />
@@ -264,6 +278,7 @@ export function Sidebar({
                                     key={c.href}
                                     href={c.href}
                                     prefetch
+                                    onClick={closeMobileNav}
                                     className={cn(
                                       "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
                                       cActive

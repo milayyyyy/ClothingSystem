@@ -64,7 +64,7 @@ export function FinanceCsvExportDialog({ supabase }: { supabase: SupabaseClient 
         Export CSV
       </Button>
 
-      <Dialog open={open} onClose={() => setOpen(false)} title="Export finance to CSV" size="sm">
+      <Dialog open={open} onClose={() => setOpen(false)} title="Export finance to CSV" size="md">
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Downloads one file with an <strong>Accounts</strong> section (current balances) and a{" "}

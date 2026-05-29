@@ -22,7 +22,7 @@ export default async function AdminSalesListPage() {
     <div className="space-y-6">
       <PageHeader
         title="Sales list"
-        description="Completed orders, down payments, and imported bookkeeping revenue. BigSeller stays on its own page."
+        description="Completed orders, down payments, and imported bookkeeping revenue."
         action={
           <Link
             href="/admin/sales-expenses/sales"

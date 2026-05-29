@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertCircle, Eye, EyeOff, Loader2, Package, Printer, ShoppingBag, Wallet } from "lucide-react";
+import { PwaRegister } from "@/components/pwa-register";
+import { PwaInstallButton } from "@/components/pwa-install-button";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -29,7 +31,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-[100dvh]">
+      <PwaRegister />
       {/* Brand panel */}
       <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden p-12 text-white lg:flex gradient-brand">
         <div className="absolute inset-0 saas-grid-bg opacity-20" />
@@ -60,7 +63,7 @@ export default function LoginPage() {
       </div>
 
       {/* Form panel */}
-      <div className="flex w-full items-center justify-center p-6 lg:w-1/2">
+      <div className="flex w-full items-center justify-center px-safe p-4 pb-safe sm:p-6 lg:w-1/2">
         <div className="w-full max-w-sm anim-in">
           <div className="mb-8 lg:hidden">
             <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg gradient-brand text-white">
@@ -109,6 +112,9 @@ export default function LoginPage() {
             <p className="pt-1 text-center text-xs text-muted-foreground">
               Employees: ask your admin to create an account.
             </p>
+            <div className="flex justify-center pt-2">
+              <PwaInstallButton />
+            </div>
           </form>
         </div>
       </div>
