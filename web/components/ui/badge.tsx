@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { orderDisplayStatusLabel, orderDisplayStatusVariant, type OrderStatusFields } from "@/lib/order-display";
 
 export function Badge({ className, variant = "default", ...props }: React.HTMLAttributes<HTMLDivElement> & { variant?: "default" | "outline" | "muted" | "amber" | "blue" | "green" | "red" | "purple" | "teal" }) {
   const map: Record<string, string> = {
@@ -21,4 +22,9 @@ export function StatusBadge({ status }: { status: string }) {
     ready: "green", done: "green", delivered: "green", cancelled: "red",
   } as const)[status as keyof object] || "outline";
   return <Badge variant={v as any}>{status.replace("_", " ")}</Badge>;
+}
+
+/** Order row badge — uses pipeline `stage` when set (matches Orders page). */
+export function OrderStatusBadge({ order }: { order: OrderStatusFields }) {
+  return <Badge variant={orderDisplayStatusVariant(order) as "outline"}>{orderDisplayStatusLabel(order)}</Badge>;
 }

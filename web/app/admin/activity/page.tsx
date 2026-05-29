@@ -16,7 +16,10 @@ export default async function ActivityPage() {
     .limit(500);
   return (
     <div>
-      <PageHeader title="Activity Log" description="Every action by employees and sub-admins" />
+      <PageHeader
+        title="Activity Log"
+        description="Who changed what: added, edited, or deleted records, with field-level before/after values."
+      />
       <ActivityClient initial={data || []} canDelete={me.profile.role === "admin"} />
     </div>
   );

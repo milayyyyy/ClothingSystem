@@ -1,7 +1,7 @@
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge } from "@/components/ui/badge";
+import { OrderStatusBadge } from "@/components/ui/badge";
 import { peso, formatDate } from "@/lib/utils";
 import { redirect } from "next/navigation";
 import { TimeClock } from "./time-clock";
@@ -87,7 +87,7 @@ export default async function EmployeeDashboard() {
               <thead className="text-left bg-muted/40"><tr><th className="p-3">#</th><th>Customer</th><th>Status</th><th>Due</th></tr></thead>
               <tbody>
                 {open.slice(0,8).map((o) => (
-                  <tr key={o.id} className="border-t"><td className="p-3 font-mono">#{o.order_no}</td><td>{o.customer_name}</td><td><StatusBadge status={o.status} /></td><td>{formatDate(o.due_date)}</td></tr>
+                  <tr key={o.id} className="border-t"><td className="p-3 font-mono">#{o.order_no}</td><td>{o.customer_name}</td><td><OrderStatusBadge order={o} /></td><td>{formatDate(o.due_date)}</td></tr>
                 ))}
                 {open.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-muted-foreground">No assigned tasks.</td></tr>}
               </tbody>

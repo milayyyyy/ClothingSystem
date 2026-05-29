@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { StatCard } from "@/components/ui/stat-card";
 import { BarChart } from "@/components/ui/bar-chart";
 import { peso, formatDate } from "@/lib/utils";
-import { StatusBadge } from "@/components/ui/badge";
+import { OrderStatusBadge } from "@/components/ui/badge";
+import { isPendingPipelineOrder } from "@/lib/sales";
 import { ShoppingBag, Wallet, TrendingDown, TrendingUp, Package, Receipt, Warehouse } from "lucide-react";
 import { DashboardReminderCards } from "@/components/dashboard-reminder-cards";
 
@@ -25,7 +26,7 @@ type DashboardData = {
 async function loadDashboard(supabase: ReturnType<typeof createClient>): Promise<DashboardData> {
   const [{ data: orders }, { data: expenses }, { data: inventory }, { data: tasksRaw }, readyMadeLow] =
     await Promise.all([
-      supabase.from("orders").select("*").order("created_at", { ascending: false }),
+      supabase.from("orders").select("*").order("updated_at", { ascending: false }),
       supabase.from("expenses").select("*"),
       supabase.from("inventory").select("*"),
       supabase.from("tasks").select("id,title,status,priority,due_date").order("due_date", { ascending: true }),
@@ -108,12 +109,12 @@ export function AdminDashboardClient() {
         <Link href="/admin/inventory/ready-made" className="font-medium text-primary hover:underline">Ready made</Link>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3 2xl:grid-cols-6">
         <StatCard label="Total Sales" value={peso(totalSales)} icon={TrendingUp} accent="primary" />
         <StatCard label="Collected" value={peso(collected)} icon={Wallet} accent="success" />
         <StatCard label="Outstanding" value={peso(outstanding)} icon={TrendingDown} accent="warning" />
         <StatCard label="Active Orders" value={active} icon={ShoppingBag} accent="primary" />
-        <StatCard label="This Month Exp" value={peso(monthExpenses)} icon={Receipt} accent="destructive" />
+        <StatCard label="Month expenses" value={peso(monthExpenses)} icon={Receipt} accent="destructive" />
         <StatCard label="Est. Profit" value={peso(profit)} icon={TrendingUp} accent="success" />
       </div>
 
@@ -163,7 +164,7 @@ export function AdminDashboardClient() {
                   <td className="font-medium">{o.customer_name}</td>
                   <td>{peso(o.total)}</td>
                   <td>
-                    <StatusBadge status={o.status} />
+                    <OrderStatusBadge order={o} />
                   </td>
                   <td className="px-6 text-muted-foreground">{formatDate(o.due_date)}</td>
                 </tr>

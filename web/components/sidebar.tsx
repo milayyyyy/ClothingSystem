@@ -7,9 +7,32 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
-  LayoutDashboard, ShoppingBag, Package, Users, Clock, Wallet, Receipt,
-  BarChart3, LogOut, Printer, ChevronDown, Truck, ListChecks, Activity,
-  Store, Sparkles, Warehouse, LayoutGrid, Wrench, TrendingUp, List, Landmark, Briefcase, Settings, PackageX,
+  LayoutDashboard,
+  ShoppingBag,
+  Package,
+  Users,
+  Clock,
+  Wallet,
+  Receipt,
+  BarChart3,
+  LogOut,
+  Printer,
+  ChevronDown,
+  Truck,
+  ListChecks,
+  Activity,
+  Store,
+  Sparkles,
+  Warehouse,
+  LayoutGrid,
+  Wrench,
+  TrendingUp,
+  List,
+  Landmark,
+  Briefcase,
+  Settings,
+  PackageX,
+  Download,
 } from "lucide-react";
 import {
   canView,
@@ -58,6 +81,7 @@ const STAFF_GROUPS: Group[] = [
       ],
     },
     { href: "/admin/finance", label: "Finance", icon: Landmark },
+    { href: "/admin/export", label: "Export", icon: Download },
   ]},
   { title: "People", items: [
     { href: "/admin/employees", label: "Employees", icon: Users, adminOnly: true },

@@ -9,9 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChevronRight, Copy, Plus, Search, Trash2 } from "lucide-react";
-import { CsvExportDialog } from "@/components/csv-export-dialog";
 import { InventoryFullStockExportButton } from "@/components/inventory-full-stock-export-button";
-import { fetchReadyMadeStockFlat } from "@/lib/inventory-stock-export";
 import { computeReadyMadeLowStockRows } from "@/lib/ready-made-low-stock";
 import { fetchReadyMadeLowStockRowsForBoard } from "@/lib/ready-made-board-low-stock-fetch";
 import { cn } from "@/lib/utils";
@@ -740,19 +738,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <InventoryFullStockExportButton compact />
-          <CsvExportDialog
-            label="Export sheets only"
-            filename="ready_made_inventory"
-            columns={[
-              { header: "Group", value: (r: { group: string }) => r.group },
-              { header: "Sheet", value: (r: { sheet: string }) => r.sheet },
-              { header: "Row / Item", value: (r: { row: string }) => r.row },
-              { header: "Column", value: (r: { column: string }) => r.column },
-              { header: "Value", value: (r: { value: string }) => r.value },
-            ]}
-            fetchRows={async () => fetchReadyMadeStockFlat(supabase)}
-          />
+          <InventoryFullStockExportButton compact mode="ready-made" />
           {canEdit && (
             <>
               <Button type="button" variant="outline" size="sm" onClick={() => setNewGroupOpen(true)} disabled={saving}>

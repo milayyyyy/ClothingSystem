@@ -8,8 +8,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { ShieldCheck, Trash2 } from "lucide-react";
+import { formatActivityLog } from "@/lib/activity-log-format";
 
-type L = any;
+type L = {
+  id: string;
+  action: string;
+  entity: string;
+  entity_id?: string | null;
+  summary?: string | null;
+  payload?: unknown;
+  created_at: string;
+  actor_role?: string | null;
+  actor?: { full_name?: string | null; email?: string | null } | null;
+};
 
 const ACTION_VARIANT: Record<string, any> = {
   INSERT: "green", UPDATE: "blue", DELETE: "red",
@@ -180,17 +191,26 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
     return () => { cancelled = true; };
   }, [dateFrom, dateTo]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const formattedById = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof formatActivityLog>>();
+    for (const l of list) {
+      m.set(l.id, formatActivityLog(l));
+    }
+    return m;
+  }, [list]);
+
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     return list.filter((l) => {
       if (entity !== "all" && l.entity !== entity) return false;
       if (q) {
-        const hay = `${l.actor?.full_name || ""} ${l.actor?.email || ""} ${l.entity} ${l.summary || ""}`.toLowerCase();
+        const detail = formattedById.get(l.id);
+        const hay = `${l.actor?.full_name || ""} ${l.actor?.email || ""} ${l.entity} ${l.summary || ""} ${detail?.searchText || ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [list, filter, entity]);
+  }, [list, filter, entity, formattedById]);
 
   const entities = useMemo(() => Array.from(new Set(list.map((l) => l.entity))).sort(), [list]);
 
@@ -325,7 +345,7 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
       {/* Table */}
       <Card>
         <CardContent className="overflow-x-auto p-0">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[960px] text-sm">
             <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
                 {canDelete && (
@@ -342,14 +362,16 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
                 <th className="px-4 py-3 text-left font-medium">When</th>
                 <th className="text-left font-medium">Actor</th>
                 <th className="text-left font-medium">Action</th>
-                <th className="text-left font-medium">Entity</th>
-                <th className="text-left font-medium">Summary</th>
+                <th className="text-left font-medium">Area</th>
+                <th className="min-w-[280px] text-left font-medium">What changed</th>
                 {canDelete && <th className="w-10"></th>}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((l) => (
-                <tr key={l.id} className={`border-t hover:bg-muted/30 ${selectedIds.has(l.id) ? "bg-primary/5" : ""}`}>
+              {filtered.map((l) => {
+                const detail = formattedById.get(l.id) ?? formatActivityLog(l);
+                return (
+                <tr key={l.id} className={`border-t align-top hover:bg-muted/30 ${selectedIds.has(l.id) ? "bg-primary/5" : ""}`}>
                   {canDelete && (
                     <td className="px-3 py-2 text-center">
                       <input
@@ -364,15 +386,34 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
                   <td className="px-4 py-2 text-xs text-muted-foreground whitespace-nowrap">
                     {new Date(l.created_at).toLocaleString()}
                   </td>
-                  <td>
+                  <td className="py-2">
                     <div className="text-sm">{l.actor?.full_name || l.actor?.email || "—"}</div>
                     {l.actor_role && <div className="text-[11px] capitalize text-muted-foreground">{l.actor_role.replace("_", " ")}</div>}
                   </td>
-                  <td><Badge variant={ACTION_VARIANT[l.action] || "outline"}>{l.action}</Badge></td>
-                  <td className="font-mono text-xs">{l.entity}</td>
-                  <td className="max-w-[320px] truncate text-xs text-muted-foreground" title={l.summary}>{l.summary}</td>
+                  <td className="py-2">
+                    <div className="flex flex-col gap-1">
+                      <Badge variant={ACTION_VARIANT[l.action] || "outline"}>{detail.actionLabel}</Badge>
+                      <span className="font-mono text-[10px] uppercase text-muted-foreground">{l.action}</span>
+                    </div>
+                  </td>
+                  <td className="py-2">
+                    <div className="font-medium text-foreground">{detail.entityLabel}</div>
+                    <div className="font-mono text-[10px] text-muted-foreground">{l.entity}</div>
+                  </td>
+                  <td className="max-w-md py-2 pr-4 text-xs text-muted-foreground">
+                    {detail.context && (
+                      <p className="mb-1.5 font-medium text-foreground">{detail.context}</p>
+                    )}
+                    <ul className="list-inside list-disc space-y-0.5">
+                      {detail.lines.map((line, i) => (
+                        <li key={i} className="break-words leading-snug">
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  </td>
                   {canDelete && (
-                    <td className="px-2">
+                    <td className="px-2 py-2">
                       <button
                         onClick={() => remove(l.id)}
                         className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
@@ -383,7 +424,8 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
                     </td>
                   )}
                 </tr>
-              ))}
+              );
+              })}
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={canDelete ? 7 : 5} className="p-8 text-center text-muted-foreground">

@@ -14,12 +14,14 @@ export type InventoryStockRow = {
   notes: string;
 };
 
-export type ReadyMadeStockRow = {
+/** One ready-made sheet grid (matches the in-app sheet layout). */
+export type ReadyMadeSheetGrid = {
   group: string;
   sheet: string;
-  row: string;
-  column: string;
-  value: string;
+  groupSort: number;
+  sheetSort: number;
+  columns: string[];
+  rows: { label: string; values: string[] }[];
 };
 
 function escapeCsv(v: string | number | null | undefined): string {
@@ -28,6 +30,10 @@ function escapeCsv(v: string | number | null | undefined): string {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
+}
+
+function csvRow(cells: (string | number)[]): string {
+  return cells.map(escapeCsv).join(",");
 }
 
 function buildCsv(headers: string[], rows: (string | number)[][]): string {
@@ -68,7 +74,17 @@ export async function fetchAllInventoryStock(supabase: SupabaseClient): Promise<
   }));
 }
 
-export async function fetchReadyMadeStockFlat(supabase: SupabaseClient): Promise<ReadyMadeStockRow[]> {
+type GroupRow = { id: string; name: string; sort_order: number };
+type BoardRow = { id: string; name: string; group_id: string | null; sort_order: number };
+type ColRow = { id: string; board_id: string; header_name: string; sort_order: number };
+type RowRow = { id: string; board_id: string; row_label: string; sort_order: number };
+
+function sortByOrder<T extends { sort_order: number }>(arr: T[]): T[] {
+  return [...arr].sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/** Load all ready-made groups, sheets, and cell values for export. */
+async function fetchReadyMadeCatalog(supabase: SupabaseClient) {
   const [
     { data: grps, error: gErr },
     { data: bds, error: bErr },
@@ -76,49 +92,94 @@ export async function fetchReadyMadeStockFlat(supabase: SupabaseClient): Promise
     { data: allRows, error: rErr },
     { data: allCells, error: cellErr },
   ] = await Promise.all([
-    supabase.from("ready_made_sheet_groups").select("id,name").order("sort_order"),
-    supabase.from("ready_made_boards").select("id,name,group_id").order("sort_order"),
-    supabase.from("ready_made_columns").select("id,board_id,name,sort_order").order("sort_order"),
-    supabase.from("ready_made_rows").select("id,board_id,label,sort_order").order("sort_order"),
+    supabase.from("ready_made_sheet_groups").select("id,name,sort_order").order("sort_order"),
+    supabase.from("ready_made_boards").select("id,name,group_id,sort_order").order("sort_order"),
+    supabase.from("ready_made_columns").select("id,board_id,header_name,sort_order").order("sort_order"),
+    supabase.from("ready_made_rows").select("id,board_id,row_label,sort_order").order("sort_order"),
     supabase.from("ready_made_cells").select("row_id,column_id,value"),
   ]);
   const err = gErr || bErr || cErr || rErr || cellErr;
   if (err) throw err;
 
-  const groupMap = Object.fromEntries((grps || []).map((g: { id: string; name: string }) => [g.id, g.name]));
-  const cellMap = Object.fromEntries(
-    (allCells || []).map((c: { row_id: string; column_id: string; value: unknown }) => [
-      `${c.row_id}:${c.column_id}`,
-      c.value ?? "",
-    ]),
-  );
+  return {
+    groups: (grps || []) as GroupRow[],
+    boards: (bds || []) as BoardRow[],
+    cols: (allCols || []) as ColRow[],
+    rows: (allRows || []) as RowRow[],
+    cellMap: Object.fromEntries(
+      (allCells || []).map((c: { row_id: string; column_id: string; value: unknown }) => [
+        `${c.row_id}:${c.column_id}`,
+        String(c.value ?? ""),
+      ]),
+    ),
+  };
+}
 
-  const flat: ReadyMadeStockRow[] = [];
-  for (const board of (bds || []) as { id: string; name: string; group_id: string | null }[]) {
-    const boardCols = ((allCols || []) as { id: string; board_id: string; name: string }[]).filter(
-      (c) => c.board_id === board.id,
-    );
-    const boardRows = ((allRows || []) as { id: string; board_id: string; label: string }[]).filter(
-      (r) => r.board_id === board.id,
-    );
-    const groupName = board.group_id ? groupMap[board.group_id] || "Ungrouped" : "Ungrouped";
+/** Sheet grids in group → sheet order (same structure as the Ready-made inventory UI). */
+export async function fetchReadyMadeStockGrids(supabase: SupabaseClient): Promise<ReadyMadeSheetGrid[]> {
+  const { groups, boards, cols, rows, cellMap } = await fetchReadyMadeCatalog(supabase);
+  const groupMap = Object.fromEntries(groups.map((g) => [g.id, g]));
+  const sortedBoards = sortByOrder(boards);
 
-    if (boardCols.length === 0) {
-      for (const row of boardRows) {
-        flat.push({ group: groupName, sheet: board.name, row: row.label, column: "", value: "" });
+  const grids: ReadyMadeSheetGrid[] = [];
+
+  for (const board of sortedBoards) {
+    const g = board.group_id ? groupMap[board.group_id] : null;
+    const groupName = g?.name ?? "Ungrouped";
+    const groupSort = g?.sort_order ?? 9999;
+
+    const boardCols = sortByOrder(cols.filter((c) => c.board_id === board.id));
+    const boardRows = sortByOrder(rows.filter((r) => r.board_id === board.id));
+    const columnHeaders = boardCols.map((c) => c.header_name);
+
+    const gridRows = boardRows.map((row) => ({
+      label: row.row_label,
+      values: boardCols.map((col) => cellMap[`${row.id}:${col.id}`] ?? ""),
+    }));
+
+    grids.push({
+      group: groupName,
+      sheet: board.name,
+      groupSort,
+      sheetSort: board.sort_order,
+      columns: columnHeaders,
+      rows: gridRows,
+    });
+  }
+
+  grids.sort((a, b) => {
+    if (a.groupSort !== b.groupSort) return a.groupSort - b.groupSort;
+    if (a.group !== b.group) return a.group.localeCompare(b.group);
+    if (a.sheetSort !== b.sheetSort) return a.sheetSort - b.sheetSort;
+    return a.sheet.localeCompare(b.sheet);
+  });
+
+  return grids;
+}
+
+/** Flat rows (legacy); prefer grids export for ready-made. */
+export async function fetchReadyMadeStockFlat(
+  supabase: SupabaseClient,
+): Promise<{ group: string; sheet: string; row: string; column: string; value: string }[]> {
+  const grids = await fetchReadyMadeStockGrids(supabase);
+  const flat: { group: string; sheet: string; row: string; column: string; value: string }[] = [];
+  for (const g of grids) {
+    if (g.columns.length === 0) {
+      for (const row of g.rows) {
+        flat.push({ group: g.group, sheet: g.sheet, row: row.label, column: "", value: "" });
       }
-    } else {
-      for (const row of boardRows) {
-        for (const col of boardCols) {
-          flat.push({
-            group: groupName,
-            sheet: board.name,
-            row: row.label,
-            column: col.name,
-            value: String(cellMap[`${row.id}:${col.id}`] ?? ""),
-          });
-        }
-      }
+      continue;
+    }
+    for (const row of g.rows) {
+      g.columns.forEach((col, i) => {
+        flat.push({
+          group: g.group,
+          sheet: g.sheet,
+          row: row.label,
+          column: col,
+          value: row.values[i] ?? "",
+        });
+      });
     }
   }
   return flat;
@@ -142,13 +203,59 @@ export function inventoryStockToCsv(rows: InventoryStockRow[]): string {
   );
 }
 
-export function readyMadeStockToCsv(rows: ReadyMadeStockRow[]): string {
+/**
+ * CSV with one block per sheet: group name, sheet name, then a grid (row labels × column headers).
+ * Opens cleanly in Excel for stock counts per size/column.
+ */
+export function readyMadeStockGridsToCsv(sheets: ReadyMadeSheetGrid[]): string {
+  const lines: string[] = [];
+
+  for (let i = 0; i < sheets.length; i++) {
+    const s = sheets[i];
+    if (i > 0) lines.push("");
+    lines.push(csvRow(["Sheet group", s.group]));
+    lines.push(csvRow(["Sheet", s.sheet]));
+    if (s.columns.length > 0) {
+      lines.push(csvRow(["Row / Item", ...s.columns]));
+      for (const row of s.rows) {
+        lines.push(csvRow([row.label, ...row.values]));
+      }
+    } else if (s.rows.length > 0) {
+      lines.push(csvRow(["Row / Item", "Stock"]));
+      for (const row of s.rows) {
+        const v = row.values[0] ?? "";
+        lines.push(csvRow([row.label, v]));
+      }
+    } else {
+      lines.push(csvRow(["(empty sheet — no rows yet)"]));
+    }
+  }
+
+  if (lines.length === 0) {
+    lines.push(csvRow(["No ready-made sheets found"]));
+  }
+
+  return lines.join("\n");
+}
+
+/** @deprecated Use readyMadeStockGridsToCsv for sheet layout. */
+export function readyMadeStockToCsv(
+  rows: { group: string; sheet: string; row: string; column: string; value: string }[],
+): string {
   return buildCsv(
-    ["Group", "Sheet", "Row / Item", "Column", "Value"],
+    ["Group", "Sheet", "Row / Item", "Column", "Stock"],
     rows.map((r) => [r.group, r.sheet, r.row, r.column, r.value]),
   );
 }
 
 export function exportDateTag(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+export function readyMadeExportFilename(tag = exportDateTag()) {
+  return `ready_made_inventory_${tag}`;
+}
+
+export function inventoryExportFilename(tag = exportDateTag()) {
+  return `inventory_stock_${tag}`;
 }
