@@ -5,6 +5,7 @@ import { SidebarFallback } from "@/components/sidebar-fallback";
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { getPermissionsForRole } from "@/lib/role-permissions";
 import { Topbar } from "@/components/topbar";
+import { WorkspaceShellProvider } from "@/components/workspace-shell-context";
 
 const Sidebar = dynamic(() => import("@/components/sidebar").then((m) => m.Sidebar), {
   ssr: false,
@@ -22,9 +23,20 @@ export default async function EmployeeLayout({ children }: { children: React.Rea
         <Sidebar role="employee" name={name} permissions={permissions} />
       </Suspense>
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar role="employee" name={name} userId={user.id} />
+        <Topbar role="employee" userId={user.id} />
         <main className="flex-1 overflow-y-auto p-6">
-          <div className="mx-auto max-w-7xl">{children}</div>
+          <div className="w-full min-w-0">
+            <WorkspaceShellProvider
+              value={{
+                role: "employee",
+                userId: user.id,
+                name,
+                permissions,
+              }}
+            >
+              {children}
+            </WorkspaceShellProvider>
+          </div>
         </main>
       </div>
     </div>

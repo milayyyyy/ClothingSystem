@@ -1,21 +1,25 @@
 "use client";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 
 const OPTIONS = [
-  { value: "light",  label: "Light",  icon: Sun },
-  { value: "dark",   label: "Dark",   icon: Moon },
-  { value: "system", label: "System", icon: Monitor },
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
 ] as const;
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setMounted(true); }, []);
+
+  // Migrate saved "system" preference to light
+  useEffect(() => {
+    if (theme === "system") setTheme("light");
+  }, [theme, setTheme]);
 
   // Close on outside click
   useEffect(() => {
@@ -29,7 +33,8 @@ export function ThemeToggle() {
 
   if (!mounted) return <div className="h-8 w-8" />;
 
-  const current = OPTIONS.find((o) => o.value === theme) ?? OPTIONS[2];
+  const active = theme === "light" || theme === "dark" ? theme : resolvedTheme === "dark" ? "dark" : "light";
+  const current = OPTIONS.find((o) => o.value === active) ?? OPTIONS[0];
   const Icon = current.icon;
 
   return (
@@ -51,11 +56,11 @@ export function ThemeToggle() {
               type="button"
               onClick={() => { setTheme(value); setOpen(false); }}
               className={`flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-muted
-                ${theme === value ? "font-semibold text-foreground" : "text-muted-foreground"}`}
+                ${active === value ? "font-semibold text-foreground" : "text-muted-foreground"}`}
             >
               <Ic className="h-3.5 w-3.5 shrink-0" />
               {label}
-              {theme === value && (
+              {active === value && (
                 <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary" />
               )}
             </button>

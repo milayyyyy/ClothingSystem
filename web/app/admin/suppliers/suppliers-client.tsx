@@ -61,6 +61,11 @@ export function SuppliersClient({
   const supabase = createClient();
   const [list, setList] = useState<S[]>(initial);
   const [categories, setCategories] = useState<SupplierCategoryRow[]>(initialCategories);
+
+  useEffect(() => {
+    setList(initial);
+    setCategories(initialCategories);
+  }, [initial, initialCategories]);
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [open, setOpen] = useState(false);

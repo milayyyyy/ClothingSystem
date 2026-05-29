@@ -1004,6 +1004,10 @@ export function OrdersClient({
   const supabase = createClient();
   const { ask, dialog: confirmDialog } = useConfirmAction();
   const [orders, setOrders] = useState<Order[]>(() => (initialOrders || []).map(normalizeOrderAssigneesRow));
+
+  useEffect(() => {
+    setOrders((initialOrders || []).map(normalizeOrderAssigneesRow));
+  }, [initialOrders]);
   const [stageFilter, setStageFilter] = useState<"all" | string>("all");
   const [kindFilter, setKindFilter] = useState<OrdersTabKind>(() =>
     normalizeOrdersTabKind(params.get("type"), initialKind, pathname),

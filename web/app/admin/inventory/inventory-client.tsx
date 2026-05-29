@@ -293,6 +293,12 @@ export function InventoryClient({
     }
   }, [searchParamKey]);
   const [items, setItems] = useState<Item[]>(initial);
+
+  useEffect(() => {
+    setItems(initial);
+    setCategories(initialCategories);
+    setTypePresetNames(initialTypePresets);
+  }, [initial, initialCategories, initialTypePresets]);
   const [typePresetNames, setTypePresetNames] = useState<string[]>(initialTypePresets);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Item | null>(null);

@@ -16,7 +16,7 @@ const NAMES: Record<string, string> = {
   employee: "Dashboard", profile: "Profile",
 };
 
-export function Topbar({ name, role, userId }: { name: string; role: string; userId?: string }) {
+export function Topbar({ role, userId }: { role: string; userId?: string }) {
   const path = usePathname();
   const segs = path.split("/").filter(Boolean);
   const crumbs = segs.map((s, i) => ({ label: NAMES[s] || s, href: "/" + segs.slice(0, i + 1).join("/") }));
@@ -39,10 +39,6 @@ export function Topbar({ name, role, userId }: { name: string; role: string; use
           {userId && <StickyNotes userId={userId} />}
           <QuickSearchTrigger />
           <ThemeToggle />
-          <div className="hidden text-right text-xs sm:block">
-            <div className="font-medium">{name}</div>
-            <div className="capitalize text-muted-foreground">{role}</div>
-          </div>
         </div>
       </header>
     </>
