@@ -76,7 +76,7 @@ export function SupplierCategoriesDialog({
         await load();
         onChanged();
       }
-    } else if (editing && editing !== "new") {
+    } else if (editing) {
       const { error } = await supabase
         .from("supplier_categories")
         .update({ name: trimmed })

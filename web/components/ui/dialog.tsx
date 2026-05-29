@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 export function Dialog({ open, onClose, children, title, description, size = "lg" }: {
   open: boolean; onClose: () => void; children: React.ReactNode;
-  title?: string; description?: string; size?: "md" | "lg" | "xl";
+  title?: string; description?: string; size?: "sm" | "md" | "lg" | "xl";
 }) {
   React.useEffect(() => {
     if (!open) return;
@@ -18,7 +18,8 @@ export function Dialog({ open, onClose, children, title, description, size = "lg
 
   if (!open) return null;
   if (typeof document === "undefined") return null;
-  const w = size === "md" ? "max-w-md" : size === "xl" ? "max-w-2xl" : "max-w-lg";
+  const w =
+    size === "sm" ? "max-w-sm" : size === "md" ? "max-w-md" : size === "xl" ? "max-w-2xl" : "max-w-lg";
   return createPortal(
     (
       <div
