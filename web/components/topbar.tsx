@@ -2,7 +2,6 @@
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { GlobalSearch, QuickSearchTrigger } from "@/components/global-search";
-import { ThemeToggle } from "@/components/theme-toggle";
 
 const StickyNotes = dynamic(() => import("@/components/sticky-notes").then((m) => m.StickyNotes), {
   ssr: false,
@@ -38,7 +37,6 @@ export function Topbar({ role, userId }: { role: string; userId?: string }) {
         <div className="ml-auto flex items-center gap-2">
           {userId && <StickyNotes userId={userId} />}
           <QuickSearchTrigger />
-          <ThemeToggle />
         </div>
       </header>
     </>
