@@ -55,13 +55,6 @@ export type ExportReportData = {
 
 const MAX_TABLE_ROWS = 250;
 const PDF_MARGIN_MM = 8;
-const PDF_TRUNCATE = 100;
-
-function truncatePdfText(value: string, max = PDF_TRUNCATE): string {
-  const s = value.trim();
-  if (s.length <= max) return s;
-  return `${s.slice(0, max - 1)}…`;
-}
 
 function formatPdfTime(iso: string): string {
   const d = new Date(iso);
@@ -193,7 +186,7 @@ export async function fetchExportReportData(
       action_label: detail.actionLabel,
       entity_label: detail.entityLabel,
       context: detail.context,
-      changes: detail.lines.join("; "),
+      changes: detail.lines.join("\n"),
     };
   });
 
@@ -222,11 +215,30 @@ function tableEndY(doc: JsPDFDoc): number {
   return last?.finalY ?? PDF_COVER_END_Y;
 }
 
+function tableContentWidth(doc: JsPDFDoc): number {
+  return doc.internal.pageSize.getWidth() - 2 * PDF_MARGIN_MM;
+}
+
+function pageBottom(doc: JsPDFDoc): number {
+  return doc.internal.pageSize.getHeight() - PDF_MARGIN_MM;
+}
+
 function ensureSpace(doc: JsPDFDoc, needed: number) {
-  const pageH = doc.internal.pageSize.getHeight();
-  if (tableEndY(doc) + needed > pageH - PDF_MARGIN_MM) {
+  if (tableEndY(doc) + needed > pageBottom(doc)) {
     doc.addPage();
   }
+}
+
+/** Build column styles from mm widths; optional per-column alignment. */
+function colStyles(
+  widths: number[],
+  align: ("left" | "center" | "right")[] = [],
+): Record<number, { cellWidth: number; halign?: "left" | "center" | "right" }> {
+  const out: Record<number, { cellWidth: number; halign?: "left" | "center" | "right" }> = {};
+  widths.forEach((w, i) => {
+    out[i] = { cellWidth: w, ...(align[i] ? { halign: align[i] } : {}) };
+  });
+  return out;
 }
 
 function sectionHeading(doc: JsPDFDoc, title: string, subtitle?: string) {
@@ -258,18 +270,20 @@ const COMPACT_TABLE_BASE: AutoTableUserOptions = {
   theme: "grid",
   styles: {
     fontSize: 6.5,
-    cellPadding: 0.6,
+    cellPadding: 1.2,
     lineWidth: 0.1,
     lineColor: [210, 210, 210],
-    minCellHeight: 3.5,
-    valign: "middle",
+    minCellHeight: 4,
+    overflow: "linebreak",
+    valign: "top",
   },
   headStyles: {
     fontSize: 6.5,
-    cellPadding: 0.6,
+    cellPadding: 1.2,
     fillColor: [45, 45, 45],
     textColor: 255,
     fontStyle: "bold",
+    valign: "middle",
   },
   margin: { left: PDF_MARGIN_MM, right: PDF_MARGIN_MM },
 };
@@ -308,44 +322,44 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
   const generated = data.generatedAt.toLocaleString();
+  const portraitW = tableContentWidth(doc);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.text("PrintShop — Full export", PDF_MARGIN_MM, 11);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
-  doc.text(
+  const coverLines = doc.splitTextToSize(
     `Generated ${generated} · Report date ${data.reportDate} · Stock/ready-made = current; other sections = report date.`,
-    PDF_MARGIN_MM,
-    16,
-    { maxWidth: doc.internal.pageSize.getWidth() - PDF_MARGIN_MM * 2 },
+    portraitW,
   );
+  doc.text(coverLines, PDF_MARGIN_MM, 16);
 
   let tableStartY: number;
 
   // --- Stock inventory ---
   tableStartY = sectionHeading(doc, "1. Stock inventory", `${data.inventory.length} item(s)`);
   const inv = truncateRows(data.inventory, "Inventory");
+  const invW = [52, 22, 18, 12, 12, 12, portraitW - 52 - 22 - 18 - 12 - 12 - 12];
   autoTable(
     doc,
     compactTableOptions({
       startY: tableStartY + 1,
+      tableWidth: portraitW,
       head: [["Name", "Cat.", "Type", "Qty", "Unit", "Min", "Supplier"]],
       body: inv.rows.map((r) => [
-        truncatePdfText(r.name, 40),
-        truncatePdfText(r.category, 18),
-        truncatePdfText(r.item_type, 14),
+        r.name.trim() || "—",
+        r.category.trim() || "—",
+        r.item_type.trim() || "—",
         String(r.quantity),
-        r.unit,
-        r.min_level,
-        truncatePdfText(r.supplier, 24),
+        r.unit || "—",
+        String(r.min_level),
+        r.supplier.trim() || "—",
       ]),
-      columnStyles: {
-        0: { cellWidth: 42 },
-        3: { halign: "right", cellWidth: 10 },
-        4: { cellWidth: 10 },
-        5: { cellWidth: 10 },
-      },
+      columnStyles: colStyles(
+        invW,
+        ["left", "left", "left", "right", "left", "right", "left"],
+      ),
     }),
   );
   if (inv.note) {
@@ -379,22 +393,33 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
       continue;
     }
 
-    const headers = ["Item", ...sheet.columns.map((c) => truncatePdfText(c, 16))];
+    const headers = ["Item", ...sheet.columns.map((c) => c.trim() || "—")];
     const body = sheet.rows.map((row) => [
-      truncatePdfText(row.label, 28),
-      ...row.values.map((v) => truncatePdfText(String(v ?? ""), 12)),
+      row.label.trim() || "—",
+      ...row.values.map((v) => String(v ?? "").trim() || "—"),
     ]);
     const { rows: bodyTrunc, note } = truncateRows(body, `Sheet ${sheet.sheet}`);
+
+    const itemColW = Math.min(36, portraitW * 0.22);
+    const dataCols = sheet.columns.length;
+    const dataColW = dataCols > 0 ? (portraitW - itemColW) / dataCols : portraitW - itemColW;
+    const rmColStyles: Record<number, { cellWidth: number; halign?: "center" }> = {
+      0: { cellWidth: itemColW },
+    };
+    for (let ci = 0; ci < dataCols; ci++) {
+      rmColStyles[ci + 1] = { cellWidth: dataColW, halign: "center" };
+    }
 
     autoTable(
       doc,
       compactTableOptions({
         startY: yRm,
+        tableWidth: portraitW,
         head: [headers],
         body: bodyTrunc,
         headStyles: { fillColor: [55, 55, 85] },
-        styles: { fontSize: 6, cellPadding: 0.5 },
-        horizontalPageBreak: true,
+        styles: { fontSize: 6, cellPadding: 1 },
+        columnStyles: rmColStyles,
       }),
     );
     yRm = tableEndY(doc) + 2;
@@ -407,19 +432,21 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
 
   // --- Finance accounts ---
   tableStartY = sectionHeading(doc, "3. Finance — balances (current)", `${data.accounts.length} account(s)`);
+  const finAccW = [22, 48, 44, 32, portraitW - 22 - 48 - 44 - 32];
   autoTable(
     doc,
     compactTableOptions({
       startY: tableStartY + 1,
+      tableWidth: portraitW,
       head: [["Type", "Name", "Acct. name", "Acct. #", "Balance"]],
       body: data.accounts.map((a) => [
         labelFinanceKind(a.kind),
-        truncatePdfText(a.name, 28),
-        truncatePdfText(a.account_name ?? "", 24),
-        truncatePdfText(a.account_number ?? "", 16),
+        a.name.trim() || "—",
+        (a.account_name ?? "").trim() || "—",
+        (a.account_number ?? "").trim() || "—",
         peso(Number(a.balance || 0)),
       ]),
-      columnStyles: { 4: { halign: "right" } },
+      columnStyles: colStyles(finAccW, ["left", "left", "left", "left", "right"]),
     }),
   );
 
@@ -431,10 +458,12 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
   );
   const byId = new Map(data.accounts.map((a) => [a.id, a]));
   const tx = truncateRows(data.transactions, "Money flow");
+  const txW = [20, 40, 24, 24, 26, portraitW - 20 - 40 - 24 - 24 - 26];
   autoTable(
     doc,
     compactTableOptions({
       startY: tableStartY + 1,
+      tableWidth: portraitW,
       head: [["Date", "Account", "In", "Out", "After", "Description"]],
       body: tx.rows.map((t) => {
         const a = byId.get(t.account_id);
@@ -442,14 +471,14 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
         const amt = Number(t.amount || 0);
         return [
           String(t.occurred_at).slice(0, 10),
-          truncatePdfText(a?.name ?? "", 22),
-          dir === "in" ? peso(amt) : "",
-          dir === "out" ? peso(amt) : "",
+          (a?.name ?? "").trim() || "—",
+          dir === "in" ? peso(amt) : "—",
+          dir === "out" ? peso(amt) : "—",
           peso(data.balanceAfter.get(t.id) ?? 0),
-          truncatePdfText(t.description ?? "", 36),
+          (t.description ?? "").trim() || "—",
         ];
       }),
-      columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
+      columnStyles: colStyles(txW, ["left", "left", "right", "right", "right", "left"]),
     }),
   );
   if (tx.note) {
@@ -460,20 +489,22 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
   // --- Sales ---
   tableStartY = sectionHeading(doc, "5. Sales", `Date: ${data.reportDate} · ${data.sales.length} row(s)`);
   const sales = truncateRows(data.sales, "Sales");
+  const salesW = [20, 18, 26, 42, 40, portraitW - 20 - 18 - 26 - 42 - 40];
   autoTable(
     doc,
     compactTableOptions({
       startY: tableStartY + 1,
+      tableWidth: portraitW,
       head: [["Date", "Channel", "Amt", "Customer", "Store / notes", "Desc."]],
       body: sales.rows.map((r) => [
         r.dateKey,
-        truncatePdfText(r.channel, 14),
+        r.channel.trim() || "—",
         peso(r.amount),
-        truncatePdfText(r.customerOrTitle, 28),
-        truncatePdfText(r.storeOrNotes, 24),
-        truncatePdfText(r.description, 32),
+        r.customerOrTitle.trim() || "—",
+        r.storeOrNotes.trim() || "—",
+        r.description.trim() || "—",
       ]),
-      columnStyles: { 2: { halign: "right" } },
+      columnStyles: colStyles(salesW, ["left", "left", "right", "left", "left", "left"]),
     }),
   );
   if (sales.note) {
@@ -484,20 +515,22 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
   // --- Expenses ---
   tableStartY = sectionHeading(doc, "6. Expenses", `Date: ${data.reportDate} · ${data.expenses.length} row(s)`);
   const exp = truncateRows(data.expenses, "Expenses");
+  const expW = [20, 24, 52, 26, 36, portraitW - 20 - 24 - 52 - 26 - 36];
   autoTable(
     doc,
     compactTableOptions({
       startY: tableStartY + 1,
+      tableWidth: portraitW,
       head: [["Date", "Category", "Description", "Amt", "Account", "Supplier"]],
       body: exp.rows.map((r) => [
         String(r.expense_date).slice(0, 10),
-        truncatePdfText(r.category, 16),
-        truncatePdfText(r.description ?? "", 32),
+        r.category.trim() || "—",
+        (r.description ?? "").trim() || "—",
         peso(Number(r.amount || 0)),
-        truncatePdfText(r.finance_account_name ?? r.paid_through ?? "", 22),
-        truncatePdfText(r.supplier_name ?? "", 20),
+        (r.finance_account_name ?? r.paid_through ?? "").trim() || "—",
+        (r.supplier_name ?? "").trim() || "—",
       ]),
-      columnStyles: { 3: { halign: "right" } },
+      columnStyles: colStyles(expW, ["left", "left", "left", "right", "left", "left"]),
     }),
   );
   if (exp.note) {
@@ -507,35 +540,25 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
 
   // --- Activity log (landscape for more columns per page) ---
   doc.addPage("a4", "landscape");
+  const landscapeW = tableContentWidth(doc);
   tableStartY = sectionHeading(doc, "7. Activity log", `Date: ${data.reportDate} · ${data.activityLogs.length} entry(ies)`);
   const act = truncateRows(data.activityLogs, "Activity log");
-  const pageW = doc.internal.pageSize.getWidth();
-  const activityContextW = Math.max(
-    40,
-    pageW - PDF_MARGIN_MM * 2 - 22 - 24 - 14 - 18 - 70,
-  );
+  const actW = [26, 30, 18, 22, 95, landscapeW - 26 - 30 - 18 - 22 - 95];
   autoTable(
     doc,
     compactTableOptions({
       startY: tableStartY + 1,
+      tableWidth: landscapeW,
       head: [["Time", "Actor", "Action", "Area", "Context", "Changes"]],
       body: act.rows.map((r) => [
         formatPdfTime(r.created_at),
-        truncatePdfText(r.actor_name, 18),
+        r.actor_name.trim() || "—",
         r.action_label,
-        truncatePdfText(r.entity_label, 14),
-        truncatePdfText(r.context, 36),
-        truncatePdfText(r.changes, 80),
+        r.entity_label.trim() || "—",
+        r.context.trim() || "—",
+        r.changes.trim() || "—",
       ]),
-      styles: { overflow: "ellipsize" },
-      columnStyles: {
-        0: { cellWidth: 22 },
-        1: { cellWidth: 24 },
-        2: { cellWidth: 14 },
-        3: { cellWidth: 18 },
-        4: { cellWidth: activityContextW },
-        5: { cellWidth: 70 },
-      },
+      columnStyles: colStyles(actW, ["left", "left", "left", "left", "left", "left"]),
       margin: { left: PDF_MARGIN_MM, right: PDF_MARGIN_MM },
     }),
   );
