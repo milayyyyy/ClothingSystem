@@ -7,7 +7,7 @@ returns boolean language sql stable security definer set search_path = public as
     or exists (
       select 1
       from public.profiles p
-      inner join public.roles r on r.name = p.role
+      inner join public.roles r on r.name = p.role::text
       where p.id = auth.uid()
         and (
           coalesce((r.permissions->>'all')::boolean, false)
@@ -23,7 +23,7 @@ returns boolean language sql stable security definer set search_path = public as
     or exists (
       select 1
       from public.profiles p
-      inner join public.roles r on r.name = p.role
+      inner join public.roles r on r.name = p.role::text
       where p.id = auth.uid()
         and (
           coalesce((r.permissions->>'all')::boolean, false)
