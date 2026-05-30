@@ -7,6 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
+  buildTeamsSheetPdf,
+  downloadTeamsSheetPdf,
+} from "@/lib/order-teams-sheet-pdf";
+import { FileDown } from "lucide-react";
+import {
   emptyPlayer,
   emptyTeam,
   mapTeamsFromSupabase,
@@ -573,6 +578,7 @@ export function TeamsSheetClient({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [uploadingTeamKey, setUploadingTeamKey] = useState<string | null>(null);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   // Walk-in & Online can switch between "teams" and "services" sheet format
   const canSwitchFormat = orderKind === "local" || orderKind === "online";
@@ -809,8 +815,51 @@ export function TeamsSheetClient({
     void commitSave(computedTotal, dp); // save without recording transaction
   }
 
-  // ── Labels (change based on order kind or chosen format) ─────────────────
   const isSvc = orderKind === "services" || (canSwitchFormat && sheetFormat === "services");
+
+  async function exportSheetPdf() {
+    setExportingPdf(true);
+    setMessage(null);
+    try {
+      const blob = await buildTeamsSheetPdf({
+        orderNo,
+        customerName,
+        sheetKind: isSvc ? "services" : "teams",
+        groups: teamGroups.map((group) => ({
+          teamName: group.teamName,
+          designPhotoCount: group.rows[0]?.teamDesignUrls?.length ?? 0,
+          rows: group.rows.map((r, idx) => ({
+            index: idx + 1,
+            surname: r.surname,
+            jerseyNumber: r.jersey_number,
+            lines: r.jerseyChecklist.map((item) => ({
+              name: item.name,
+              size: item.size,
+              checked: item.checked,
+            })),
+          })),
+        })),
+        priceLines: uniqueLines.map((line) => ({
+          name: line.name,
+          size: line.size,
+          count: line.count,
+          unitPrice: linePrices[line.key] ?? 0,
+        })),
+        orderTotal,
+        downPayment,
+        balance,
+      });
+      const slug = isSvc ? "services" : "teams";
+      downloadTeamsSheetPdf(blob, `order_${orderNo}_${slug}_sheet.pdf`);
+    } catch (err) {
+      console.error(err);
+      setMessage(err instanceof Error ? err.message : "PDF export failed.");
+    } finally {
+      setExportingPdf(false);
+    }
+  }
+
+  // ── Labels (change based on order kind or chosen format) ─────────────────
   const invoiceHref = backHref?.includes("/employee")
     ? `/employee/orders/${orderId}/invoice`
     : `/admin/orders/${orderId}/invoice`;
@@ -866,6 +915,16 @@ export function TeamsSheetClient({
           >
             Invoice
           </Link>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={loading || exportingPdf}
+            onClick={() => void exportSheetPdf()}
+          >
+            <FileDown className="mr-1 h-4 w-4" />
+            {exportingPdf ? "Exporting…" : "Export PDF"}
+          </Button>
         {!viewOnly && (
           <>
           {/* Format toggle — only for Walk-in & Online */}
