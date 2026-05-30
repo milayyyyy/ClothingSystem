@@ -5,9 +5,15 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertCircle, Eye, EyeOff, Loader2, Package, Printer, ShoppingBag, Wallet } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
+import dynamic from "next/dynamic";
 import { PwaRegister } from "@/components/pwa-register";
 import { PwaInstallButton } from "@/components/pwa-install-button";
+
+const FaceLogin = dynamic(
+  () => import("@/components/face-login").then((m) => m.FaceLogin),
+  { ssr: false },
+);
 
 export default function LoginPage() {
   const router = useRouter();
@@ -31,101 +37,55 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-[100dvh]">
+    <div className="flex min-h-[100dvh] items-center justify-center px-safe p-4 pb-safe sm:p-6">
       <PwaRegister />
-      {/* Brand panel */}
-      <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden p-12 text-white lg:flex gradient-brand">
-        <div className="absolute inset-0 saas-grid-bg opacity-20" />
-        <div className="relative z-10 flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/15 backdrop-blur">
-            <Printer className="h-4 w-4" />
-          </div>
-          <span className="text-lg font-semibold tracking-tight">PrintShop</span>
-        </div>
+      <div className="w-full max-w-sm anim-in">
+        <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Email, password, or face recognition.</p>
 
-        <div className="relative z-10 space-y-6">
-          <h1 className="text-4xl font-semibold leading-tight tracking-tight">
-            Run your printing<br />business with clarity.
-          </h1>
-          <p className="max-w-md text-white/80">
-            Manage sublimation and cut & sew jersey production end-to-end:
-            orders, inventory, attendance, payroll, and BIR-ready reports.
-          </p>
-          <div className="grid max-w-md grid-cols-2 gap-3 pt-4">
-            <Feature icon={ShoppingBag} label="Order tracking" />
-            <Feature icon={Package} label="Inventory & alerts" />
-            <Feature icon={Wallet} label="Payroll & taxes" />
-            <Feature icon={Printer} label="Production board" />
+        <form onSubmit={onSubmit} className="mt-6 space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" placeholder="you@example.com" required value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
-        </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="password">Password</Label>
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPw ? "text" : "password"}
+                placeholder="••••••••"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                tabIndex={-1}
+                aria-label={showPw ? "Hide password" : "Show password"}
+              >
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          {err && (
+            <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0" /> {err}
+            </div>
+          )}
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in...</> : "Sign in"}
+          </Button>
+          <div className="flex justify-center pt-1">
+            <PwaInstallButton />
+          </div>
+        </form>
 
-        <div className="relative z-10 text-xs text-white/60">© {new Date().getFullYear()} Drips Printing</div>
+        <FaceLogin />
       </div>
-
-      {/* Form panel */}
-      <div className="flex w-full items-center justify-center px-safe p-4 pb-safe sm:p-6 lg:w-1/2">
-        <div className="w-full max-w-sm anim-in">
-          <div className="mb-8 lg:hidden">
-            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg gradient-brand text-white">
-              <Printer className="h-5 w-5" />
-            </div>
-          </div>
-          <h2 className="text-2xl font-semibold tracking-tight">Welcome back</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Sign in to continue to your workspace.</p>
-
-          <form onSubmit={onSubmit} className="mt-6 space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" placeholder="you@example.com" required value={email} onChange={(e) => setEmail(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  type={showPw ? "text" : "password"}
-                  placeholder="••••••••"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  tabIndex={-1}
-                  aria-label={showPw ? "Hide password" : "Show password"}
-                >
-                  {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-            {err && (
-              <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                <AlertCircle className="h-4 w-4 shrink-0" /> {err}
-              </div>
-            )}
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in...</> : "Sign in"}
-            </Button>
-            <p className="pt-1 text-center text-xs text-muted-foreground">
-              Employees: ask your admin to create an account.
-            </p>
-            <div className="flex justify-center pt-2">
-              <PwaInstallButton />
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Feature({ icon: Icon, label }: { icon: any; label: string }) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm backdrop-blur">
-      <Icon className="h-4 w-4" /> {label}
     </div>
   );
 }
