@@ -4,6 +4,8 @@ import { canManageOrderSheet } from "@/lib/can-manage-order-sheet";
 import { extensionFromFileName, isImageUploadFile } from "@/lib/sublimation-teams";
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 
+export const runtime = "nodejs";
+
 const BUCKET = "jersey-designs";
 const MAX_BYTES = 15 * 1024 * 1024;
 

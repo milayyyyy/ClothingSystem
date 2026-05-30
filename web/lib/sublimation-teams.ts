@@ -37,6 +37,7 @@ export function extensionFromFileName(name: string): string {
 /** Accept standard image MIME types and phone formats (HEIC) even when MIME is empty. */
 export function isImageUploadFile(file: File): boolean {
   if (file.type.startsWith("image/")) return true;
+  if (!file.type && file.size > 0) return true;
   return IMAGE_UPLOAD_EXTENSIONS.has(extensionFromFileName(file.name));
 }
 

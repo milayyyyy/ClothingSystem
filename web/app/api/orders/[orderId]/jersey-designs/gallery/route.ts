@@ -4,6 +4,8 @@ import { canManageOrderSheet } from "@/lib/can-manage-order-sheet";
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { persistSublimationTeams, saveTeamDesignGallery, type TeamDraft } from "@/lib/sublimation-teams";
 
+export const runtime = "nodejs";
+
 function serviceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
