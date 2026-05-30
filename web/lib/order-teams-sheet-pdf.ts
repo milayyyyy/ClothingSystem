@@ -15,7 +15,8 @@ export type TeamsSheetPdfRow = {
 
 export type TeamsSheetPdfGroup = {
   teamName: string;
-  designPhotoCount: number;
+  /** Public URLs of design reference photos for this team. */
+  designImageUrls: string[];
   rows: TeamsSheetPdfRow[];
 };
 
@@ -41,7 +42,16 @@ export type TeamsSheetPdfData = {
 type JsPDFDoc = import("jspdf").jsPDF;
 type AutoTableFn = typeof import("jspdf-autotable").default;
 
+type PdfImage = {
+  dataUrl: string;
+  format: "JPEG" | "PNG" | "WEBP";
+  aspect: number;
+};
+
 const MARGIN = 10;
+const THUMB_MAX_MM = 22;
+const THUMB_GAP_MM = 2;
+const THUMBS_PER_ROW = 4;
 
 function labels(kind: "teams" | "services") {
   const isSvc = kind === "services";
@@ -64,17 +74,125 @@ export function formatSheetLinesForPdf(lines: TeamsSheetPdfLineItem[]): string {
       const mark = item.checked ? "✓" : "○";
       return size ? `${mark} ${name} (${size})` : `${mark} ${name}`;
     })
-    .join("; ");
+    .join("\n");
 }
 
 function tableEndY(doc: JsPDFDoc): number {
   const last = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable;
-  return last?.finalY ?? MARGIN + 8;
+  return last?.finalY ?? MARGIN;
 }
 
-function ensureSpace(doc: JsPDFDoc, needed: number) {
-  const pageH = doc.internal.pageSize.getHeight();
-  if (tableEndY(doc) + needed > pageH - MARGIN) doc.addPage();
+function pageBottom(doc: JsPDFDoc): number {
+  return doc.internal.pageSize.getHeight() - MARGIN;
+}
+
+function contentWidth(doc: JsPDFDoc): number {
+  return doc.internal.pageSize.getWidth() - 2 * MARGIN;
+}
+
+function ensureSpace(doc: JsPDFDoc, y: number, needed: number): number {
+  if (y + needed <= pageBottom(doc)) return y;
+  doc.addPage();
+  return MARGIN + 4;
+}
+
+async function loadPdfImage(url: string): Promise<PdfImage | null> {
+  if (typeof window === "undefined") return null;
+  try {
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+    if (!dataUrl.startsWith("data:")) return null;
+
+    const dims = await new Promise<{ w: number; h: number }>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
+      img.onerror = () => reject(new Error("image load failed"));
+      img.src = dataUrl;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = dims.w;
+    canvas.height = dims.h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const el = new Image();
+    el.src = dataUrl;
+    await new Promise<void>((resolve, reject) => {
+      el.onload = () => resolve();
+      el.onerror = () => reject(new Error("decode failed"));
+    });
+    ctx.drawImage(el, 0, 0);
+    const jpegUrl = canvas.toDataURL("image/jpeg", 0.9);
+
+    return { dataUrl: jpegUrl, format: "JPEG", aspect: dims.w / dims.h };
+  } catch {
+    return null;
+  }
+}
+
+function thumbSize(aspect: number): { w: number; h: number } {
+  if (aspect >= 1) {
+    const w = THUMB_MAX_MM;
+    return { w, h: w / aspect };
+  }
+  const h = THUMB_MAX_MM;
+  return { w: h * aspect, h };
+}
+
+function designPhotosBlockHeight(imageCount: number): number {
+  if (imageCount <= 0) return 0;
+  const rows = Math.ceil(imageCount / THUMBS_PER_ROW);
+  return 5 + rows * (THUMB_MAX_MM + THUMB_GAP_MM);
+}
+
+function drawDesignPhotos(
+  doc: JsPDFDoc,
+  images: PdfImage[],
+  startY: number,
+): number {
+  if (!images.length) return startY;
+
+  let y = ensureSpace(doc, startY, designPhotosBlockHeight(images.length) + 4);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(80, 80, 80);
+  doc.text("Design photos", MARGIN, y);
+  y += 4;
+
+  const maxX = doc.internal.pageSize.getWidth() - MARGIN;
+  let x = MARGIN;
+  let rowH = THUMB_MAX_MM;
+
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i]!;
+    const { w, h } = thumbSize(img.aspect);
+    rowH = Math.max(rowH, h);
+
+    if (x + w > maxX && x > MARGIN) {
+      y += rowH + THUMB_GAP_MM;
+      y = ensureSpace(doc, y, THUMB_MAX_MM + 8);
+      x = MARGIN;
+      rowH = THUMB_MAX_MM;
+    }
+
+    try {
+      doc.addImage(img.dataUrl, img.format, x, y, w, h);
+    } catch {
+      doc.setDrawColor(200, 200, 200);
+      doc.rect(x, y, THUMB_MAX_MM, THUMB_MAX_MM);
+    }
+    x += w + THUMB_GAP_MM;
+  }
+
+  doc.setTextColor(0, 0, 0);
+  return y + rowH + 5;
 }
 
 export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob> {
@@ -87,104 +205,122 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
   const generated = (data.generatedAt ?? new Date()).toLocaleString();
 
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+  const tableW = contentWidth(doc);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
   doc.text(L.title, MARGIN, 14);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.text(
+  const headerLines = doc.splitTextToSize(
     `Order #${data.orderNo}${data.customerName ? ` · ${data.customerName}` : ""} · Generated ${generated}`,
-    MARGIN,
-    20,
+    tableW,
   );
+  doc.text(headerLines, MARGIN, 20);
 
-  let startY = 26;
+  let y = 20 + headerLines.length * 4 + 4;
 
   if (data.groups.length === 0) {
     doc.setFontSize(10);
-    doc.text("No sheet data yet.", MARGIN, startY);
+    doc.text("No sheet data yet.", MARGIN, y);
   }
 
+  const isSvc = data.sheetKind === "services";
+  const colIndexW = 9;
+  const colJerseyW = isSvc ? 0 : 16;
+  const colNameW = isSvc ? 42 : 38;
+  const colLinesW = tableW - colIndexW - colJerseyW - colNameW;
+
   for (const group of data.groups) {
-    ensureSpace(doc, 24);
-    startY = tableEndY(doc) + (startY > 26 ? 6 : 0);
-    if (startY > doc.internal.pageSize.getHeight() - 30) {
-      doc.addPage();
-      startY = MARGIN + 6;
-    }
+    const urls = (group.designImageUrls || []).filter((u) => u.trim().length > 0);
+    const loadedImages = (
+      await Promise.all(urls.slice(0, 12).map((u) => loadPdfImage(u.trim())))
+    ).filter((x): x is PdfImage => x != null);
+
+    const blockH =
+      12 + designPhotosBlockHeight(loadedImages.length) + Math.max(group.rows.length * 6, 18);
+    y = ensureSpace(doc, y, blockH);
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
-    doc.text(`${L.group}: ${group.teamName || "—"}`, MARGIN, startY);
-    startY += 4;
-    if (group.designPhotoCount > 0) {
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(100, 100, 100);
-      doc.text(`${group.designPhotoCount} design photo(s) on file`, MARGIN, startY);
-      doc.setTextColor(0, 0, 0);
-      startY += 4;
-    }
+    doc.text(`${L.group}: ${group.teamName || "—"}`, MARGIN, y);
+    y += 5;
 
-    const head = data.sheetKind === "services"
+    y = drawDesignPhotos(doc, loadedImages, y);
+
+    const head = isSvc
       ? [["#", L.colName, L.colLines]]
       : [["#", L.colName, "Jersey #", L.colLines]];
 
-    const body =
-      data.sheetKind === "services"
-        ? group.rows.map((r) => [
-            String(r.index),
-            r.surname.trim() || "—",
-            formatSheetLinesForPdf(r.lines),
-          ])
-        : group.rows.map((r) => [
-            String(r.index),
-            r.surname.trim() || "—",
-            r.jerseyNumber?.trim() || "—",
-            formatSheetLinesForPdf(r.lines),
-          ]);
+    const body = isSvc
+      ? group.rows.map((r) => [
+          String(r.index),
+          r.surname.trim() || "—",
+          formatSheetLinesForPdf(r.lines),
+        ])
+      : group.rows.map((r) => [
+          String(r.index),
+          r.surname.trim() || "—",
+          r.jerseyNumber?.trim() || "—",
+          formatSheetLinesForPdf(r.lines),
+        ]);
 
     autoTable(doc, {
-      startY: startY + 1,
+      startY: y,
+      tableWidth: tableW,
       head,
       body,
       theme: "grid",
-      styles: { fontSize: 7.5, cellPadding: 1.2, overflow: "linebreak", valign: "top" },
-      headStyles: { fillColor: [45, 45, 45], textColor: 255, fontSize: 7.5 },
-      columnStyles:
-        data.sheetKind === "services"
-          ? { 0: { cellWidth: 8, halign: "center" }, 2: { cellWidth: 90 } }
-          : { 0: { cellWidth: 8, halign: "center" }, 2: { cellWidth: 14, halign: "center" }, 3: { cellWidth: 80 } },
+      styles: {
+        fontSize: 7.5,
+        cellPadding: 1.5,
+        overflow: "linebreak",
+        valign: "top",
+        lineWidth: 0.1,
+      },
+      headStyles: { fillColor: [45, 45, 45], textColor: 255, fontSize: 7.5, valign: "middle" },
+      columnStyles: isSvc
+        ? {
+            0: { cellWidth: colIndexW, halign: "center" },
+            1: { cellWidth: colNameW },
+            2: { cellWidth: colLinesW },
+          }
+        : {
+            0: { cellWidth: colIndexW, halign: "center" },
+            1: { cellWidth: colNameW },
+            2: { cellWidth: colJerseyW, halign: "center" },
+            3: { cellWidth: colLinesW },
+          },
       margin: { left: MARGIN, right: MARGIN },
+      rowPageBreak: "avoid",
     });
+
+    y = tableEndY(doc) + 8;
   }
 
-  ensureSpace(doc, 40);
-  let priceY = tableEndY(doc) + 8;
-  if (priceY > doc.internal.pageSize.getHeight() - 35) {
-    doc.addPage();
-    priceY = MARGIN + 8;
-  }
+  y = ensureSpace(doc, y, 45);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.text("Price chart", MARGIN, priceY);
-  priceY += 5;
+  doc.text("Price chart", MARGIN, y);
+  y += 6;
+
+  const priceColW = tableW / 5;
 
   if (data.priceLines.length === 0) {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
-    doc.text("No line items.", MARGIN, priceY);
+    doc.text("No line items.", MARGIN, y);
   } else {
     autoTable(doc, {
-      startY: priceY,
+      startY: y,
+      tableWidth: tableW,
       head: [[L.priceLineHdr, "Size", "Qty", "Unit price", "Subtotal"]],
       body: data.priceLines.map((line) => {
         const sub = line.count * line.unitPrice;
         return [
-          line.name,
-          line.size || "—",
+          line.name.trim() || "—",
+          line.size.trim() || "—",
           String(line.count),
           line.unitPrice > 0 ? peso(line.unitPrice) : "—",
           sub > 0 ? peso(sub) : "—",
@@ -197,7 +333,10 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
         ],
         [
           { content: "Down payment", colSpan: 4, styles: { halign: "right" } },
-          { content: data.downPayment > 0 ? peso(data.downPayment) : "—", styles: { halign: "right" } },
+          {
+            content: data.downPayment > 0 ? peso(data.downPayment) : "—",
+            styles: { halign: "right" },
+          },
         ],
         [
           { content: "Balance", colSpan: 4, styles: { halign: "right", fontStyle: "bold" } },
@@ -205,10 +344,16 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
         ],
       ],
       theme: "grid",
-      styles: { fontSize: 8, cellPadding: 1.2 },
+      styles: { fontSize: 8, cellPadding: 1.5, overflow: "linebreak", valign: "top" },
       headStyles: { fillColor: [45, 45, 45], textColor: 255 },
       footStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30] },
-      columnStyles: { 2: { halign: "center" }, 3: { halign: "right" }, 4: { halign: "right" } },
+      columnStyles: {
+        0: { cellWidth: priceColW * 1.35 },
+        1: { cellWidth: priceColW * 0.85 },
+        2: { cellWidth: priceColW * 0.55, halign: "center" },
+        3: { cellWidth: priceColW * 0.9, halign: "right" },
+        4: { cellWidth: priceColW * 0.9, halign: "right" },
+      },
       margin: { left: MARGIN, right: MARGIN },
     });
   }

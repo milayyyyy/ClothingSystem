@@ -223,7 +223,6 @@ function TeamDesignStrip({
             onClick={(e) => e.stopPropagation()}
           >
             <input
-              ref={fileInputRef}
               id={fileInputId}
               type="file"
               accept="image/*,.heic,.heif"
@@ -927,7 +926,7 @@ export function TeamsSheetClient({
         sheetKind: isSvc ? "services" : "teams",
         groups: teamGroups.map((group) => ({
           teamName: group.teamName,
-          designPhotoCount: group.rows[0]?.teamDesignUrls?.length ?? 0,
+          designImageUrls: [...(group.rows[0]?.teamDesignUrls ?? [])],
           rows: group.rows.map((r, idx) => ({
             index: idx + 1,
             surname: r.surname,
