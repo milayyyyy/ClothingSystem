@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -77,13 +85,11 @@ function TeamDesignStrip({
 }) {
   const [stripError, setStripError] = useState<string | null>(null);
   const [previews, setPreviews] = useState<string[]>([]);
+  const [dragOver, setDragOver] = useState(false);
 
-  async function onPickFiles(e: ChangeEvent<HTMLInputElement>) {
-    const input = e.target;
-    const list = input.files;
-    input.value = "";
+  async function uploadFiles(fileList: FileList | File[]) {
     setStripError(null);
-    if (!list?.length || disabled || uploading) return;
+    if (disabled || uploading) return;
     const remaining = TEAM_DESIGN_MAX - urls.length;
     if (remaining <= 0) {
       const msg = `At most ${TEAM_DESIGN_MAX} design photos per team.`;
@@ -91,9 +97,9 @@ function TeamDesignStrip({
       onUploadError(msg);
       return;
     }
-    const files = Array.from(list).filter(isImageUploadFile).slice(0, remaining);
+    const files = Array.from(fileList).filter(isImageUploadFile).slice(0, remaining);
     if (!files.length) {
-      const msg = "Choose image files only (JPG, PNG, HEIC, etc.).";
+      const msg = "Drop image files only (JPG, PNG, HEIC, etc.).";
       setStripError(msg);
       onUploadError(msg);
       return;
@@ -121,6 +127,38 @@ function TeamDesignStrip({
     }
   }
 
+  async function onPickFiles(e: ChangeEvent<HTMLInputElement>) {
+    const list = e.target.files;
+    e.target.value = "";
+    if (!list?.length) return;
+    await uploadFiles(list);
+  }
+
+  function onDragOver(e: DragEvent) {
+    if (viewOnly || disabled || uploading || urls.length >= TEAM_DESIGN_MAX) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  }
+
+  function onDragLeave(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  }
+
+  async function onDrop(e: DragEvent) {
+    if (viewOnly || disabled || uploading || urls.length >= TEAM_DESIGN_MAX) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files;
+    if (!dropped?.length) return;
+    await uploadFiles(dropped);
+  }
+
+  const dropDisabled = viewOnly || disabled || uploading || urls.length >= TEAM_DESIGN_MAX;
+
   return (
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-baseline gap-2">
@@ -129,11 +167,22 @@ function TeamDesignStrip({
         </label>
         {!viewOnly && (
           <span className="text-[10px] text-muted-foreground/90">
-            {urls.length}/{TEAM_DESIGN_MAX} · multi-select in the file picker (Ctrl/Cmd+click)
+            {urls.length}/{TEAM_DESIGN_MAX} · drag images here or choose files
           </span>
         )}
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-2">
+      <div
+        className={cn(
+          "mt-1 rounded-md border border-dashed p-2 transition-colors",
+          dragOver && !dropDisabled && "border-primary bg-primary/5",
+          !dragOver && "border-transparent",
+          dropDisabled && "opacity-60",
+        )}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+      <div className="flex flex-wrap items-center gap-2">
         {urls.map((url) => (
           <div
             key={url}
@@ -176,7 +225,11 @@ function TeamDesignStrip({
               onChange={onPickFiles}
             />
             <span className="text-[10px] text-muted-foreground">
-              {uploading ? "Uploading…" : "Choose one or more images (same as Finance QR upload)"}
+              {uploading
+                ? "Uploading…"
+                : dragOver
+                  ? "Drop images to upload"
+                  : "Drag images here or choose files below"}
             </span>
           </div>
         )}
@@ -188,6 +241,7 @@ function TeamDesignStrip({
         {viewOnly && urls.length === 0 && (
           <span className="text-[11px] text-muted-foreground">No design photos</span>
         )}
+      </div>
       </div>
     </div>
   );
