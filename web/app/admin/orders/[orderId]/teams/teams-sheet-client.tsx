@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -15,14 +15,12 @@ import { FileDown } from "lucide-react";
 import {
   emptyPlayer,
   emptyTeam,
-  extensionFromFileName,
   isImageUploadFile,
   jerseyDesignSaveErrorMessage,
   jerseyDesignUploadErrorMessage,
   mapTeamsFromSupabase,
   newClientKey,
   persistSublimationTeams,
-  saveTeamDesignGallery,
   type JerseyChecklistItem,
   type PlayerDraft,
   type TeamDraft,
@@ -41,14 +39,9 @@ type FlatRow = {
 };
 
 const TEAM_DESIGN_MAX = 24;
-const DESIGN_BUCKET = "jersey-designs";
 
 function peso(n: number) {
   return `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function extFromFileName(name: string) {
-  return extensionFromFileName(name);
 }
 
 /** Key used to identify a unique jersey line type in the price map. */
@@ -80,7 +73,6 @@ function TeamDesignStrip({
   onUploadError: (msg: string) => void;
   onBusyChange: (busy: boolean) => void;
 }) {
-  const supabase = createClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const inputId = useId();
 
@@ -103,16 +95,19 @@ function TeamDesignStrip({
     onBusyChange(true);
     try {
       for (const file of files) {
-        const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const path = `${orderId}/teams/${teamKey}/${id}.${extFromFileName(file.name)}`;
-        const { error: upErr } = await supabase.storage.from(DESIGN_BUCKET).upload(path, file, {
-          cacheControl: "3600",
-          upsert: true,
-          contentType: file.type || undefined,
+        const form = new FormData();
+        form.append("file", file);
+        form.append("teamKey", teamKey);
+        const res = await fetch(`/api/orders/${orderId}/jersey-designs`, {
+          method: "POST",
+          body: form,
         });
-        if (upErr) throw upErr;
-        const { data: pub } = supabase.storage.from(DESIGN_BUCKET).getPublicUrl(path);
-        if (pub?.publicUrl) added.push(pub.publicUrl);
+        const payload = (await res.json().catch(() => ({}))) as { publicUrl?: string; error?: string; hint?: string };
+        if (!res.ok) {
+          const detail = payload.hint ? `${payload.error ?? "Upload failed"} (${payload.hint})` : (payload.error ?? "Upload failed");
+          throw new Error(detail);
+        }
+        if (payload.publicUrl) added.push(payload.publicUrl);
       }
       await onUrlsChange([...urls, ...added]);
     } catch (err) {
@@ -121,6 +116,11 @@ function TeamDesignStrip({
     } finally {
       onBusyChange(false);
     }
+  }
+
+  function openFilePicker() {
+    if (disabled || uploading || urls.length >= TEAM_DESIGN_MAX) return;
+    fileRef.current?.click();
   }
 
   return (
@@ -166,16 +166,16 @@ function TeamDesignStrip({
               aria-label="Add design photos (choose multiple files at once)"
               onChange={onPickFiles}
             />
-            <label
-              htmlFor={inputId}
-              className={cn(
-                buttonVariants({ variant: "outline", size: "sm" }),
-                "h-9 shrink-0 cursor-pointer text-xs",
-                (disabled || uploading || urls.length >= TEAM_DESIGN_MAX) && "pointer-events-none opacity-50",
-              )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 shrink-0 text-xs"
+              disabled={disabled || uploading || urls.length >= TEAM_DESIGN_MAX}
+              onClick={openFilePicker}
             >
               {uploading ? "Uploading…" : urls.length ? "Add more photos" : "Upload photos (multiple)"}
-            </label>
+            </Button>
           </>
         )}
         {viewOnly && urls.length === 0 && (
@@ -679,20 +679,6 @@ export function TeamsSheetClient({
     setFlatRows((prev) => prev.map((r) => (r.teamKey === teamKey ? { ...r, teamName: name } : r)));
   }
 
-  const persistDesignUrls = useCallback(
-    async (rows: FlatRow[], teamKey: string, nextUrls: string[]) => {
-      if (viewOnly) return { updatedInPlace: true };
-      return saveTeamDesignGallery(
-        supabase,
-        orderId,
-        teamKey,
-        nextUrls,
-        flatRowsToTeams(rows),
-      );
-    },
-    [orderId, supabase, viewOnly],
-  );
-
   async function handleDesignUrlsChange(teamKey: string, nextUrls: string[]) {
     const updatedRows = flatRows.map((r) =>
       r.teamKey === teamKey ? { ...r, teamDesignUrls: nextUrls } : r,
@@ -700,8 +686,25 @@ export function TeamsSheetClient({
     setFlatRows(updatedRows);
     if (viewOnly) return;
     try {
-      const { updatedInPlace } = await persistDesignUrls(updatedRows, teamKey, nextUrls);
-      if (!updatedInPlace) reload();
+      const res = await fetch(`/api/orders/${orderId}/jersey-designs/gallery`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          teamKey,
+          urls: nextUrls,
+          teams: flatRowsToTeams(updatedRows),
+        }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        updatedInPlace?: boolean;
+        error?: string;
+        hint?: string;
+      };
+      if (!res.ok) {
+        const detail = payload.hint ? `${payload.error ?? "Save failed"} (${payload.hint})` : (payload.error ?? "Save failed");
+        throw new Error(detail);
+      }
+      if (!payload.updatedInPlace) reload();
       setMessage("Design photos saved.");
     } catch (err) {
       console.error(err);
