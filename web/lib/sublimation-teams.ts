@@ -45,11 +45,25 @@ export function jerseyDesignUploadErrorMessage(err: unknown): string {
   if (/bucket not found/i.test(msg)) {
     return "Design photo storage is not set up. Apply Supabase migration 016 (jersey-designs bucket).";
   }
-  if (/row-level security|policy|permission|403/i.test(msg)) {
-    return "You do not have permission to upload design photos. Apply migration 087 or sign in as admin/sub-admin.";
+  if (/row-level security|policy|permission|403|401|jwt/i.test(msg)) {
+    return "You do not have permission to upload design photos. Ask an admin to apply migration 087, or sign in as admin/sub-admin.";
   }
   return msg || "Upload failed";
 }
+
+export function jerseyDesignSaveErrorMessage(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err ?? "Save failed");
+  if (/design_image_urls|column.*does not exist/i.test(msg)) {
+    return "Database is missing design_image_urls. Apply Supabase migration 018.";
+  }
+  if (/row-level security|policy|permission|403/i.test(msg)) {
+    return "Photos uploaded but could not save to the sheet. Apply migration 087 or sign in as admin/sub-admin.";
+  }
+  return `Photos uploaded but could not save to the sheet: ${msg || "unknown error"}`;
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function parseJerseyChecklist(p: Record<string, unknown>): JerseyChecklistItem[] {
   const jc = p.jersey_checklist;
@@ -116,6 +130,38 @@ function normalizeChecklist(items: JerseyChecklistItem[]): JerseyChecklistItem[]
     size: String(x.size || "").trim(),
     checked: !!x.checked,
   }));
+}
+
+/** Update one team's gallery when the row already exists; otherwise persist the full sheet. */
+export async function saveTeamDesignGallery(
+  supabase: SupabaseClient,
+  orderId: string,
+  teamKey: string,
+  urls: string[],
+  allTeams: TeamDraft[],
+): Promise<{ updatedInPlace: boolean }> {
+  const gallery = urls.map((u) => u.trim()).filter(Boolean);
+
+  if (UUID_RE.test(teamKey)) {
+    const { data: row, error: selErr } = await supabase
+      .from("sublimation_teams")
+      .select("id")
+      .eq("order_id", orderId)
+      .eq("id", teamKey)
+      .maybeSingle();
+    if (selErr) throw selErr;
+    if (row) {
+      const { error } = await supabase
+        .from("sublimation_teams")
+        .update({ design_image_urls: gallery })
+        .eq("id", teamKey);
+      if (error) throw error;
+      return { updatedInPlace: true };
+    }
+  }
+
+  await persistSublimationTeams(supabase, orderId, allTeams);
+  return { updatedInPlace: false };
 }
 
 export async function persistSublimationTeams(supabase: SupabaseClient, orderId: string, teams: TeamDraft[]) {

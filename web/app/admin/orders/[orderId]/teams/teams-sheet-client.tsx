@@ -17,10 +17,12 @@ import {
   emptyTeam,
   extensionFromFileName,
   isImageUploadFile,
+  jerseyDesignSaveErrorMessage,
   jerseyDesignUploadErrorMessage,
   mapTeamsFromSupabase,
   newClientKey,
   persistSublimationTeams,
+  saveTeamDesignGallery,
   type JerseyChecklistItem,
   type PlayerDraft,
   type TeamDraft,
@@ -678,9 +680,15 @@ export function TeamsSheetClient({
   }
 
   const persistDesignUrls = useCallback(
-    async (rows: FlatRow[]) => {
-      if (viewOnly) return;
-      await persistSublimationTeams(supabase, orderId, flatRowsToTeams(rows));
+    async (rows: FlatRow[], teamKey: string, nextUrls: string[]) => {
+      if (viewOnly) return { updatedInPlace: true };
+      return saveTeamDesignGallery(
+        supabase,
+        orderId,
+        teamKey,
+        nextUrls,
+        flatRowsToTeams(rows),
+      );
     },
     [orderId, supabase, viewOnly],
   );
@@ -692,11 +700,12 @@ export function TeamsSheetClient({
     setFlatRows(updatedRows);
     if (viewOnly) return;
     try {
-      await persistDesignUrls(updatedRows);
+      const { updatedInPlace } = await persistDesignUrls(updatedRows, teamKey, nextUrls);
+      if (!updatedInPlace) reload();
       setMessage("Design photos saved.");
     } catch (err) {
       console.error(err);
-      setMessage(err instanceof Error ? err.message : "Could not save design photos.");
+      setMessage(jerseyDesignSaveErrorMessage(err));
     }
   }
 
@@ -981,7 +990,13 @@ export function TeamsSheetClient({
       </div>
 
       {message && (
-        <p className={`text-sm ${message === "Saved." ? "text-green-600" : "text-destructive"}`}>
+        <p
+          className={`text-sm ${
+            message === "Saved." || message === "Design photos saved."
+              ? "text-green-600"
+              : "text-destructive"
+          }`}
+        >
           {message}
         </p>
       )}
@@ -1016,7 +1031,7 @@ export function TeamsSheetClient({
                       urls={group.rows[0]?.teamDesignUrls ?? []}
                       orderId={orderId}
                       teamKey={group.teamKey}
-                      disabled={loading || viewOnly}
+                      disabled={viewOnly}
                       viewOnly={viewOnly}
                       uploading={uploadingTeamKey === group.teamKey}
                       onUrlsChange={(next) => handleDesignUrlsChange(group.teamKey, next)}
