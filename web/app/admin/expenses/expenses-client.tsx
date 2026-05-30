@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,10 +105,23 @@ export function ExpensesClient({
   employees?: EmployeePickerRow[];
 }) {
   const supabase = createClient();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [list, setList] = useState<ExpenseRow[]>(initial);
   const [categories, setCategories] = useState<ExpenseCategoryRow[]>(initialCategories);
   const [open, setOpen] = useState(false);
   const [editRow, setEditRow] = useState<ExpenseRow | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get("new") !== "1") return;
+    setEditRow(null);
+    setOpen(true);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("new");
+    const q = next.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const headerCheckRef = useRef<HTMLInputElement>(null);
@@ -146,6 +160,11 @@ export function ExpensesClient({
       .order("sort_order")
       .order("name");
     setCategories((data as ExpenseCategoryRow[]) || []);
+  }
+
+  async function refreshCategoriesAndExpenses() {
+    await refreshCategories();
+    await refresh();
   }
 
   const supplierNameById = useMemo(
@@ -352,14 +371,7 @@ export function ExpensesClient({
               />
             </div>
             <div>
-              <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="ex-cat">Category</Label>
-                <ExpenseCategoriesDialog
-                  categories={categories}
-                  onCategoriesChange={refreshCategories}
-                  triggerVariant="ghost"
-                />
-              </div>
+              <Label htmlFor="ex-cat">Category</Label>
               <select
                 id="ex-cat"
                 className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
@@ -459,6 +471,10 @@ export function ExpensesClient({
               const { data } = await q;
               return data || [];
             }}
+          />
+          <ExpenseCategoriesDialog
+            categories={categories}
+            onCategoriesChange={refreshCategoriesAndExpenses}
           />
           <Button onClick={() => setOpen(true)}>
             <Plus className="mr-1 h-4 w-4" /> Add Expense

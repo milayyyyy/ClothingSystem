@@ -57,7 +57,7 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
     { href: "/admin/reports", label: "Reports", icon: BarChart3 },
   ]},
-  { title: "Operations", items: [
+  { title: "Orders & sales", items: [
     {
       href: "/admin/orders", label: "Orders", icon: ShoppingBag,
       children: [
@@ -66,10 +66,6 @@ const STAFF_GROUPS: Group[] = [
         { href: "/admin/orders?type=sublimation", label: "Sublimation",  icon: Sparkles, query: { type: "sublimation" } },
       ],
     },
-    { href: "/admin/inventory", label: "Inventory", icon: Package },
-    { href: "/admin/inventory/ready-made", label: "Ready made inventory", icon: LayoutGrid },
-    { href: "/admin/suppliers", label: "Suppliers", icon: Truck },
-    { href: "/admin/returns", label: "Returns", icon: PackageX },
     {
       href: "/admin/sales-expenses",
       label: "Sales & expenses",
@@ -81,7 +77,13 @@ const STAFF_GROUPS: Group[] = [
       ],
     },
     { href: "/admin/finance", label: "Finance", icon: Landmark },
-    { href: "/admin/export", label: "Export", icon: Download },
+    { href: "/admin/returns", label: "Returns", icon: PackageX },
+  ]},
+  { title: "Inventory", items: [
+    { href: "/admin/inventory", label: "Inventory", icon: Package },
+    { href: "/admin/inventory/assets", label: "Assets", icon: Wrench },
+    { href: "/admin/inventory/ready-made", label: "Ready made inventory", icon: LayoutGrid },
+    { href: "/admin/suppliers", label: "Suppliers", icon: Truck },
   ]},
   { title: "People", items: [
     { href: "/admin/employees", label: "Employees", icon: Users, adminOnly: true },
@@ -95,6 +97,7 @@ const STAFF_GROUPS: Group[] = [
   ]},
   { title: "Account", items: [
     { href: "/admin/settings", label: "Settings", icon: Settings, adminOnly: true },
+    { href: "/admin/export", label: "Export", icon: Download },
   ]},
 ];
 
@@ -170,8 +173,9 @@ export function Sidebar({
 
   function isItemActive(item: Item) {
     if (pathname === item.href) return true;
-    // /admin/inventory must not stay highlighted on /admin/inventory/ready-made (separate nav item).
+    // /admin/inventory must not stay highlighted on sibling inventory sub-pages.
     if (item.href === "/admin/inventory" && pathname.startsWith("/admin/inventory/ready-made")) return false;
+    if (item.href === "/admin/inventory" && pathname.startsWith("/admin/inventory/assets")) return false;
     if (item.href === "/admin/inventory" && pathname.startsWith("/admin/inventory/settings")) return false;
     if (item.href !== homeBase && pathname.startsWith(item.href)) return true;
     return false;

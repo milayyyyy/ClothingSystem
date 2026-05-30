@@ -24,6 +24,7 @@ export type ActivityFormatted = {
 const ENTITY_LABELS: Record<string, string> = {
   orders: "Order",
   inventory: "Inventory",
+  inventory_assets: "Asset",
   expenses: "Expense",
   suppliers: "Supplier",
   salaries: "Salary",
@@ -43,6 +44,7 @@ const ENTITY_LABELS: Record<string, string> = {
 const TITLE_FIELDS: Record<string, string[]> = {
   orders: ["order_no", "customer_name", "external_order_no"],
   inventory: ["name"],
+  inventory_assets: ["name"],
   expenses: ["description", "category"],
   suppliers: ["name"],
   salaries: ["amount", "period_start", "period_end"],

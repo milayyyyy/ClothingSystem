@@ -54,6 +54,21 @@ export type ExportReportData = {
 };
 
 const MAX_TABLE_ROWS = 250;
+const PDF_MARGIN_MM = 8;
+const PDF_TRUNCATE = 100;
+
+function truncatePdfText(value: string, max = PDF_TRUNCATE): string {
+  const s = value.trim();
+  if (s.length <= max) return s;
+  return `${s.slice(0, max - 1)}…`;
+}
+
+function formatPdfTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 16);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 export function exportDateTag(d = new Date()): string {
   return d.toISOString().slice(0, 10);
@@ -199,38 +214,81 @@ export async function fetchExportReportData(
 type JsPDFDoc = import("jspdf").jsPDF;
 type AutoTableFn = typeof import("jspdf-autotable").default;
 
+/** Y below cover block when no table has been drawn yet. */
+const PDF_COVER_END_Y = 19;
+
 function tableEndY(doc: JsPDFDoc): number {
   const last = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable;
-  return last?.finalY ?? 40;
+  return last?.finalY ?? PDF_COVER_END_Y;
 }
 
 function ensureSpace(doc: JsPDFDoc, needed: number) {
   const pageH = doc.internal.pageSize.getHeight();
-  if (tableEndY(doc) + needed > pageH - 14) {
+  if (tableEndY(doc) + needed > pageH - PDF_MARGIN_MM) {
     doc.addPage();
   }
 }
 
 function sectionHeading(doc: JsPDFDoc, title: string, subtitle?: string) {
-  ensureSpace(doc, 24);
-  let y = tableEndY(doc) + (doc.getNumberOfPages() === 1 && tableEndY(doc) < 30 ? 0 : 12);
-  if (y > doc.internal.pageSize.getHeight() - 30) {
+  ensureSpace(doc, 14);
+  const afterCover = tableEndY(doc) <= PDF_COVER_END_Y + 1;
+  let y = tableEndY(doc) + (afterCover ? 2 : 5);
+  if (y > doc.internal.pageSize.getHeight() - 18) {
     doc.addPage();
-    y = 18;
+    y = PDF_MARGIN_MM + 4;
   }
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.text(title, 14, y);
-  y += 6;
+  doc.setFontSize(9);
+  doc.text(title, PDF_MARGIN_MM, y);
+  y += 4;
   if (subtitle) {
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(80, 80, 80);
-    doc.text(subtitle, 14, y);
+    doc.setFontSize(7);
+    doc.setTextColor(90, 90, 90);
+    doc.text(subtitle, PDF_MARGIN_MM, y);
     doc.setTextColor(0, 0, 0);
-    y += 5;
+    y += 3.5;
   }
   return y;
+}
+
+type AutoTableUserOptions = Parameters<AutoTableFn>[1];
+
+const COMPACT_TABLE_BASE: AutoTableUserOptions = {
+  theme: "grid",
+  styles: {
+    fontSize: 6.5,
+    cellPadding: 0.6,
+    lineWidth: 0.1,
+    lineColor: [210, 210, 210],
+    minCellHeight: 3.5,
+    valign: "middle",
+  },
+  headStyles: {
+    fontSize: 6.5,
+    cellPadding: 0.6,
+    fillColor: [45, 45, 45],
+    textColor: 255,
+    fontStyle: "bold",
+  },
+  margin: { left: PDF_MARGIN_MM, right: PDF_MARGIN_MM },
+};
+
+function compactTableOptions(overrides: AutoTableUserOptions = {}): AutoTableUserOptions {
+  const baseMargin = COMPACT_TABLE_BASE.margin;
+  const overrideMargin = overrides.margin;
+  const margin =
+    baseMargin && typeof baseMargin === "object" && overrideMargin && typeof overrideMargin === "object"
+      ? { ...baseMargin, ...overrideMargin }
+      : (overrideMargin ?? baseMargin);
+
+  return {
+    ...COMPACT_TABLE_BASE,
+    ...overrides,
+    styles: { ...COMPACT_TABLE_BASE.styles, ...overrides.styles },
+    headStyles: { ...COMPACT_TABLE_BASE.headStyles, ...overrides.headStyles },
+    margin,
+  };
 }
 
 function truncateRows<T>(rows: T[], label: string): { rows: T[]; note: string | null } {
@@ -248,214 +306,242 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
   ]);
   const autoTable = autoTableModule.default as AutoTableFn;
 
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const tag = exportDateTag(data.generatedAt);
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
   const generated = data.generatedAt.toLocaleString();
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.text("PrintShop — Full export report", 14, 20);
+  doc.setFontSize(12);
+  doc.text("PrintShop — Full export", PDF_MARGIN_MM, 11);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.text(`Generated: ${generated}`, 14, 28);
-  doc.text(`Report date: ${data.reportDate}`, 14, 34);
-  doc.text("Stock inventory & ready-made: current snapshot. Other sections are for this date only.", 14, 40);
+  doc.setFontSize(7);
+  doc.text(
+    `Generated ${generated} · Report date ${data.reportDate} · Stock/ready-made = current; other sections = report date.`,
+    PDF_MARGIN_MM,
+    16,
+    { maxWidth: doc.internal.pageSize.getWidth() - PDF_MARGIN_MM * 2 },
+  );
+
+  let tableStartY: number;
 
   // --- Stock inventory ---
-  sectionHeading(doc, "1. Stock inventory", `${data.inventory.length} item(s)`);
+  tableStartY = sectionHeading(doc, "1. Stock inventory", `${data.inventory.length} item(s)`);
   const inv = truncateRows(data.inventory, "Inventory");
-  autoTable(doc, {
-    startY: tableEndY(doc) + 2,
-    head: [["Name", "Category", "Type", "Qty", "Unit", "Min", "Supplier"]],
-    body: inv.rows.map((r) => [
-      r.name,
-      r.category,
-      r.item_type,
-      String(r.quantity),
-      r.unit,
-      r.min_level,
-      r.supplier,
-    ]),
-    styles: { fontSize: 8, cellPadding: 1.5 },
-    headStyles: { fillColor: [40, 40, 40] },
-    margin: { left: 14, right: 14 },
-  });
+  autoTable(
+    doc,
+    compactTableOptions({
+      startY: tableStartY + 1,
+      head: [["Name", "Cat.", "Type", "Qty", "Unit", "Min", "Supplier"]],
+      body: inv.rows.map((r) => [
+        truncatePdfText(r.name, 40),
+        truncatePdfText(r.category, 18),
+        truncatePdfText(r.item_type, 14),
+        String(r.quantity),
+        r.unit,
+        r.min_level,
+        truncatePdfText(r.supplier, 24),
+      ]),
+      columnStyles: {
+        0: { cellWidth: 42 },
+        3: { halign: "right", cellWidth: 10 },
+        4: { cellWidth: 10 },
+        5: { cellWidth: 10 },
+      },
+    }),
+  );
   if (inv.note) {
-    doc.setFontSize(8);
-    doc.text(inv.note, 14, tableEndY(doc) + 4);
+    doc.setFontSize(6.5);
+    doc.text(inv.note, PDF_MARGIN_MM, tableEndY(doc) + 2);
   }
 
   // --- Ready-made ---
-  sectionHeading(
+  tableStartY = sectionHeading(
     doc,
     "2. Ready-made inventory",
-    `${data.readyMade.length} sheet(s) — grouped as in the app`,
+    `${data.readyMade.length} sheet(s)`,
   );
-  let yRm = tableEndY(doc) + 4;
+  let yRm = tableStartY + 1;
   for (const sheet of data.readyMade) {
-    ensureSpace(doc, 30);
-    if (yRm > doc.internal.pageSize.getHeight() - 40) {
+    ensureSpace(doc, 18);
+    if (yRm > doc.internal.pageSize.getHeight() - 24) {
       doc.addPage();
-      yRm = 18;
+      yRm = PDF_MARGIN_MM + 4;
     }
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text(`Group: ${sheet.group}  ·  Sheet: ${sheet.sheet}`, 14, yRm);
-    yRm += 5;
+    doc.setFontSize(7);
+    doc.text(`${sheet.group} / ${sheet.sheet}`, PDF_MARGIN_MM, yRm);
+    yRm += 3.5;
 
     if (sheet.columns.length === 0 && sheet.rows.length === 0) {
       doc.setFont("helvetica", "italic");
-      doc.setFontSize(8);
-      doc.text("(empty sheet)", 14, yRm);
-      yRm += 8;
+      doc.setFontSize(6.5);
+      doc.text("(empty)", PDF_MARGIN_MM, yRm);
+      yRm += 5;
       continue;
     }
 
-    const headers = ["Row / Item", ...sheet.columns];
-    const body = sheet.rows.map((row) => [row.label, ...row.values]);
+    const headers = ["Item", ...sheet.columns.map((c) => truncatePdfText(c, 16))];
+    const body = sheet.rows.map((row) => [
+      truncatePdfText(row.label, 28),
+      ...row.values.map((v) => truncatePdfText(String(v ?? ""), 12)),
+    ]);
     const { rows: bodyTrunc, note } = truncateRows(body, `Sheet ${sheet.sheet}`);
 
-    autoTable(doc, {
-      startY: yRm,
-      head: [headers],
-      body: bodyTrunc,
-      styles: { fontSize: 7, cellPadding: 1.2 },
-      headStyles: { fillColor: [60, 60, 100] },
-      margin: { left: 14, right: 14 },
-      horizontalPageBreak: true,
-    });
-    yRm = tableEndY(doc) + 4;
+    autoTable(
+      doc,
+      compactTableOptions({
+        startY: yRm,
+        head: [headers],
+        body: bodyTrunc,
+        headStyles: { fillColor: [55, 55, 85] },
+        styles: { fontSize: 6, cellPadding: 0.5 },
+        horizontalPageBreak: true,
+      }),
+    );
+    yRm = tableEndY(doc) + 2;
     if (note) {
-      doc.setFontSize(7);
-      doc.text(note, 14, yRm);
-      yRm += 6;
+      doc.setFontSize(6.5);
+      doc.text(note, PDF_MARGIN_MM, yRm);
+      yRm += 4;
     }
   }
 
   // --- Finance accounts ---
-  doc.addPage();
-  sectionHeading(doc, "3. Finance — account balances (current)", `${data.accounts.length} account(s)`);
-  autoTable(doc, {
-    startY: tableEndY(doc) + 2,
-    head: [["Type", "Name", "Account name", "Account #", "Balance"]],
-    body: data.accounts.map((a) => [
-      labelFinanceKind(a.kind),
-      a.name,
-      a.account_name ?? "",
-      a.account_number ?? "",
-      peso(Number(a.balance || 0)),
-    ]),
-    styles: { fontSize: 8, cellPadding: 1.5 },
-    headStyles: { fillColor: [40, 40, 40] },
-    margin: { left: 14, right: 14 },
-  });
+  tableStartY = sectionHeading(doc, "3. Finance — balances (current)", `${data.accounts.length} account(s)`);
+  autoTable(
+    doc,
+    compactTableOptions({
+      startY: tableStartY + 1,
+      head: [["Type", "Name", "Acct. name", "Acct. #", "Balance"]],
+      body: data.accounts.map((a) => [
+        labelFinanceKind(a.kind),
+        truncatePdfText(a.name, 28),
+        truncatePdfText(a.account_name ?? "", 24),
+        truncatePdfText(a.account_number ?? "", 16),
+        peso(Number(a.balance || 0)),
+      ]),
+      columnStyles: { 4: { halign: "right" } },
+    }),
+  );
 
   // --- Money flow ---
-  sectionHeading(
+  tableStartY = sectionHeading(
     doc,
     "4. Finance — money in / out",
     `Date: ${data.reportDate} · ${data.transactions.length} transaction(s)`,
   );
   const byId = new Map(data.accounts.map((a) => [a.id, a]));
   const tx = truncateRows(data.transactions, "Money flow");
-  autoTable(doc, {
-    startY: tableEndY(doc) + 2,
-    head: [["Date", "Account", "In", "Out", "Balance after", "Description"]],
-    body: tx.rows.map((t) => {
-      const a = byId.get(t.account_id);
-      const dir = t.direction === "out" ? "out" : "in";
-      const amt = Number(t.amount || 0);
-      return [
-        String(t.occurred_at).slice(0, 10),
-        a?.name ?? "",
-        dir === "in" ? peso(amt) : "",
-        dir === "out" ? peso(amt) : "",
-        peso(data.balanceAfter.get(t.id) ?? 0),
-        t.description ?? "",
-      ];
+  autoTable(
+    doc,
+    compactTableOptions({
+      startY: tableStartY + 1,
+      head: [["Date", "Account", "In", "Out", "After", "Description"]],
+      body: tx.rows.map((t) => {
+        const a = byId.get(t.account_id);
+        const dir = t.direction === "out" ? "out" : "in";
+        const amt = Number(t.amount || 0);
+        return [
+          String(t.occurred_at).slice(0, 10),
+          truncatePdfText(a?.name ?? "", 22),
+          dir === "in" ? peso(amt) : "",
+          dir === "out" ? peso(amt) : "",
+          peso(data.balanceAfter.get(t.id) ?? 0),
+          truncatePdfText(t.description ?? "", 36),
+        ];
+      }),
+      columnStyles: { 2: { halign: "right" }, 3: { halign: "right" }, 4: { halign: "right" } },
     }),
-    styles: { fontSize: 7, cellPadding: 1.2 },
-    headStyles: { fillColor: [40, 40, 40] },
-    margin: { left: 14, right: 14 },
-  });
+  );
   if (tx.note) {
-    doc.setFontSize(8);
-    doc.text(tx.note, 14, tableEndY(doc) + 4);
+    doc.setFontSize(6.5);
+    doc.text(tx.note, PDF_MARGIN_MM, tableEndY(doc) + 2);
   }
 
   // --- Sales ---
-  doc.addPage();
-  sectionHeading(doc, "5. Sales", `Date: ${data.reportDate} · ${data.sales.length} row(s)`);
+  tableStartY = sectionHeading(doc, "5. Sales", `Date: ${data.reportDate} · ${data.sales.length} row(s)`);
   const sales = truncateRows(data.sales, "Sales");
-  autoTable(doc, {
-    startY: tableEndY(doc) + 2,
-    head: [["Date", "Channel", "Amount", "Customer", "Store / notes", "Description"]],
-    body: sales.rows.map((r) => [
-      r.dateKey,
-      r.channel,
-      peso(r.amount),
-      r.customerOrTitle,
-      r.storeOrNotes,
-      r.description,
-    ]),
-    styles: { fontSize: 7, cellPadding: 1.2 },
-    headStyles: { fillColor: [40, 40, 40] },
-    margin: { left: 14, right: 14 },
-  });
+  autoTable(
+    doc,
+    compactTableOptions({
+      startY: tableStartY + 1,
+      head: [["Date", "Channel", "Amt", "Customer", "Store / notes", "Desc."]],
+      body: sales.rows.map((r) => [
+        r.dateKey,
+        truncatePdfText(r.channel, 14),
+        peso(r.amount),
+        truncatePdfText(r.customerOrTitle, 28),
+        truncatePdfText(r.storeOrNotes, 24),
+        truncatePdfText(r.description, 32),
+      ]),
+      columnStyles: { 2: { halign: "right" } },
+    }),
+  );
   if (sales.note) {
-    doc.setFontSize(8);
-    doc.text(sales.note, 14, tableEndY(doc) + 4);
+    doc.setFontSize(6.5);
+    doc.text(sales.note, PDF_MARGIN_MM, tableEndY(doc) + 2);
   }
 
   // --- Expenses ---
-  sectionHeading(doc, "6. Expenses", `Date: ${data.reportDate} · ${data.expenses.length} row(s)`);
+  tableStartY = sectionHeading(doc, "6. Expenses", `Date: ${data.reportDate} · ${data.expenses.length} row(s)`);
   const exp = truncateRows(data.expenses, "Expenses");
-  autoTable(doc, {
-    startY: tableEndY(doc) + 2,
-    head: [["Date", "Category", "Description", "Amount", "Account", "Supplier"]],
-    body: exp.rows.map((r) => [
-      String(r.expense_date).slice(0, 10),
-      r.category,
-      r.description ?? "",
-      peso(Number(r.amount || 0)),
-      r.finance_account_name ?? r.paid_through ?? "",
-      r.supplier_name ?? "",
-    ]),
-    styles: { fontSize: 7, cellPadding: 1.2 },
-    headStyles: { fillColor: [40, 40, 40] },
-    margin: { left: 14, right: 14 },
-  });
+  autoTable(
+    doc,
+    compactTableOptions({
+      startY: tableStartY + 1,
+      head: [["Date", "Category", "Description", "Amt", "Account", "Supplier"]],
+      body: exp.rows.map((r) => [
+        String(r.expense_date).slice(0, 10),
+        truncatePdfText(r.category, 16),
+        truncatePdfText(r.description ?? "", 32),
+        peso(Number(r.amount || 0)),
+        truncatePdfText(r.finance_account_name ?? r.paid_through ?? "", 22),
+        truncatePdfText(r.supplier_name ?? "", 20),
+      ]),
+      columnStyles: { 3: { halign: "right" } },
+    }),
+  );
   if (exp.note) {
-    doc.setFontSize(8);
-    doc.text(exp.note, 14, tableEndY(doc) + 4);
+    doc.setFontSize(6.5);
+    doc.text(exp.note, PDF_MARGIN_MM, tableEndY(doc) + 2);
   }
 
-  // --- Activity log ---
-  doc.addPage();
-  sectionHeading(doc, "7. Activity log", `Date: ${data.reportDate} · ${data.activityLogs.length} entry(ies)`);
+  // --- Activity log (landscape for more columns per page) ---
+  doc.addPage("a4", "landscape");
+  tableStartY = sectionHeading(doc, "7. Activity log", `Date: ${data.reportDate} · ${data.activityLogs.length} entry(ies)`);
   const act = truncateRows(data.activityLogs, "Activity log");
-  autoTable(doc, {
-    startY: tableEndY(doc) + 2,
-    head: [["Time", "Actor", "Action", "Area", "Context", "What changed"]],
-    body: act.rows.map((r) => [
-      new Date(r.created_at).toLocaleString(),
-      r.actor_name,
-      r.action_label,
-      r.entity_label,
-      r.context,
-      r.changes,
-    ]),
-    styles: { fontSize: 6.5, cellPadding: 1.2, overflow: "linebreak" },
-    headStyles: { fillColor: [40, 40, 40] },
-    columnStyles: {
-      0: { cellWidth: 28 },
-      5: { cellWidth: 55 },
-    },
-    margin: { left: 10, right: 10 },
-  });
+  const pageW = doc.internal.pageSize.getWidth();
+  const activityContextW = Math.max(
+    40,
+    pageW - PDF_MARGIN_MM * 2 - 22 - 24 - 14 - 18 - 70,
+  );
+  autoTable(
+    doc,
+    compactTableOptions({
+      startY: tableStartY + 1,
+      head: [["Time", "Actor", "Action", "Area", "Context", "Changes"]],
+      body: act.rows.map((r) => [
+        formatPdfTime(r.created_at),
+        truncatePdfText(r.actor_name, 18),
+        r.action_label,
+        truncatePdfText(r.entity_label, 14),
+        truncatePdfText(r.context, 36),
+        truncatePdfText(r.changes, 80),
+      ]),
+      styles: { overflow: "ellipsize" },
+      columnStyles: {
+        0: { cellWidth: 22 },
+        1: { cellWidth: 24 },
+        2: { cellWidth: 14 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: activityContextW },
+        5: { cellWidth: 70 },
+      },
+      margin: { left: PDF_MARGIN_MM, right: PDF_MARGIN_MM },
+    }),
+  );
   if (act.note) {
-    doc.setFontSize(8);
-    doc.text(act.note, 14, tableEndY(doc) + 4);
+    doc.setFontSize(6.5);
+    doc.text(act.note, PDF_MARGIN_MM, tableEndY(doc) + 2);
   }
 
   return doc.output("blob");

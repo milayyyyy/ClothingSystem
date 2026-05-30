@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,7 +59,6 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [machineTypes, setMachineTypes] = useState<MachineType[]>([]);
   const [typesMgrOpen, setTypesMgrOpen] = useState(false);
-  const [machinesMgrOpen, setMachinesMgrOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [allTime, setAllTime] = useState(true);
@@ -309,9 +309,6 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
       />
 
       <div className="mb-4 flex items-center justify-end gap-2">
-        <Button variant="outline" size="sm" onClick={() => setMachinesMgrOpen(true)}>
-          <Cog className="mr-1 h-4 w-4" /> Machine Types
-        </Button>
         <Button variant="outline" size="sm" onClick={() => setTypesMgrOpen(true)}>
           <Settings2 className="mr-1 h-4 w-4" /> Task Types
         </Button>
@@ -366,11 +363,6 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
         </details>
       )}
 
-      <MachineTypesManagerDialog
-        open={machinesMgrOpen}
-        onClose={() => setMachinesMgrOpen(false)}
-        onChanged={fetchMachineTypes}
-      />
       <TaskTypesManagerDialog
         open={typesMgrOpen}
         onClose={() => setTypesMgrOpen(false)}
@@ -456,129 +448,6 @@ function EditTaskAssigneesDialog({
           <Button type="submit">Save</Button>
         </div>
       </form>
-    </Dialog>
-  );
-}
-
-// ── Machine Types Manager ───────────────────────────────────────────────────
-function MachineTypesManagerDialog({
-  open,
-  onClose,
-  onChanged,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const supabase = createClient();
-  const [machines, setMachines] = useState<MachineType[]>([]);
-  const [newName, setNewName] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  async function load() {
-    const { data } = await supabase.from("machine_types").select("id, name, sort_order").order("sort_order").order("name");
-    setMachines(data || []);
-  }
-
-  useEffect(() => { if (open) load(); }, [open]);
-
-  async function addMachine(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = newName.trim();
-    if (!trimmed) return;
-    setSaving(true);
-    const maxOrder = machines.reduce((m, t) => Math.max(m, t.sort_order), 0);
-    const { error } = await supabase.from("machine_types").insert({ name: trimmed, sort_order: maxOrder + 1 });
-    setSaving(false);
-    if (error) { alert(error.message); return; }
-    setNewName("");
-    await load();
-    onChanged();
-  }
-
-  async function saveEdit(id: string) {
-    const trimmed = editingName.trim();
-    if (!trimmed) return;
-    setSaving(true);
-    const { error } = await supabase.from("machine_types").update({ name: trimmed }).eq("id", id);
-    setSaving(false);
-    if (error) { alert(error.message); return; }
-    setEditingId(null);
-    setEditingName("");
-    await load();
-    onChanged();
-  }
-
-  async function deleteMachine(id: string) {
-    if (!confirm("Delete this machine type? Maintenance tasks using it will clear the machine selection.")) return;
-    const { error } = await supabase.from("machine_types").delete().eq("id", id);
-    if (error) { alert(error.message); return; }
-    await load();
-    onChanged();
-  }
-
-  return (
-    <Dialog open={open} onClose={onClose} title="Machine Types" description="Machines available when creating maintenance tasks." size="xl">
-      <div className="space-y-3">
-        <ul className="max-h-64 overflow-y-auto divide-y rounded-md border">
-          {machines.length === 0 && (
-            <li className="px-3 py-4 text-center text-muted-foreground text-xs">No machines yet.</li>
-          )}
-          {machines.map((m) => (
-            <li key={m.id} className="flex items-center gap-2 px-3 py-2.5 text-sm">
-              {editingId === m.id ? (
-                <>
-                  <Input
-                    className="h-7 flex-1 text-sm"
-                    value={editingName}
-                    onChange={(e) => setEditingName(e.target.value)}
-                    autoFocus
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveEdit(m.id); } if (e.key === "Escape") setEditingId(null); }}
-                  />
-                  <Button size="sm" className="h-7 text-xs" disabled={saving} onClick={() => saveEdit(m.id)}>Save</Button>
-                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditingId(null)}>Cancel</Button>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1 font-medium">{m.name}</span>
-                  <button
-                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    title="Edit"
-                    onClick={() => { setEditingId(m.id); setEditingName(m.name); }}
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    className="rounded p-1 text-destructive hover:bg-destructive/10"
-                    title="Delete"
-                    onClick={() => deleteMachine(m.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
-
-        <form onSubmit={addMachine} className="flex gap-2">
-          <Input
-            placeholder="New machine (e.g. DTF Printer #2)"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            className="flex-1"
-          />
-          <Button type="submit" disabled={saving || !newName.trim()}>
-            <Plus className="mr-1 h-4 w-4" /> Add
-          </Button>
-        </form>
-
-        <div className="flex justify-end pt-1">
-          <Button variant="outline" onClick={onClose}>Close</Button>
-        </div>
-      </div>
     </Dialog>
   );
 }
@@ -750,7 +619,7 @@ function NewTaskForm({
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (maintenanceSelected && !machineTypeId) {
-      alert("Select which machine this maintenance task is for.");
+      alert("Select which machine type this maintenance task is for.");
       return;
     }
     const repeat = repeatFieldsForInsert(
@@ -827,21 +696,25 @@ function NewTaskForm({
         </div>
         {maintenanceSelected && (
           <div className="col-span-2">
-            <Label>Machine</Label>
+            <Label>Machine type</Label>
             <select
               className="mt-1 h-9 w-full rounded-md border bg-transparent px-3 text-sm"
               value={machineTypeId}
               onChange={(e) => setMachineTypeId(e.target.value)}
               required
             >
-              <option value="">— Select machine —</option>
+              <option value="">— Select type —</option>
               {machineTypes.map((m) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </select>
             {machineTypes.length === 0 && (
               <p className="mt-1 text-xs text-muted-foreground">
-                No machines yet. Close this form and click <b>Machine Types</b> to add some.
+                No machine types yet. Add them under{" "}
+                <Link href="/admin/inventory/assets" className="font-medium text-primary underline">
+                  Inventory → Assets
+                </Link>
+                .
               </p>
             )}
           </div>

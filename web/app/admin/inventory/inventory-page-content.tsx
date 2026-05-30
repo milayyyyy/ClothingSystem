@@ -41,6 +41,12 @@ export function InventoryPageContent() {
             Ready made inventory
           </Link>
         )}
+        <Link
+          href="/admin/inventory/assets"
+          className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          Assets
+        </Link>
         {data.canViewStores && (
           <Link
             href="/admin/stores"

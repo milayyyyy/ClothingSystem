@@ -11,7 +11,7 @@ const StickyNotes = dynamic(() => import("@/components/sticky-notes").then((m) =
 });
 
 const NAMES: Record<string, string> = {
-  admin: "Dashboard", orders: "Orders", stores: "Stores", inventory: "Inventory", "ready-made": "Ready made", employees: "Employees",
+  admin: "Dashboard", orders: "Orders", stores: "Stores", inventory: "Inventory", assets: "Assets", "ready-made": "Ready made", employees: "Employees",
   attendance: "Attendance", salary: "Salary", expenses: "Expenses", reports: "Reports", maintenance: "Machine maintenance",
   "sales-expenses": "Sales & expenses", sales: "Sales", list: "Sales list",
   employee: "Dashboard", profile: "Profile",

@@ -23,6 +23,7 @@ const NAV_SHORTCUTS: ResultItem[] = [
   { id: "nav-dashboard",    section: "Navigation", icon: <LayoutDashboard className="h-4 w-4" />, title: "Dashboard",              href: "/admin" },
   { id: "nav-orders",       section: "Navigation", icon: <ShoppingBag className="h-4 w-4" />,    title: "Orders",                  href: "/admin/orders" },
   { id: "nav-inventory",    section: "Navigation", icon: <Package className="h-4 w-4" />,         title: "Inventory",               href: "/admin/inventory" },
+  { id: "nav-assets",       section: "Navigation", icon: <Tag className="h-4 w-4" />,             title: "Assets",                  href: "/admin/inventory/assets" },
   { id: "nav-readymade",    section: "Navigation", icon: <Warehouse className="h-4 w-4" />,       title: "Ready-made Inventory",    href: "/admin/inventory/ready-made" },
   { id: "nav-suppliers",    section: "Navigation", icon: <Building2 className="h-4 w-4" />,       title: "Suppliers",               href: "/admin/suppliers" },
   { id: "nav-returns",      section: "Navigation", icon: <PackageX className="h-4 w-4" />,        title: "Returns",                 href: "/admin/returns" },

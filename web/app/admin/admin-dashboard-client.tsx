@@ -12,8 +12,11 @@ import { BarChart } from "@/components/ui/bar-chart";
 import { peso, formatDate } from "@/lib/utils";
 import { OrderStatusBadge } from "@/components/ui/badge";
 import { isPendingPipelineOrder } from "@/lib/sales";
-import { ShoppingBag, Wallet, TrendingDown, TrendingUp, Package, Receipt, Warehouse } from "lucide-react";
+import { ShoppingBag, Wallet, TrendingDown, TrendingUp, Package, Receipt, Warehouse, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { DashboardReminderCards } from "@/components/dashboard-reminder-cards";
+import { useWorkspaceShell } from "@/components/workspace-shell-context";
+import { canEdit } from "@/lib/role-permissions";
 
 type DashboardData = {
   orders: { id: string; order_no: string; customer_name: string; total: number; status: string; due_date: string; created_at: string; down_payment?: number }[];
@@ -43,6 +46,9 @@ async function loadDashboard(supabase: ReturnType<typeof createClient>): Promise
 
 export function AdminDashboardClient() {
   const supabase = createClient();
+  const { role, permissions } = useWorkspaceShell();
+  const canAddOrder = role === "admin" || role === "sub_admin";
+  const canAddExpense = canEdit(permissions, "sales_expenses");
   const { data, loading, error } = useClientPageData({
     cacheKey: "page:admin-dashboard",
     load: () => loadDashboard(supabase),
@@ -96,17 +102,37 @@ export function AdminDashboardClient() {
         description={`Overview · ${new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}`}
       />
 
-      <div className="mb-4 flex flex-wrap gap-2 text-sm">
-        <span className="text-muted-foreground">Shortcuts:</span>
-        <Link href="/admin/stores" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
-          <Warehouse className="h-3.5 w-3.5" /> Stores
-        </Link>
-        <span className="text-muted-foreground">·</span>
-        <Link href="/admin/orders" className="font-medium text-primary hover:underline">Orders</Link>
-        <span className="text-muted-foreground">·</span>
-        <Link href="/admin/inventory" className="font-medium text-primary hover:underline">Inventory</Link>
-        <span className="text-muted-foreground">·</span>
-        <Link href="/admin/inventory/ready-made" className="font-medium text-primary hover:underline">Ready made</Link>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {canAddOrder && (
+          <Link href="/admin/orders?new=1">
+            <Button type="button" size="sm">
+              <Plus className="mr-1.5 h-4 w-4" />
+              Add order
+            </Button>
+          </Link>
+        )}
+        {canAddExpense && (
+          <Link href="/admin/sales-expenses/expenses?new=1">
+            <Button type="button" size="sm" variant="outline">
+              <Plus className="mr-1.5 h-4 w-4" />
+              Add expense
+            </Button>
+          </Link>
+        )}
+        <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+          <Link href="/admin/stores" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
+            <Warehouse className="h-3.5 w-3.5" /> Stores
+          </Link>
+          <span aria-hidden>·</span>
+          <Link href="/admin/orders" className="font-medium text-primary hover:underline">Orders</Link>
+          <span aria-hidden>·</span>
+          <Link href="/admin/inventory" className="font-medium text-primary hover:underline">Inventory</Link>
+          <span aria-hidden>·</span>
+          <Link href="/admin/inventory/ready-made" className="font-medium text-primary hover:underline">
+            Ready made
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-4 grid-cols-2 md:grid-cols-3 2xl:grid-cols-6">
@@ -172,10 +198,16 @@ export function AdminDashboardClient() {
               {orders.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-sm text-muted-foreground">
-                    No orders yet — create your first one in{" "}
-                    <Link href="/admin/orders" className="text-primary underline">
-                      Orders
-                    </Link>
+                    No orders yet —{" "}
+                    {canAddOrder ? (
+                      <Link href="/admin/orders?new=1" className="text-primary underline">
+                        add your first order
+                      </Link>
+                    ) : (
+                      <Link href="/admin/orders" className="text-primary underline">
+                        view orders
+                      </Link>
+                    )}
                     .
                   </td>
                 </tr>

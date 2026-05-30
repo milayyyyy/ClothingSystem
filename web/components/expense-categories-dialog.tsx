@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
-import { Pencil, Plus, Settings2, Trash2 } from "lucide-react";
+import { Pencil, Plus, Tags, Trash2 } from "lucide-react";
 
 export type ExpenseCategoryRow = { id: string; name: string; sort_order: number };
 
@@ -137,15 +137,21 @@ export function ExpenseCategoriesDialog({
   categories,
   onCategoriesChange,
   triggerVariant = "outline",
+  triggerLabel = "Manage categories",
 }: {
   categories: ExpenseCategoryRow[];
   onCategoriesChange: () => void | Promise<void>;
-  triggerVariant?: "outline" | "ghost" | "secondary";
+  triggerVariant?: "outline" | "ghost" | "secondary" | "default";
+  triggerLabel?: string;
 }) {
   const supabase = createClient();
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [editDialog, setEditDialog] = useState<ExpenseCategoryRow | "new" | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ExpenseCategoryRow | null>(null);
+  const [deleteReassignTo, setDeleteReassignTo] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteCount, setDeleteCount] = useState<number | null>(null);
 
   const sorted = useMemo(
     () => [...categories].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)),
@@ -161,32 +167,65 @@ export function ExpenseCategoriesDialog({
     return count ?? 0;
   }
 
-  async function deleteCategory(row: ExpenseCategoryRow) {
+  async function beginDelete(row: ExpenseCategoryRow) {
+    setMsg(null);
     const n = await countExpensesForCategory(row.name);
     if (n === null) {
       setMsg("Could not count expenses for this category.");
       return;
     }
-    if (n > 0) {
-      setMsg(`Cannot delete: ${n} expense(s) still use "${row.name}". Reassign or delete those first.`);
+    if (n === 0) {
+      if (!confirm(`Delete category "${row.name}"?`)) return;
+      const { error } = await supabase.from("expense_categories").delete().eq("id", row.id);
+      if (error) {
+        setMsg(error.message);
+        return;
+      }
+      await onCategoriesChange();
+      setMsg("Category deleted.");
       return;
     }
-    if (!confirm(`Delete category "${row.name}"?`)) return;
-    setMsg(null);
-    const { error } = await supabase.from("expense_categories").delete().eq("id", row.id);
-    if (error) {
-      setMsg(error.message);
-      return;
-    }
-    await onCategoriesChange();
-    setMsg("Category deleted.");
+    const others = sorted.filter((c) => c.id !== row.id);
+    setDeleteTarget(row);
+    setDeleteCount(n);
+    setDeleteReassignTo(others[0]?.name ?? "");
   }
+
+  async function confirmDeleteWithReassign() {
+    if (!deleteTarget || !deleteReassignTo.trim()) return;
+    setDeleteBusy(true);
+    setMsg(null);
+    const reassign = deleteReassignTo.trim();
+    const { error: expErr } = await supabase
+      .from("expenses")
+      .update({ category: reassign })
+      .eq("category", deleteTarget.name);
+    if (expErr) {
+      setMsg(`Could not reassign expenses: ${expErr.message}`);
+      setDeleteBusy(false);
+      return;
+    }
+    const { error: delErr } = await supabase.from("expense_categories").delete().eq("id", deleteTarget.id);
+    setDeleteBusy(false);
+    if (delErr) {
+      setMsg(delErr.message);
+      return;
+    }
+    setDeleteTarget(null);
+    setDeleteCount(null);
+    await onCategoriesChange();
+    setMsg(`Category deleted. ${deleteCount ?? 0} expense(s) moved to "${reassign}".`);
+  }
+
+  const reassignOptions = deleteTarget
+    ? sorted.filter((c) => c.id !== deleteTarget.id).map((c) => c.name)
+    : [];
 
   return (
     <>
       <Button type="button" variant={triggerVariant} size="sm" onClick={() => setOpen(true)}>
-        <Settings2 className="mr-1 h-4 w-4" />
-        Categories
+        <Tags className="mr-1 h-4 w-4" />
+        {triggerLabel}
       </Button>
 
       <Dialog
@@ -196,7 +235,7 @@ export function ExpenseCategoriesDialog({
           setMsg(null);
         }}
         title="Expense categories"
-        description="Add, rename, or remove expense types used in filters and forms."
+        description="Add, rename, or remove categories used when logging expenses and in filters."
         size="md"
       >
         <div className="space-y-3">
@@ -251,7 +290,7 @@ export function ExpenseCategoriesDialog({
                           type="button"
                           title="Delete"
                           className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                          onClick={() => void deleteCategory(c)}
+                          onClick={() => void beginDelete(c)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -263,6 +302,70 @@ export function ExpenseCategoriesDialog({
             </table>
           </div>
         </div>
+      </Dialog>
+
+      <Dialog
+        open={deleteTarget !== null}
+        onClose={() => {
+          if (deleteBusy) return;
+          setDeleteTarget(null);
+          setDeleteCount(null);
+        }}
+        title="Delete category"
+        description={
+          deleteTarget
+            ? `"${deleteTarget.name}" is used by ${deleteCount ?? 0} expense(s). Move them to another category before deleting.`
+            : undefined
+        }
+        size="sm"
+      >
+        {deleteTarget && (
+          <div className="space-y-3">
+            {reassignOptions.length === 0 ? (
+              <p className="text-sm text-destructive">
+                Add another category first, then delete this one so expenses can be reassigned.
+              </p>
+            ) : (
+              <>
+                <div>
+                  <Label>Move expenses to</Label>
+                  <select
+                    className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
+                    value={deleteReassignTo}
+                    onChange={(e) => setDeleteReassignTo(e.target.value)}
+                  >
+                    {reassignOptions.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={deleteBusy}
+                    onClick={() => {
+                      setDeleteTarget(null);
+                      setDeleteCount(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    disabled={deleteBusy || !deleteReassignTo.trim()}
+                    onClick={() => void confirmDeleteWithReassign()}
+                  >
+                    {deleteBusy ? "Deleting…" : "Delete category"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </Dialog>
 
       <ExpenseCategoryEditDialog

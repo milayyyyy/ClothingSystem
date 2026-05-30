@@ -1055,6 +1055,16 @@ export function OrdersClient({
     setStageFilter("all");
   }, [params, initialKind, pathname, router]);
 
+  useEffect(() => {
+    if (!canCreate || params.get("new") !== "1") return;
+    setEditing(null);
+    setOpen(true);
+    const next = new URLSearchParams(params.toString());
+    next.delete("new");
+    const q = next.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+  }, [canCreate, params, pathname, router]);
+
   const filteredRows = useMemo(() => {
     return orders.filter((o) => {
       const k = getOrderKind(o);
