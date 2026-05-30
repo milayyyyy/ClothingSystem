@@ -916,40 +916,46 @@ export function TeamsSheetClient({
 
   const isSvc = orderKind === "services" || (canSwitchFormat && sheetFormat === "services");
 
-  async function exportSheetPdf() {
+  function sheetPdfPayload(includePriceChart: boolean) {
+    return {
+      orderNo,
+      customerName,
+      sheetKind: (isSvc ? "services" : "teams") as "teams" | "services",
+      includePriceChart,
+      groups: teamGroups.map((group) => ({
+        teamName: group.teamName,
+        designImageUrls: [...(group.rows[0]?.teamDesignUrls ?? [])],
+        rows: group.rows.map((r, idx) => ({
+          index: idx + 1,
+          surname: r.surname,
+          jerseyNumber: r.jersey_number,
+          lines: r.jerseyChecklist.map((item) => ({
+            name: item.name,
+            size: item.size,
+            checked: item.checked,
+          })),
+        })),
+      })),
+      priceLines: uniqueLines.map((line) => ({
+        name: line.name,
+        size: line.size,
+        count: line.count,
+        unitPrice: linePrices[line.key] ?? 0,
+      })),
+      orderTotal,
+      downPayment,
+      balance,
+    };
+  }
+
+  async function exportSheetPdf(includePriceChart: boolean) {
     setExportingPdf(true);
     setMessage(null);
     try {
-      const blob = await buildTeamsSheetPdf({
-        orderNo,
-        customerName,
-        sheetKind: isSvc ? "services" : "teams",
-        groups: teamGroups.map((group) => ({
-          teamName: group.teamName,
-          designImageUrls: [...(group.rows[0]?.teamDesignUrls ?? [])],
-          rows: group.rows.map((r, idx) => ({
-            index: idx + 1,
-            surname: r.surname,
-            jerseyNumber: r.jersey_number,
-            lines: r.jerseyChecklist.map((item) => ({
-              name: item.name,
-              size: item.size,
-              checked: item.checked,
-            })),
-          })),
-        })),
-        priceLines: uniqueLines.map((line) => ({
-          name: line.name,
-          size: line.size,
-          count: line.count,
-          unitPrice: linePrices[line.key] ?? 0,
-        })),
-        orderTotal,
-        downPayment,
-        balance,
-      });
+      const blob = await buildTeamsSheetPdf(sheetPdfPayload(includePriceChart));
       const slug = isSvc ? "services" : "teams";
-      downloadTeamsSheetPdf(blob, `order_${orderNo}_${slug}_sheet.pdf`);
+      const suffix = includePriceChart ? "sheet" : "sheet_roster";
+      downloadTeamsSheetPdf(blob, `order_${orderNo}_${slug}_${suffix}.pdf`);
     } catch (err) {
       console.error(err);
       setMessage(err instanceof Error ? err.message : "PDF export failed.");
@@ -1019,10 +1025,21 @@ export function TeamsSheetClient({
             variant="outline"
             size="sm"
             disabled={loading || exportingPdf}
-            onClick={() => void exportSheetPdf()}
+            onClick={() => void exportSheetPdf(true)}
           >
             <FileDown className="mr-1 h-4 w-4" />
             {exportingPdf ? "Exporting…" : "Export PDF"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={loading || exportingPdf}
+            onClick={() => void exportSheetPdf(false)}
+            title="Teams, players, and design photos only — no price chart"
+          >
+            <FileDown className="mr-1 h-4 w-4" />
+            {exportingPdf ? "Exporting…" : "Export PDF (no prices)"}
           </Button>
         {!viewOnly && (
           <>

@@ -36,6 +36,8 @@ export type TeamsSheetPdfData = {
   orderTotal: number;
   downPayment: number;
   balance: number;
+  /** When false, export teams/roster only (no price chart section). Default true. */
+  includePriceChart?: boolean;
   generatedAt?: Date;
 };
 
@@ -305,64 +307,67 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
     y = tableEndY(doc) + 8;
   }
 
-  y = ensureSpace(doc, y, 45);
+  const includePriceChart = data.includePriceChart !== false;
+  if (includePriceChart) {
+    y = ensureSpace(doc, y, 45);
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.text("Price chart", MARGIN, y);
-  y += 6;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Price chart", MARGIN, y);
+    y += 6;
 
-  const priceColW = tableW / 5;
+    const priceColW = tableW / 5;
 
-  if (data.priceLines.length === 0) {
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.text("No line items.", MARGIN, y);
-  } else {
-    autoTable(doc, {
-      startY: y,
-      tableWidth: tableW,
-      head: [[L.priceLineHdr, "Size", "Qty", "Unit price", "Subtotal"]],
-      body: data.priceLines.map((line) => {
-        const sub = line.count * line.unitPrice;
-        return [
-          line.name.trim() || "—",
-          line.size.trim() || "—",
-          String(line.count),
-          line.unitPrice > 0 ? peso(line.unitPrice) : "—",
-          sub > 0 ? peso(sub) : "—",
-        ];
-      }),
-      foot: [
-        [
-          { content: "Grand total", colSpan: 4, styles: { halign: "right", fontStyle: "bold" } },
-          { content: peso(data.orderTotal), styles: { halign: "right", fontStyle: "bold" } },
+    if (data.priceLines.length === 0) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text("No line items.", MARGIN, y);
+    } else {
+      autoTable(doc, {
+        startY: y,
+        tableWidth: tableW,
+        head: [[L.priceLineHdr, "Size", "Qty", "Unit price", "Subtotal"]],
+        body: data.priceLines.map((line) => {
+          const sub = line.count * line.unitPrice;
+          return [
+            line.name.trim() || "—",
+            line.size.trim() || "—",
+            String(line.count),
+            line.unitPrice > 0 ? peso(line.unitPrice) : "—",
+            sub > 0 ? peso(sub) : "—",
+          ];
+        }),
+        foot: [
+          [
+            { content: "Grand total", colSpan: 4, styles: { halign: "right", fontStyle: "bold" } },
+            { content: peso(data.orderTotal), styles: { halign: "right", fontStyle: "bold" } },
+          ],
+          [
+            { content: "Down payment", colSpan: 4, styles: { halign: "right" } },
+            {
+              content: data.downPayment > 0 ? peso(data.downPayment) : "—",
+              styles: { halign: "right" },
+            },
+          ],
+          [
+            { content: "Balance", colSpan: 4, styles: { halign: "right", fontStyle: "bold" } },
+            { content: peso(data.balance), styles: { halign: "right", fontStyle: "bold" } },
+          ],
         ],
-        [
-          { content: "Down payment", colSpan: 4, styles: { halign: "right" } },
-          {
-            content: data.downPayment > 0 ? peso(data.downPayment) : "—",
-            styles: { halign: "right" },
-          },
-        ],
-        [
-          { content: "Balance", colSpan: 4, styles: { halign: "right", fontStyle: "bold" } },
-          { content: peso(data.balance), styles: { halign: "right", fontStyle: "bold" } },
-        ],
-      ],
-      theme: "grid",
-      styles: { fontSize: 8, cellPadding: 1.5, overflow: "linebreak", valign: "top" },
-      headStyles: { fillColor: [45, 45, 45], textColor: 255 },
-      footStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30] },
-      columnStyles: {
-        0: { cellWidth: priceColW * 1.35 },
-        1: { cellWidth: priceColW * 0.85 },
-        2: { cellWidth: priceColW * 0.55, halign: "center" },
-        3: { cellWidth: priceColW * 0.9, halign: "right" },
-        4: { cellWidth: priceColW * 0.9, halign: "right" },
-      },
-      margin: { left: MARGIN, right: MARGIN },
-    });
+        theme: "grid",
+        styles: { fontSize: 8, cellPadding: 1.5, overflow: "linebreak", valign: "top" },
+        headStyles: { fillColor: [45, 45, 45], textColor: 255 },
+        footStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30] },
+        columnStyles: {
+          0: { cellWidth: priceColW * 1.35 },
+          1: { cellWidth: priceColW * 0.85 },
+          2: { cellWidth: priceColW * 0.55, halign: "center" },
+          3: { cellWidth: priceColW * 0.9, halign: "right" },
+          4: { cellWidth: priceColW * 0.9, halign: "right" },
+        },
+        margin: { left: MARGIN, right: MARGIN },
+      });
+    }
   }
 
   return doc.output("blob");
