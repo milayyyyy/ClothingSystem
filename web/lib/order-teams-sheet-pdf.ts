@@ -49,9 +49,11 @@ type PdfImage = {
 };
 
 const MARGIN = 10;
-const THUMB_MAX_MM = 22;
-const THUMB_GAP_MM = 2;
-const THUMBS_PER_ROW = 4;
+const THUMB_MAX_MM = 42;
+const THUMB_GAP_MM = 3;
+const THUMBS_PER_ROW = 3;
+/** Empty checkbox prefix for handwritten marking on printed sheets. */
+const PDF_CHECKBOX = "[ ]";
 
 function labels(kind: "teams" | "services") {
   const isSvc = kind === "services";
@@ -71,8 +73,9 @@ export function formatSheetLinesForPdf(lines: TeamsSheetPdfLineItem[]): string {
     .map((item) => {
       const name = item.name.trim() || "—";
       const size = item.size.trim();
-      const mark = item.checked ? "✓" : "○";
-      return size ? `${mark} ${name} (${size})` : `${mark} ${name}`;
+      return size
+        ? `${PDF_CHECKBOX}  ${name}  (${size})`
+        : `${PDF_CHECKBOX}  ${name}`;
     })
     .join("\n");
 }
@@ -183,6 +186,9 @@ function drawDesignPhotos(
     }
 
     try {
+      doc.setDrawColor(180, 180, 180);
+      doc.setLineWidth(0.2);
+      doc.rect(x, y, w, h);
       doc.addImage(img.dataUrl, img.format, x, y, w, h);
     } catch {
       doc.setDrawColor(200, 200, 200);
@@ -273,10 +279,11 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
       theme: "grid",
       styles: {
         fontSize: 7.5,
-        cellPadding: 1.5,
+        cellPadding: 2,
         overflow: "linebreak",
         valign: "top",
         lineWidth: 0.1,
+        minCellHeight: 5,
       },
       headStyles: { fillColor: [45, 45, 45], textColor: 255, fontSize: 7.5, valign: "middle" },
       columnStyles: isSvc
@@ -289,7 +296,7 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
             0: { cellWidth: colIndexW, halign: "center" },
             1: { cellWidth: colNameW },
             2: { cellWidth: colJerseyW, halign: "center" },
-            3: { cellWidth: colLinesW },
+            3: { cellWidth: colLinesW, fontSize: 7.5, cellPadding: 2.5 },
           },
       margin: { left: MARGIN, right: MARGIN },
       rowPageBreak: "avoid",
