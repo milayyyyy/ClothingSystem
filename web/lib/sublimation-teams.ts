@@ -25,6 +25,32 @@ export function newClientKey() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+const IMAGE_UPLOAD_EXTENSIONS = new Set([
+  "jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "avif",
+]);
+
+export function extensionFromFileName(name: string): string {
+  const m = /\.([a-zA-Z0-9]{1,8})$/.exec(name);
+  return m ? m[1]!.toLowerCase() : "jpg";
+}
+
+/** Accept standard image MIME types and phone formats (HEIC) even when MIME is empty. */
+export function isImageUploadFile(file: File): boolean {
+  if (file.type.startsWith("image/")) return true;
+  return IMAGE_UPLOAD_EXTENSIONS.has(extensionFromFileName(file.name));
+}
+
+export function jerseyDesignUploadErrorMessage(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err ?? "Upload failed");
+  if (/bucket not found/i.test(msg)) {
+    return "Design photo storage is not set up. Apply Supabase migration 016 (jersey-designs bucket).";
+  }
+  if (/row-level security|policy|permission|403/i.test(msg)) {
+    return "You do not have permission to upload design photos. Apply migration 087 or sign in as admin/sub-admin.";
+  }
+  return msg || "Upload failed";
+}
+
 function parseJerseyChecklist(p: Record<string, unknown>): JerseyChecklistItem[] {
   const jc = p.jersey_checklist;
   if (jc == null || !Array.isArray(jc) || jc.length === 0) return [];

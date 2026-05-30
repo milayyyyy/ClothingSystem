@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import {
   buildTeamsSheetPdf,
   downloadTeamsSheetPdf,
@@ -14,6 +15,9 @@ import { FileDown } from "lucide-react";
 import {
   emptyPlayer,
   emptyTeam,
+  extensionFromFileName,
+  isImageUploadFile,
+  jerseyDesignUploadErrorMessage,
   mapTeamsFromSupabase,
   newClientKey,
   persistSublimationTeams,
@@ -42,8 +46,7 @@ function peso(n: number) {
 }
 
 function extFromFileName(name: string) {
-  const m = /\.([a-zA-Z0-9]{1,8})$/.exec(name);
-  return m ? m[1]!.toLowerCase() : "jpg";
+  return extensionFromFileName(name);
 }
 
 /** Key used to identify a unique jersey line type in the price map. */
@@ -71,12 +74,13 @@ function TeamDesignStrip({
   disabled: boolean;
   viewOnly?: boolean;
   uploading: boolean;
-  onUrlsChange: (next: string[]) => void;
+  onUrlsChange: (next: string[]) => void | Promise<void>;
   onUploadError: (msg: string) => void;
   onBusyChange: (busy: boolean) => void;
 }) {
   const supabase = createClient();
   const fileRef = useRef<HTMLInputElement>(null);
+  const inputId = useId();
 
   async function onPickFiles(e: ChangeEvent<HTMLInputElement>) {
     const input = e.target;
@@ -88,9 +92,9 @@ function TeamDesignStrip({
       onUploadError(`At most ${TEAM_DESIGN_MAX} design photos per team.`);
       return;
     }
-    const files = Array.from(list).filter((f) => f.type.startsWith("image/")).slice(0, remaining);
+    const files = Array.from(list).filter(isImageUploadFile).slice(0, remaining);
     if (!files.length) {
-      onUploadError("Choose image files only.");
+      onUploadError("Choose image files only (JPG, PNG, HEIC, etc.).");
       return;
     }
     const added: string[] = [];
@@ -101,17 +105,17 @@ function TeamDesignStrip({
         const path = `${orderId}/teams/${teamKey}/${id}.${extFromFileName(file.name)}`;
         const { error: upErr } = await supabase.storage.from(DESIGN_BUCKET).upload(path, file, {
           cacheControl: "3600",
-          upsert: false,
+          upsert: true,
           contentType: file.type || undefined,
         });
         if (upErr) throw upErr;
         const { data: pub } = supabase.storage.from(DESIGN_BUCKET).getPublicUrl(path);
         if (pub?.publicUrl) added.push(pub.publicUrl);
       }
-      onUrlsChange([...urls, ...added]);
+      await onUrlsChange([...urls, ...added]);
     } catch (err) {
       console.error(err);
-      onUploadError(err instanceof Error ? err.message : "Upload failed");
+      onUploadError(jerseyDesignUploadErrorMessage(err));
     } finally {
       onBusyChange(false);
     }
@@ -151,25 +155,25 @@ function TeamDesignStrip({
         {!viewOnly && (
           <>
             <input
+              id={inputId}
               ref={fileRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.heic,.heif,image/heic,image/heif"
               multiple
-              className="hidden"
+              className="sr-only"
               aria-label="Add design photos (choose multiple files at once)"
               onChange={onPickFiles}
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 shrink-0 text-xs"
-              disabled={disabled || uploading || urls.length >= TEAM_DESIGN_MAX}
-              title="Opens file picker—you can select several images in one go"
-              onClick={() => fileRef.current?.click()}
+            <label
+              htmlFor={inputId}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "h-9 shrink-0 cursor-pointer text-xs",
+                (disabled || uploading || urls.length >= TEAM_DESIGN_MAX) && "pointer-events-none opacity-50",
+              )}
             >
               {uploading ? "Uploading…" : urls.length ? "Add more photos" : "Upload photos (multiple)"}
-            </Button>
+            </label>
           </>
         )}
         {viewOnly && urls.length === 0 && (
@@ -673,8 +677,27 @@ export function TeamsSheetClient({
     setFlatRows((prev) => prev.map((r) => (r.teamKey === teamKey ? { ...r, teamName: name } : r)));
   }
 
-  function patchTeamDesignUrls(teamKey: string, urls: string[]) {
-    setFlatRows((prev) => prev.map((r) => (r.teamKey === teamKey ? { ...r, teamDesignUrls: urls } : r)));
+  const persistDesignUrls = useCallback(
+    async (rows: FlatRow[]) => {
+      if (viewOnly) return;
+      await persistSublimationTeams(supabase, orderId, flatRowsToTeams(rows));
+    },
+    [orderId, supabase, viewOnly],
+  );
+
+  async function handleDesignUrlsChange(teamKey: string, nextUrls: string[]) {
+    const updatedRows = flatRows.map((r) =>
+      r.teamKey === teamKey ? { ...r, teamDesignUrls: nextUrls } : r,
+    );
+    setFlatRows(updatedRows);
+    if (viewOnly) return;
+    try {
+      await persistDesignUrls(updatedRows);
+      setMessage("Design photos saved.");
+    } catch (err) {
+      console.error(err);
+      setMessage(err instanceof Error ? err.message : "Could not save design photos.");
+    }
   }
 
   function sortTeamPlayers(teamKey: string, mode: TeamRowSortMode) {
@@ -996,7 +1019,7 @@ export function TeamsSheetClient({
                       disabled={loading || viewOnly}
                       viewOnly={viewOnly}
                       uploading={uploadingTeamKey === group.teamKey}
-                      onUrlsChange={(next) => patchTeamDesignUrls(group.teamKey, next)}
+                      onUrlsChange={(next) => handleDesignUrlsChange(group.teamKey, next)}
                       onUploadError={(msg) => setMessage(msg)}
                       onBusyChange={(busy) => setUploadingTeamKey(busy ? group.teamKey : null)}
                     />
