@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -75,9 +75,8 @@ function TeamDesignStrip({
   onUploadError: (msg: string) => void;
   onBusyChange: (busy: boolean) => void;
 }) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const inputId = useId();
   const [stripError, setStripError] = useState<string | null>(null);
+  const [previews, setPreviews] = useState<string[]>([]);
 
   async function onPickFiles(e: ChangeEvent<HTMLInputElement>) {
     const input = e.target;
@@ -99,6 +98,8 @@ function TeamDesignStrip({
       onUploadError(msg);
       return;
     }
+    const blobPreviews = files.map((f) => URL.createObjectURL(f));
+    setPreviews(blobPreviews);
     const added: string[] = [];
     onBusyChange(true);
     try {
@@ -114,20 +115,9 @@ function TeamDesignStrip({
       setStripError(msg);
       onUploadError(msg);
     } finally {
+      for (const u of blobPreviews) URL.revokeObjectURL(u);
+      setPreviews([]);
       onBusyChange(false);
-    }
-  }
-
-  function openFilePicker() {
-    if (disabled || uploading || urls.length >= TEAM_DESIGN_MAX) return;
-    const input = fileRef.current;
-    if (!input) return;
-    setStripError(null);
-    try {
-      if (typeof input.showPicker === "function") input.showPicker();
-      else input.click();
-    } catch {
-      input.click();
     }
   }
 
@@ -149,6 +139,7 @@ function TeamDesignStrip({
             key={url}
             className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-md border border-border bg-muted/40"
           >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={url} alt="" className="h-full w-full object-cover" />
             {!viewOnly && (
               <button
@@ -162,30 +153,32 @@ function TeamDesignStrip({
             )}
           </div>
         ))}
+        {previews.map((url) => (
+          <div
+            key={url}
+            className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md border border-dashed border-primary/40 bg-muted/40 opacity-80"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={url} alt="" className="h-full w-full object-cover" />
+            <span className="absolute inset-x-0 bottom-0 bg-primary/80 py-px text-center text-[8px] text-primary-foreground">
+              Uploading…
+            </span>
+          </div>
+        ))}
         {!viewOnly && (
-          <>
-            <input
-              id={inputId}
-              ref={fileRef}
+          <div className="flex min-w-[12rem] flex-col gap-1">
+            <Input
               type="file"
-              accept="image/*,.heic,.heif,image/heic,image/heif"
+              accept="image/*,.heic,.heif"
               multiple
-              className="hidden"
-              aria-hidden
-              tabIndex={-1}
+              disabled={disabled || uploading || urls.length >= TEAM_DESIGN_MAX}
+              className="h-9 cursor-pointer text-xs file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs"
               onChange={onPickFiles}
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 shrink-0 text-xs"
-              disabled={disabled || uploading || urls.length >= TEAM_DESIGN_MAX}
-              onClick={openFilePicker}
-            >
-              {uploading ? "Uploading…" : urls.length ? "Add more photos" : "Upload photos (multiple)"}
-            </Button>
-          </>
+            <span className="text-[10px] text-muted-foreground">
+              {uploading ? "Uploading…" : "Choose one or more images (same as Finance QR upload)"}
+            </span>
+          </div>
         )}
         {stripError && (
           <p className="w-full basis-full text-[11px] font-medium text-destructive" role="alert">
@@ -700,40 +693,13 @@ export function TeamsSheetClient({
     setFlatRows(updatedRows);
     if (viewOnly) return;
     try {
-      let updatedInPlace = true;
-      const res = await fetch(`/api/orders/${orderId}/jersey-designs/gallery`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          teamKey,
-          urls: nextUrls,
-          teams: flatRowsToTeams(updatedRows),
-        }),
-      });
-      const payload = (await res.json().catch(() => ({}))) as {
-        updatedInPlace?: boolean;
-        error?: string;
-        hint?: string;
-      };
-      if (!res.ok) {
-        if (res.status === 404 || res.status === 500 || res.status === 502 || res.status === 503) {
-          const result = await saveTeamDesignGallery(
-            supabase,
-            orderId,
-            teamKey,
-            nextUrls,
-            flatRowsToTeams(updatedRows),
-          );
-          updatedInPlace = result.updatedInPlace;
-        } else {
-          const detail = payload.hint
-            ? `${payload.error ?? "Save failed"} (${payload.hint})`
-            : (payload.error ?? "Save failed");
-          throw new Error(detail);
-        }
-      } else {
-        updatedInPlace = payload.updatedInPlace ?? true;
-      }
+      const { updatedInPlace } = await saveTeamDesignGallery(
+        supabase,
+        orderId,
+        teamKey,
+        nextUrls,
+        flatRowsToTeams(updatedRows),
+      );
       if (!updatedInPlace) reload();
       setMessage("Design photos saved.");
     } catch (err) {
