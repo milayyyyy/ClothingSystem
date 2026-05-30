@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useId,
   useRef,
   useState,
   type ChangeEvent,
@@ -11,7 +12,8 @@ import {
 } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -83,6 +85,7 @@ function TeamDesignStrip({
   onUploadError: (msg: string) => void;
   onBusyChange: (busy: boolean) => void;
 }) {
+  const fileInputId = useId();
   const [stripError, setStripError] = useState<string | null>(null);
   const [previews, setPreviews] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -215,21 +218,33 @@ function TeamDesignStrip({
           </div>
         ))}
         {!viewOnly && (
-          <div className="flex min-w-[12rem] flex-col gap-1">
-            <Input
+          <div
+            className="flex min-w-[10rem] flex-col gap-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              ref={fileInputRef}
+              id={fileInputId}
               type="file"
               accept="image/*,.heic,.heif"
               multiple
-              disabled={disabled || uploading || urls.length >= TEAM_DESIGN_MAX}
-              className="h-9 cursor-pointer text-xs file:mr-2 file:rounded file:border-0 file:bg-muted file:px-2 file:py-1 file:text-xs"
+              disabled={dropDisabled}
+              className="sr-only"
+              aria-label="Choose design photos"
               onChange={onPickFiles}
             />
+            <Label
+              htmlFor={fileInputId}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "h-9 w-fit cursor-pointer text-xs font-normal",
+                dropDisabled && "pointer-events-none opacity-50",
+              )}
+            >
+              {uploading ? "Uploading…" : "Choose photos"}
+            </Label>
             <span className="text-[10px] text-muted-foreground">
-              {uploading
-                ? "Uploading…"
-                : dragOver
-                  ? "Drop images to upload"
-                  : "Drag images here or choose files below"}
+              {dragOver ? "Drop images to upload" : "Drag here or click Choose photos"}
             </span>
           </div>
         )}
