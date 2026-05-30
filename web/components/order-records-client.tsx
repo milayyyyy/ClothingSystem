@@ -2,12 +2,9 @@
 
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
-import { OrderRecordEditor } from "@/components/order-record-editor";
 import {
   parseUsageSheets,
   usageSheetsSummary,
@@ -56,7 +53,6 @@ export function OrderRecordsClient({
   initialAttachments,
   submitters,
 }: Props) {
-  const router = useRouter();
   const submitterMap = useMemo(() => new Map(submitters.map((p) => [p.id, p])), [submitters]);
   const enrichRecord = useCallback(
     (r: OrderRecordRow): OrderRecordRow => ({
@@ -65,9 +61,8 @@ export function OrderRecordsClient({
     }),
     [submitterMap],
   );
-  const [records, setRecords] = useState(initialRecords.map(enrichRecord));
+  const [records] = useState(initialRecords.map(enrichRecord));
   const [filter, setFilter] = useState<"all" | "pending">(mode === "admin" ? "pending" : "all");
-  const [reviewing, setReviewing] = useState<OrderRecordRow | null>(null);
 
   const attByRecord = useMemo(() => {
     const m = new Map<string, OrderRecordAttachment[]>();
@@ -93,42 +88,9 @@ export function OrderRecordsClient({
     (r.status === "draft" || r.status === "rejected") && r.submitted_by === userId;
 
   const recordHref = (r: OrderRecordRow) =>
-    mode === "employee" ? `/employee/order-records/${r.id}` : undefined;
-
-  async function approve(id: string) {
-    const res = await fetch(`/api/order-records/${id}/approve`, { method: "POST" });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) { alert(json.error || "Approve failed"); return; }
-    setRecords((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? { ...r, status: "approved" as const, reviewed_at: new Date().toISOString(), reviewed_by: userId }
-          : r,
-      ),
-    );
-    setReviewing(null);
-    router.refresh();
-  }
-
-  async function reject(id: string) {
-    const reason = window.prompt("Rejection reason (optional):") ?? "";
-    const res = await fetch(`/api/order-records/${id}/reject`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) { alert(json.error || "Reject failed"); return; }
-    setRecords((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? { ...r, status: "rejected" as const, rejection_reason: reason || null, reviewed_at: new Date().toISOString() }
-          : r,
-      ),
-    );
-    setReviewing(null);
-    router.refresh();
-  }
+    mode === "employee"
+      ? `/employee/order-records/${r.id}`
+      : `/admin/order-records/${r.id}`;
 
   return (
     <div className="space-y-4">
@@ -197,54 +159,31 @@ export function OrderRecordsClient({
                     {atts.length > 0 && ` · ${atts.length} file(s)`}
                   </div>
                 </div>
-                {mode === "admin" && r.status === "submitted" && (
-                  <span className="text-xs text-primary">Review →</span>
+                {mode === "admin" && (
+                  <span className="text-xs text-primary">
+                    {r.status === "submitted" ? "Review →" : "View →"}
+                  </span>
                 )}
                 {mode === "employee" && canEditRecord(r) && (
                   <span className="text-xs text-primary">Edit →</span>
                 )}
+                {mode === "employee" && !canEditRecord(r) && (
+                  <span className="text-xs text-primary">View →</span>
+                )}
               </>
             );
 
-            if (mode === "employee" && href) {
-              return (
-                <Link
-                  key={r.id}
-                  href={href}
-                  className="flex w-full flex-col gap-1 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/40 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  {inner}
-                </Link>
-              );
-            }
-
             return (
-              <button
+              <Link
                 key={r.id}
-                type="button"
+                href={href}
                 className="flex w-full flex-col gap-1 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/40 sm:flex-row sm:items-center sm:justify-between"
-                onClick={() => setReviewing(r)}
               >
                 {inner}
-              </button>
+              </Link>
             );
           })}
         </div>
-      )}
-
-      {mode === "admin" && reviewing && (
-        <Dialog open onClose={() => setReviewing(null)} title="Review order record" size="lg">
-          <OrderRecordEditor
-            mode="admin"
-            userId={userId}
-            record={reviewing}
-            initialAttachments={attByRecord.get(reviewing.id) || []}
-            layout="embedded"
-            onClose={() => setReviewing(null)}
-            onApprove={approve}
-            onReject={reject}
-          />
-        </Dialog>
       )}
     </div>
   );

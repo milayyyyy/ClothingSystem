@@ -71,9 +71,7 @@ export function OrderRecordEditor({
 
   const editorReadOnly =
     readOnlyProp ??
-    (mode === "admin"
-      ? !!record && (record.status === "submitted" || record.status === "approved")
-      : !!record && !canEditRecord);
+    (mode === "admin" ? true : !!record && !canEditRecord);
 
   const canEditForm = !editorReadOnly;
   const backHref = mode === "employee" ? "/employee/order-records" : "/admin/order-records";
@@ -200,9 +198,13 @@ export function OrderRecordEditor({
 
   const formTitle = !record
     ? "New order record"
-    : editorReadOnly
-      ? "View record"
-      : "Edit record";
+    : mode === "admin"
+      ? record.status === "submitted"
+        ? "Review order record"
+        : "Order record"
+      : editorReadOnly
+        ? "View record"
+        : "Edit record";
 
   return (
     <div className="space-y-6">
