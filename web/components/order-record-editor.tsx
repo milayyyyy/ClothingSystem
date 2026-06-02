@@ -18,6 +18,7 @@ import {
   type OrderRecordRow,
 } from "@/lib/order-records";
 import { OrderRecordAttachments } from "@/components/order-record-attachments";
+import { OrderRecordBigSellerImport } from "@/components/order-record-bigseller-import";
 import { ArrowLeft, CheckCircle2, Loader2, XCircle } from "lucide-react";
 
 type Props = {
@@ -66,12 +67,13 @@ export function OrderRecordEditor({
     return sheets.length > 0 ? sheets : [emptyUsageSheet()];
   });
 
-  const canEditRecord =
+  const employeeCanEdit =
     !record || ((record.status === "draft" || record.status === "rejected") && record.submitted_by === userId);
 
+  const adminCanEdit = mode === "admin" && !!record;
+
   const editorReadOnly =
-    readOnlyProp ??
-    (mode === "admin" ? true : !!record && !canEditRecord);
+    readOnlyProp ?? (mode === "admin" ? !adminCanEdit : !!record && !employeeCanEdit);
 
   const canEditForm = !editorReadOnly;
   const backHref = mode === "employee" ? "/employee/order-records" : "/admin/order-records";
@@ -79,14 +81,16 @@ export function OrderRecordEditor({
   const saveDraft = async (): Promise<OrderRecordRow | null> => {
     setBusy(true);
     setErr(null);
-    const payload = {
+    const payload: Record<string, unknown> = {
       record_date: recordDate,
       title: title.trim() || null,
       notes: notes.trim() || null,
       stock_lines: usageSheets,
-      status: "draft" as const,
       updated_at: new Date().toISOString(),
     };
+    if (mode !== "admin") {
+      payload.status = "draft";
+    }
 
     if (record) {
       const { data, error } = await supabase
@@ -100,6 +104,9 @@ export function OrderRecordEditor({
       const row = mapRecord(data);
       setRecord(row);
       onSaved?.(row);
+      if (layout === "page" && mode === "admin") {
+        router.refresh();
+      }
       if (layout === "page" && mode === "employee" && !initialRecord) {
         router.replace(`/employee/order-records/${row.id}`);
       }
@@ -176,9 +183,21 @@ export function OrderRecordEditor({
   };
 
   const removeAttachment = async (att: OrderRecordAttachment) => {
-    if (!canEditForm) return;
-    await supabase.storage.from(ORDER_RECORD_BUCKET).remove([att.path]);
-    await supabase.from("order_record_attachments").delete().eq("id", att.id);
+    if (!canEditForm || !record) return;
+    if (mode === "admin") {
+      const res = await fetch(
+        `/api/order-records/${record.id}/attachments?attachmentId=${encodeURIComponent(att.id)}`,
+        { method: "DELETE" },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setErr(json.error || "Could not remove file");
+        return;
+      }
+    } else {
+      await supabase.storage.from(ORDER_RECORD_BUCKET).remove([att.path]);
+      await supabase.from("order_record_attachments").delete().eq("id", att.id);
+    }
     setAttachments((prev) => prev.filter((a) => a.id !== att.id));
   };
 
@@ -266,6 +285,20 @@ export function OrderRecordEditor({
           uploading={uploading}
         />
 
+        {canEditForm && (
+          <OrderRecordBigSellerImport
+            disabled={busy || uploading}
+            existingSheets={usageSheets}
+            onApply={(mergedSheets, summary) => {
+              setUsageSheets(mergedSheets);
+              setNotes((n) => {
+                const tag = `BigSeller import: ${summary}.`;
+                return n.trim() ? `${n.trim()}\n${tag}` : tag;
+              });
+            }}
+          />
+        )}
+
         <OrderRecordManualSheet sheets={usageSheets} onChange={setUsageSheets} readOnly={!canEditForm} />
 
         {record?.status === "rejected" && record.rejection_reason && (
@@ -291,7 +324,12 @@ export function OrderRecordEditor({
             </>
           )}
 
-          {canEditForm && (
+          {canEditForm && mode === "admin" && (
+            <Button disabled={busy || uploading} onClick={() => void saveDraft()}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save changes"}
+            </Button>
+          )}
+          {canEditForm && mode === "employee" && (
             <>
               <Button variant="outline" disabled={busy || uploading} onClick={() => void saveDraft()}>
                 Save draft

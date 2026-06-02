@@ -44,11 +44,14 @@ export async function POST(
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
-  if (access.record.submitted_by !== me.id) {
-    return NextResponse.json({ error: "Only the submitter can upload files." }, { status: 403 });
-  }
-  if (!["draft", "rejected"].includes(access.record.status)) {
-    return NextResponse.json({ error: "Cannot add files after submission." }, { status: 400 });
+  const isAdmin = isStaff(me.profile.role);
+  if (!isAdmin) {
+    if (access.record.submitted_by !== me.id) {
+      return NextResponse.json({ error: "Only the submitter can upload files." }, { status: 403 });
+    }
+    if (!["draft", "rejected"].includes(access.record.status)) {
+      return NextResponse.json({ error: "Cannot add files after submission." }, { status: 400 });
+    }
   }
 
   const admin = serviceSupabase();
@@ -94,4 +97,54 @@ export async function POST(
   if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
 
   return NextResponse.json({ attachment: row });
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { recordId: string } },
+) {
+  const me = await getSessionUser();
+  if (!me) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
+
+  const recordId = params.recordId;
+  const attachmentId = req.nextUrl.searchParams.get("attachmentId");
+  if (!attachmentId) {
+    return NextResponse.json({ error: "attachmentId is required" }, { status: 400 });
+  }
+
+  const access = await canAccessRecord(recordId, me.id, me.profile.role);
+  if (!access.ok) {
+    return NextResponse.json({ error: access.error }, { status: access.status });
+  }
+
+  const isAdmin = isStaff(me.profile.role);
+  if (!isAdmin && access.record.submitted_by !== me.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (!isAdmin && !["draft", "rejected"].includes(access.record.status)) {
+    return NextResponse.json({ error: "Cannot remove files after submission." }, { status: 400 });
+  }
+
+  const admin = serviceSupabase();
+  if (!admin) {
+    return NextResponse.json(
+      { error: "Server upload is not configured.", hint: "Set SUPABASE_SERVICE_ROLE_KEY." },
+      { status: 500 },
+    );
+  }
+
+  const { data: att, error: fetchErr } = await admin
+    .from("order_record_attachments")
+    .select("id, path, record_id")
+    .eq("id", attachmentId)
+    .eq("record_id", recordId)
+    .maybeSingle();
+  if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+  if (!att) return NextResponse.json({ error: "Attachment not found" }, { status: 404 });
+
+  await admin.storage.from(ORDER_RECORD_BUCKET).remove([att.path]);
+  const { error: delErr } = await admin.from("order_record_attachments").delete().eq("id", attachmentId);
+  if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true });
 }

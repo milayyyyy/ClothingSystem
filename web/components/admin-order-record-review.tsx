@@ -46,19 +46,28 @@ export function AdminOrderRecordReview({ userId, record, attachments }: Props) {
 
   return (
     <div className="space-y-4">
-      {record.status === "submitted" && (
-        <p className="text-sm text-muted-foreground">
-          Submitted by <span className="font-medium text-foreground">{submitterName}</span>
-          {" · "}Review attachments and usage sheets, then approve or reject. Deduct stock manually in Inventory.
-        </p>
-      )}
+      <p className="text-sm text-muted-foreground">
+        {record.status === "submitted" ? (
+          <>
+            Submitted by <span className="font-medium text-foreground">{submitterName}</span>
+            {" · "}
+            You can edit the record below, then save changes and approve or reject. Deduct stock manually in
+            Inventory.
+          </>
+        ) : (
+          <>
+            Record by <span className="font-medium text-foreground">{submitterName}</span>
+            {" · "}
+            You can edit and save changes. Status: {record.status}.
+          </>
+        )}
+      </p>
       <OrderRecordEditor
         mode="admin"
         userId={userId}
         record={record}
         initialAttachments={attachments}
         layout="page"
-        readOnly
         onApprove={approve}
         onReject={reject}
       />
