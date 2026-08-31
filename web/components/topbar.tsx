@@ -10,6 +10,11 @@ const StickyNotes = dynamic(() => import("@/components/sticky-notes").then((m) =
   ssr: false,
 });
 
+const RemindersNotificationBell = dynamic(
+  () => import("@/components/reminders-notification-bell").then((m) => m.RemindersNotificationBell),
+  { ssr: false },
+);
+
 const NAMES: Record<string, string> = {
   admin: "Dashboard", orders: "Orders", stores: "Stores", inventory: "Inventory", assets: "Assets", "ready-made": "Ready made", employees: "Employees",
   attendance: "Attendance", salary: "Salary", expenses: "Expenses", reports: "Reports", maintenance: "Machine maintenance",
@@ -65,6 +70,7 @@ export function Topbar({
         <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
           <PwaInstallButton compact />
           {userId && <StickyNotes userId={userId} />}
+          {(role === "admin" || role === "manager") && <RemindersNotificationBell />}
           <QuickSearchTrigger />
           <div className="hidden text-right text-xs md:block">
             <div className="max-w-[8rem] truncate font-medium">{name}</div>
