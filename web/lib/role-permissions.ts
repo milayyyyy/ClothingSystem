@@ -67,8 +67,18 @@ export function defaultEmployeePerms(): Permissions {
   };
 }
 
-/** sub_admin when no row exists in `roles` — matches legacy sidebar (admin-only items excluded). */
+/** sub_admin when no row exists in `roles` — kept for DB backward compatibility only. */
 function defaultSubAdminPerms(): Permissions {
+  const p = blankPerms();
+  for (const k of FEATURE_KEYS) {
+    if (k === "employees" || k === "activity_log" || k === "settings") continue;
+    p[k] = { view: true, edit: true };
+  }
+  return p;
+}
+
+/** Manager default permissions — full access except activity_log, employees, and settings. */
+export function defaultManagerPerms(): Permissions {
   const p = blankPerms();
   for (const k of FEATURE_KEYS) {
     if (k === "employees" || k === "activity_log" || k === "settings") continue;
@@ -147,6 +157,13 @@ export async function getPermissionsForRole(
   if (role === "employee") return defaultEmployeePerms();
 
   const { data } = await supabase.from("roles").select("permissions").eq("name", role).maybeSingle();
+
+  if (role === "manager") {
+    if (data?.permissions && typeof data.permissions === "object") {
+      return { ...defaultManagerPerms(), ...(data.permissions as Permissions) };
+    }
+    return defaultManagerPerms();
+  }
 
   if (role === "sub_admin") {
     if (data?.permissions && typeof data.permissions === "object") {

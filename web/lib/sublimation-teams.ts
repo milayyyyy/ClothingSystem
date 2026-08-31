@@ -15,7 +15,11 @@ export type PlayerDraft = {
 export type TeamDraft = {
   id?: string;
   clientKey: string;
+  /** Groups multiple jersey-type sheets under one team. Defaults to clientKey for single-sheet teams. */
+  teamGroupKey?: string;
   name: string;
+  /** Jersey type label for this sheet, e.g. "Jersey", "Hoodie". Defaults to name when absent. */
+  sheetName?: string;
   /** Public URLs (e.g. Supabase storage) for this team’s design references. */
   design_image_urls: string[];
   players: PlayerDraft[];
@@ -92,7 +96,8 @@ export function emptyPlayer(): PlayerDraft {
 }
 
 export function emptyTeam(): TeamDraft {
-  return { clientKey: newClientKey(), name: "Team", design_image_urls: [], players: [emptyPlayer()] };
+  const ck = newClientKey();
+  return { clientKey: ck, teamGroupKey: ck, name: "Team", sheetName: "Jersey", design_image_urls: [], players: [emptyPlayer()] };
 }
 
 function parseTeamDesignUrls(t: Record<string, unknown>): string[] {
@@ -108,7 +113,9 @@ export function mapTeamsFromSupabase(data: any[] | null): TeamDraft[] {
   return (data || []).map((t: any) => ({
     id: t.id,
     clientKey: t.id,
+    teamGroupKey: t.team_group_key || t.id,
     name: t.name || "Team",
+    sheetName: t.sheet_name || t.name || "Jersey",
     design_image_urls: parseTeamDesignUrls(t as Record<string, unknown>),
     players: [...(t.players || [])]
       .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -176,6 +183,8 @@ export async function persistSublimationTeams(supabase: SupabaseClient, orderId:
       .insert({
         order_id: orderId,
         name: t.name?.trim() || "Team",
+        team_group_key: t.teamGroupKey || t.clientKey,
+        sheet_name: t.sheetName || t.name?.trim() || "Jersey",
         sort_order: ti,
         design_image_urls: gallery,
       })

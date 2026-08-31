@@ -62,6 +62,18 @@ export async function middleware(request: NextRequest) {
       url.pathname = "/admin";
       return NextResponse.redirect(url);
     }
+    // manager cannot access activity log
+    if (path.startsWith("/admin/activity") && role === "manager") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/admin";
+      return NextResponse.redirect(url);
+    }
+    // employees cannot access reminders
+    if (path.startsWith("/admin/reminders") && role === "employee") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/admin";
+      return NextResponse.redirect(url);
+    }
   }
 
   if (user && isAuthRoute) {

@@ -38,6 +38,8 @@ export type TeamsSheetPdfData = {
   balance: number;
   /** When false, export teams/roster only (no price chart section). Default true. */
   includePriceChart?: boolean;
+  /** When true, skip teams/roster and export the price chart section only. */
+  priceChartOnly?: boolean;
   generatedAt?: Date;
 };
 
@@ -215,9 +217,13 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
   const tableW = contentWidth(doc);
 
+  const includePriceChart = data.includePriceChart !== false;
+  const priceChartOnly   = data.priceChartOnly === true;
+
+  // ── Title ─────────────────────────────────────────────────────────────────
   doc.setFont("helvetica", "bold");
   doc.setFontSize(14);
-  doc.text(L.title, MARGIN, 14);
+  doc.text(priceChartOnly ? "Price chart" : L.title, MARGIN, 14);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   const headerLines = doc.splitTextToSize(
@@ -228,87 +234,90 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
 
   let y = 20 + headerLines.length * 4 + 4;
 
-  if (data.groups.length === 0) {
-    doc.setFontSize(10);
-    doc.text("No sheet data yet.", MARGIN, y);
+  // ── Teams / roster section (skipped when priceChartOnly) ──────────────────
+  if (!priceChartOnly) {
+    if (data.groups.length === 0) {
+      doc.setFontSize(10);
+      doc.text("No sheet data yet.", MARGIN, y);
+    }
+
+    const isSvcLocal = data.sheetKind === "services";
+    const colIndexW  = 9;
+    const colJerseyW = isSvcLocal ? 0 : 16;
+    const colNameW   = isSvcLocal ? 42 : 38;
+    const colLinesW  = tableW - colIndexW - colJerseyW - colNameW;
+
+    for (const group of data.groups) {
+      const urls = (group.designImageUrls || []).filter((u) => u.trim().length > 0);
+      const loadedImages = (
+        await Promise.all(urls.slice(0, 12).map((u) => loadPdfImage(u.trim())))
+      ).filter((x): x is PdfImage => x != null);
+
+      const blockH =
+        12 + designPhotosBlockHeight(loadedImages.length) + Math.max(group.rows.length * 6, 18);
+      y = ensureSpace(doc, y, blockH);
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text(`${L.group}: ${group.teamName || "—"}`, MARGIN, y);
+      y += 5;
+
+      y = drawDesignPhotos(doc, loadedImages, y);
+
+      const head = isSvcLocal
+        ? [["#", L.colName, L.colLines]]
+        : [["#", L.colName, "Jersey #", L.colLines]];
+
+      const body = isSvcLocal
+        ? group.rows.map((r) => [
+            String(r.index),
+            r.surname.trim() || "—",
+            formatSheetLinesForPdf(r.lines),
+          ])
+        : group.rows.map((r) => [
+            String(r.index),
+            r.surname.trim() || "—",
+            r.jerseyNumber?.trim() || "—",
+            formatSheetLinesForPdf(r.lines),
+          ]);
+
+      autoTable(doc, {
+        startY: y,
+        tableWidth: tableW,
+        head,
+        body,
+        theme: "grid",
+        styles: {
+          fontSize: 7.5,
+          cellPadding: 2,
+          overflow: "linebreak",
+          valign: "top",
+          lineWidth: 0.1,
+          minCellHeight: 5,
+        },
+        headStyles: { fillColor: [45, 45, 45], textColor: 255, fontSize: 7.5, valign: "middle" },
+        columnStyles: isSvcLocal
+          ? {
+              0: { cellWidth: colIndexW, halign: "center" },
+              1: { cellWidth: colNameW },
+              2: { cellWidth: colLinesW },
+            }
+          : {
+              0: { cellWidth: colIndexW, halign: "center" },
+              1: { cellWidth: colNameW },
+              2: { cellWidth: colJerseyW, halign: "center" },
+              3: { cellWidth: colLinesW, fontSize: 7.5, cellPadding: 2.5 },
+            },
+        margin: { left: MARGIN, right: MARGIN },
+        rowPageBreak: "avoid",
+      });
+
+      y = tableEndY(doc) + 8;
+    }
   }
 
-  const isSvc = data.sheetKind === "services";
-  const colIndexW = 9;
-  const colJerseyW = isSvc ? 0 : 16;
-  const colNameW = isSvc ? 42 : 38;
-  const colLinesW = tableW - colIndexW - colJerseyW - colNameW;
-
-  for (const group of data.groups) {
-    const urls = (group.designImageUrls || []).filter((u) => u.trim().length > 0);
-    const loadedImages = (
-      await Promise.all(urls.slice(0, 12).map((u) => loadPdfImage(u.trim())))
-    ).filter((x): x is PdfImage => x != null);
-
-    const blockH =
-      12 + designPhotosBlockHeight(loadedImages.length) + Math.max(group.rows.length * 6, 18);
-    y = ensureSpace(doc, y, blockH);
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text(`${L.group}: ${group.teamName || "—"}`, MARGIN, y);
-    y += 5;
-
-    y = drawDesignPhotos(doc, loadedImages, y);
-
-    const head = isSvc
-      ? [["#", L.colName, L.colLines]]
-      : [["#", L.colName, "Jersey #", L.colLines]];
-
-    const body = isSvc
-      ? group.rows.map((r) => [
-          String(r.index),
-          r.surname.trim() || "—",
-          formatSheetLinesForPdf(r.lines),
-        ])
-      : group.rows.map((r) => [
-          String(r.index),
-          r.surname.trim() || "—",
-          r.jerseyNumber?.trim() || "—",
-          formatSheetLinesForPdf(r.lines),
-        ]);
-
-    autoTable(doc, {
-      startY: y,
-      tableWidth: tableW,
-      head,
-      body,
-      theme: "grid",
-      styles: {
-        fontSize: 7.5,
-        cellPadding: 2,
-        overflow: "linebreak",
-        valign: "top",
-        lineWidth: 0.1,
-        minCellHeight: 5,
-      },
-      headStyles: { fillColor: [45, 45, 45], textColor: 255, fontSize: 7.5, valign: "middle" },
-      columnStyles: isSvc
-        ? {
-            0: { cellWidth: colIndexW, halign: "center" },
-            1: { cellWidth: colNameW },
-            2: { cellWidth: colLinesW },
-          }
-        : {
-            0: { cellWidth: colIndexW, halign: "center" },
-            1: { cellWidth: colNameW },
-            2: { cellWidth: colJerseyW, halign: "center" },
-            3: { cellWidth: colLinesW, fontSize: 7.5, cellPadding: 2.5 },
-          },
-      margin: { left: MARGIN, right: MARGIN },
-      rowPageBreak: "avoid",
-    });
-
-    y = tableEndY(doc) + 8;
-  }
-
-  const includePriceChart = data.includePriceChart !== false;
-  if (includePriceChart) {
+  // ── Price chart section ───────────────────────────────────────────────────
+  if (includePriceChart || priceChartOnly) {
     y = ensureSpace(doc, y, 45);
 
     doc.setFont("helvetica", "bold");

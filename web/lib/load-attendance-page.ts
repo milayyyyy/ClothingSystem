@@ -17,7 +17,7 @@ export async function loadAttendancePageData(supabase: SupabaseClient): Promise<
     supabase
       .from("profiles")
       .select("id, full_name, email, face_descriptor")
-      .in("role", ["employee", "sub_admin"])
+      .in("role", ["employee", "manager"])
       .order("full_name"),
     supabase.from("app_settings").select("key, value").eq("key", "clock_mode").maybeSingle(),
   ]);

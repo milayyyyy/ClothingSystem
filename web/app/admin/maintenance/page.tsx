@@ -12,7 +12,7 @@ export default async function AdminMaintenancePage() {
   const supabase = createClient();
   const [{ data, error }, { data: staff }] = await Promise.all([
     supabase.from("maintenance_schedules").select(MAINTENANCE_SCHEDULE_SELECT).order("starts_at", { ascending: false }),
-    supabase.from("profiles").select("id, full_name, email, role").in("role", ["employee", "sub_admin"]).order("full_name"),
+    supabase.from("profiles").select("id, full_name, email, role").in("role", ["employee", "manager"]).order("full_name"),
   ]);
   if (error) {
     return (

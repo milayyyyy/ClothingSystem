@@ -13,9 +13,9 @@ export async function loadOrdersPageData(
 ): Promise<OrdersPageData> {
   const [{ data: orders }, { data: employees }] = await Promise.all([
     supabase.from("orders").select(ADMIN_ORDERS_SELECT).order("created_at", { ascending: false }),
-    supabase.from("profiles").select("id, full_name, email, role").in("role", ["employee", "sub_admin"]),
+    supabase.from("profiles").select("id, full_name, email, role").in("role", ["employee", "manager"]),
   ]);
-  const canCreate = role === "admin" || role === "sub_admin";
+  const canCreate = role === "admin" || role === "manager";
   return {
     orders: orders || [],
     employees: (employees || []) as OrdersPageData["employees"],

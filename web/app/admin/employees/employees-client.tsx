@@ -217,7 +217,7 @@ export function EmployeesClient({
 
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 <Badge variant="teal">Permanent</Badge>
-                <Badge variant={p.role === "admin" ? "purple" : "blue"}>{p.role}</Badge>
+                <Badge variant={p.role === "admin" ? "purple" : p.role === "manager" ? "amber" : "blue"}>{p.role}</Badge>
                 <Badge variant={p.active ? "green" : "red"}>{p.active ? "Active" : "Inactive"}</Badge>
                 {p.position && <Badge variant="outline">{p.position}</Badge>}
               </div>
@@ -536,6 +536,7 @@ function AddEmployee({
           <Label>Role</Label>
           <select className={selectClass} value={form.role} onChange={(e) => set("role", e.target.value)}>
             <option value="employee">Employee</option>
+            <option value="manager">Manager</option>
             <option value="admin">Admin</option>
           </select>
         </div>
@@ -704,6 +705,7 @@ function EditEmployee({
           <Label>Role</Label>
           <select className={selectClass} value={form.role} onChange={(e) => set("role", e.target.value)}>
             <option value="employee">Employee</option>
+            <option value="manager">Manager</option>
             <option value="admin">Admin</option>
           </select>
         </div>

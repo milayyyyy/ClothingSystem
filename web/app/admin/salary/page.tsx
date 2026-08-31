@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminSalaryPage() {
   const supabase = createClient();
   const [{ data: employees }, { data: salaries }, { data: attendance }, { data: financeAccounts }] = await Promise.all([
-    supabase.from("profiles").select("*").eq("role", "employee"),
+    supabase.from("profiles").select("*").in("role", ["employee", "manager"]),
     supabase
       .from("salaries")
       .select("*")

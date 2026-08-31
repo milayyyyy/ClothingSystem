@@ -10,7 +10,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDateTime } from "@/lib/utils";
-import { History, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { History, Pencil, Plus, Search, Trash2, X, List, LayoutGrid, LayoutList } from "lucide-react";
 import { CsvExportDialog, type CsvColumn } from "@/components/csv-export-dialog";
 import { InventoryFullStockExportButton } from "@/components/inventory-full-stock-export-button";
 import { fetchAllInventoryStock } from "@/lib/inventory-stock-export";
@@ -36,6 +36,18 @@ type Item = {
   notes?: string | null;
   product_store?: string | null;
   store_id?: string | null;
+  sub_items_count?: number;
+};
+
+type SubItem = {
+  /** Temp key used only in React state (never sent to DB) */
+  _key: string;
+  id?: string;
+  name: string;
+  color: string;
+  size: string;
+  dimensions: string;
+  quantity: number;
 };
 
 export type InventoryCategoryRow = { id: string; name: string; slug: string; sort_order: number };
@@ -296,6 +308,18 @@ export function InventoryClient({
   }, [searchParamKey]);
   const [items, setItems] = useState<Item[]>(initial);
 
+  // View mode: "list" (table) or "card" (grid) — persisted in localStorage
+  const [viewMode, setViewMode] = useState<"list" | "card">(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("inventory_view") as "list" | "card") ?? "list";
+    }
+    return "list";
+  });
+  function toggleView(mode: "list" | "card") {
+    setViewMode(mode);
+    if (typeof window !== "undefined") localStorage.setItem("inventory_view", mode);
+  }
+
   useEffect(() => {
     setItems(initial);
     setCategories(initialCategories);
@@ -443,12 +467,22 @@ export function InventoryClient({
   }
 
   async function refresh() {
-    const [{ data: inv }, { data: cats }, { data: typeRows }] = await Promise.all([
+    const [{ data: inv }, { data: cats }, { data: typeRows }, { data: subCounts }] = await Promise.all([
       supabase.from("inventory").select("*").order("name"),
       supabase.from("inventory_categories").select("id,name,slug,sort_order").order("sort_order").order("name"),
       supabase.from("inventory_type_options").select("name").order("name"),
+      supabase.from("inventory_sub_items").select("inventory_id"),
     ]);
-    setItems((inv as Item[]) || []);
+    // Build a count map: inventory_id → count
+    const countMap = new Map<string, number>();
+    for (const row of (subCounts || []) as { inventory_id: string }[]) {
+      countMap.set(row.inventory_id, (countMap.get(row.inventory_id) ?? 0) + 1);
+    }
+    const invWithCounts = ((inv as Item[]) || []).map((item) => ({
+      ...item,
+      sub_items_count: countMap.get(item.id) ?? 0,
+    }));
+    setItems(invWithCounts);
     setCategories((cats as InventoryCategoryRow[]) || []);
     setTypePresetNames(((typeRows as { name: string }[]) || []).map((r) => r.name).filter(Boolean));
   }
@@ -535,61 +569,134 @@ export function InventoryClient({
         </Card>
       </div>
 
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 flex-1 rounded-lg border bg-card p-4 shadow-sm">
-          <div className="text-sm font-medium text-foreground">Filter inventory</div>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Narrow the list by category, type, search text, or low stock. Filters update the URL so you can bookmark them.
-          </p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:items-end">
-            <div className="space-y-1.5">
-              <Label htmlFor="inv-filter-category" className="text-xs">
-                Category
-              </Label>
-              <select
-                id="inv-filter-category"
-                value={kind}
-                onChange={(e) => applyFilters(e.target.value, typeFilter, lowOnly)}
-                className={filterSelectClass}
-                aria-label="Filter by category"
-              >
-                <option value="all">All categories</option>
-                {categoriesForUi.map((c) => (
-                  <option key={c.slug} value={c.slug}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="inv-filter-type" className="text-xs">
-                Type
-              </Label>
-              <select
-                id="inv-filter-type"
-                value={typeFilter}
-                onChange={(e) => applyFilters(kind, e.target.value, lowOnly)}
-                className={filterSelectClass}
-                aria-label="Filter by type"
-              >
-                <option value="">All types</option>
-                {typeFilter && !typeNamesForFilter.includes(typeFilter) && (
-                  <option value={typeFilter}>{typeFilter} (active filter)</option>
-                )}
-                {typeNamesForFilter.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 lg:pb-0.5">
-              <Button type="button" variant="outline" size="sm" className="h-9" onClick={clearFilters}>
-                Clear filters
-              </Button>
-            </div>
+      {/* ── Toolbar row: action buttons + view toggle ─────────────────── */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" className="h-9 shrink-0" onClick={() => setStockHistoryOpen(true)}>
+          <History className="mr-1 h-4 w-4" />
+          Stock history
+        </Button>
+        <InventoryFullStockExportButton compact />
+        <CsvExportDialog<Item>
+          label="Export filtered tab"
+          filename="inventory"
+          columns={
+            [
+              { header: "Name", value: (r) => r.name },
+              { header: "Category", value: (r) => r.category ?? "" },
+              { header: "Type", value: (r) => r.item_type ?? "" },
+              { header: "Quantity", value: (r) => r.quantity ?? 0 },
+              { header: "Unit", value: (r) => r.unit ?? "" },
+              { header: "Min Level", value: (r) => r.min_level ?? "" },
+              { header: "Unit Cost", value: (r) => r.unit_cost ?? "" },
+              { header: "Supplier", value: (r) => r.supplier ?? "" },
+              { header: "Supplier link", value: (r) => r.supplier_link ?? "" },
+              { header: "Notes", value: (r) => r.notes ?? "" },
+            ] satisfies CsvColumn<Item>[]
+          }
+          fetchRows={async (from, to) => {
+            if (!from && !to) return fetchAllInventoryStock(supabase) as unknown as Item[];
+            let q = supabase.from("inventory").select("*").order("name");
+            if (from) q = q.gte("created_at", from);
+            if (to) q = q.lte("created_at", to + "T23:59:59");
+            const { data } = await q;
+            return (data as Item[]) || [];
+          }}
+        />
+        {canEdit && (
+          <Link
+            href="/admin/inventory/settings"
+            className="inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            Categories & types
+          </Link>
+        )}
+        {canEdit && (
+          <Button className="h-9 shrink-0" onClick={() => { setEditing(null); setOpen(true); }}>
+            <Plus className="mr-1 h-4 w-4" /> Add Item
+          </Button>
+        )}
+        {/* View toggle */}
+        <div className="ml-auto flex overflow-hidden rounded-md border">
+          <button
+            type="button"
+            onClick={() => toggleView("list")}
+            title="List view"
+            aria-label="List view"
+            className={cn(
+              "flex h-9 w-9 items-center justify-center transition-colors",
+              viewMode === "list"
+                ? "bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover:bg-muted",
+            )}
+          >
+            <LayoutList className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleView("card")}
+            title="Card view"
+            aria-label="Card view"
+            className={cn(
+              "flex h-9 w-9 items-center justify-center border-l transition-colors",
+              viewMode === "card"
+                ? "bg-primary text-primary-foreground"
+                : "bg-background text-muted-foreground hover:bg-muted",
+            )}
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Filter card — full width ─────────────────────────────────── */}
+      <div className="mb-4 rounded-lg border bg-card p-4 shadow-sm">
+        <div className="text-sm font-medium text-foreground">Filter inventory</div>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Narrow the list by category, type, search text, or low stock. Filters update the URL so you can bookmark them.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+          <div className="space-y-1.5">
+            <Label htmlFor="inv-filter-category" className="text-xs">
+              Category
+            </Label>
+            <select
+              id="inv-filter-category"
+              value={kind}
+              onChange={(e) => applyFilters(e.target.value, typeFilter, lowOnly)}
+              className={filterSelectClass}
+              aria-label="Filter by category"
+            >
+              <option value="all">All categories</option>
+              {categoriesForUi.map((c) => (
+                <option key={c.slug} value={c.slug}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="mt-3 space-y-1.5">
+          <div className="space-y-1.5">
+            <Label htmlFor="inv-filter-type" className="text-xs">
+              Type
+            </Label>
+            <select
+              id="inv-filter-type"
+              value={typeFilter}
+              onChange={(e) => applyFilters(kind, e.target.value, lowOnly)}
+              className={filterSelectClass}
+              aria-label="Filter by type"
+            >
+              <option value="">All types</option>
+              {typeFilter && !typeNamesForFilter.includes(typeFilter) && (
+                <option value={typeFilter}>{typeFilter} (active filter)</option>
+              )}
+              {typeNamesForFilter.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="inv-search" className="flex items-center gap-1.5 text-xs">
               <Search className="h-3.5 w-3.5" aria-hidden />
               Search
@@ -597,59 +704,17 @@ export function InventoryClient({
             <Input
               id="inv-search"
               type="search"
-              placeholder="Name, category, type, supplier, notes, quantity…"
+              placeholder="Name, category, type, notes…"
               value={searchQuery}
               onChange={(e) => applyFilters(kind, typeFilter, lowOnly, e.target.value)}
-              className="max-w-xl"
               autoComplete="off"
             />
           </div>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
-          <Button type="button" variant="outline" className="h-9 shrink-0" onClick={() => setStockHistoryOpen(true)}>
-            <History className="mr-1 h-4 w-4" />
-            Stock history
-          </Button>
-          <InventoryFullStockExportButton compact />
-          <CsvExportDialog<Item>
-            label="Export filtered tab"
-            filename="inventory"
-            columns={
-              [
-                { header: "Name", value: (r) => r.name },
-                { header: "Category", value: (r) => r.category ?? "" },
-                { header: "Type", value: (r) => r.item_type ?? "" },
-                { header: "Quantity", value: (r) => r.quantity ?? 0 },
-                { header: "Unit", value: (r) => r.unit ?? "" },
-                { header: "Min Level", value: (r) => r.min_level ?? "" },
-                { header: "Unit Cost", value: (r) => r.unit_cost ?? "" },
-                { header: "Supplier", value: (r) => r.supplier ?? "" },
-                { header: "Supplier link", value: (r) => r.supplier_link ?? "" },
-                { header: "Notes", value: (r) => r.notes ?? "" },
-              ] satisfies CsvColumn<Item>[]
-            }
-            fetchRows={async (from, to) => {
-              if (!from && !to) return fetchAllInventoryStock(supabase) as unknown as Item[];
-              let q = supabase.from("inventory").select("*").order("name");
-              if (from) q = q.gte("created_at", from);
-              if (to) q = q.lte("created_at", to + "T23:59:59");
-              const { data } = await q;
-              return (data as Item[]) || [];
-            }}
-          />
-          {canEdit && (
-            <Link
-              href="/admin/inventory/settings"
-              className="inline-flex h-9 shrink-0 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-            >
-              Categories & types
-            </Link>
-          )}
-          {canEdit && (
-            <Button className="h-9 shrink-0" onClick={() => { setEditing(null); setOpen(true); }}>
-              <Plus className="mr-1 h-4 w-4" /> Add Item
+          <div className="flex items-end pb-0.5">
+            <Button type="button" variant="outline" size="sm" className="h-9" onClick={clearFilters}>
+              Clear filters
             </Button>
-          )}
+          </div>
         </div>
       </div>
 
@@ -670,6 +735,8 @@ export function InventoryClient({
         </div>
       )}
 
+      {/* ── List view ──────────────────────────────────────────────────── */}
+      {viewMode === "list" && (
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full min-w-[980px] table-fixed text-sm">
@@ -726,6 +793,12 @@ export function InventoryClient({
                     )}
                     <td className="p-2 font-medium">
                       <span className="block truncate" title={i.name}>{i.name}</span>
+                      {(i.sub_items_count ?? 0) > 0 && (
+                        <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <List className="h-3 w-3" />
+                          {i.sub_items_count} item{i.sub_items_count !== 1 ? "s" : ""}
+                        </span>
+                      )}
                     </td>
                     <td className="p-2 text-muted-foreground">
                       <span className="block truncate" title={i.category || ""}>{i.category || "—"}</span>
@@ -782,6 +855,132 @@ export function InventoryClient({
           </table>
         </CardContent>
       </Card>
+      )}
+
+      {/* ── Card view ──────────────────────────────────────────────────── */}
+      {viewMode === "card" && (
+        <>
+          {visible.length === 0 && (
+            <p className="py-12 text-center text-sm text-muted-foreground">
+              No items match the current filters or search.
+            </p>
+          )}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {visible.map((i) => {
+              const s = statusOf(i);
+              const sel = selectedIds.has(i.id);
+              const borderColor =
+                s.v === "red"
+                  ? "border-l-destructive"
+                  : s.v === "amber"
+                    ? "border-l-amber-500"
+                    : "border-l-green-500";
+              const note = (i.notes || "").trim();
+              return (
+                <Card
+                  key={i.id}
+                  className={cn(
+                    "overflow-hidden border-l-4 transition-shadow hover:shadow-md",
+                    borderColor,
+                    sel && "ring-2 ring-primary/40",
+                  )}
+                >
+                  <CardContent className="p-0">
+                    {/* Header */}
+                    <div className="flex items-start gap-2 p-4 pb-3">
+                      {canEdit && (
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 shrink-0 rounded border-input accent-primary"
+                          checked={sel}
+                          onChange={() => toggleRowSelected(i.id)}
+                          aria-label={`Select ${i.name}`}
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <h3
+                          className="truncate text-sm font-semibold leading-tight text-foreground"
+                          title={i.name}
+                        >
+                          {i.name}
+                        </h3>
+                        <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+                          {i.category && <span>{i.category}</span>}
+                          {i.category && i.item_type && <span>·</span>}
+                          {i.item_type && <span>{i.item_type}</span>}
+                        </div>
+                      </div>
+                      <Badge variant={s.v} className="shrink-0 text-[10px]">
+                        {s.label}
+                      </Badge>
+                    </div>
+
+                    {/* On hand / Min level */}
+                    <div className="grid grid-cols-2 gap-px border-t bg-border">
+                      <div className="bg-card px-4 py-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          On hand
+                        </p>
+                        <p className="mt-0.5 text-base font-bold tabular-nums">{onHandLabel(i)}</p>
+                      </div>
+                      <div className="bg-card px-4 py-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Min level
+                        </p>
+                        <p className="mt-0.5 text-base font-bold tabular-nums">{minLevelDisplay(i)}</p>
+                      </div>
+                    </div>
+
+                    {/* Details */}
+                    {(i.supplier || (i.sub_items_count ?? 0) > 0 || note) && (
+                      <div className="space-y-1 border-t px-4 py-3 text-xs text-muted-foreground">
+                        {i.supplier && (
+                          <p className="flex items-center gap-1 truncate">
+                            <span className="shrink-0 font-medium text-foreground/70">Supplier:</span>
+                            <span className="truncate">{i.supplier}</span>
+                          </p>
+                        )}
+                        {(i.sub_items_count ?? 0) > 0 && (
+                          <p className="flex items-center gap-1">
+                            <List className="h-3 w-3 shrink-0" />
+                            {i.sub_items_count} item{i.sub_items_count !== 1 ? "s" : ""}
+                          </p>
+                        )}
+                        {note && (
+                          <p className="line-clamp-2 leading-relaxed" title={note}>
+                            {note}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    {canEdit && (
+                      <div className="flex border-t">
+                        <button
+                          type="button"
+                          onClick={() => { setEditing(i); setOpen(true); }}
+                          className="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        </button>
+                        <div className="w-px bg-border" />
+                        <button
+                          type="button"
+                          onClick={() => remove(i.id)}
+                          className="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Delete
+                        </button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <ItemForm
         open={open}
@@ -1020,6 +1219,17 @@ const inputClass = cn(
   "disabled:cursor-not-allowed disabled:opacity-50",
 );
 
+const fieldClass = cn(
+  "flex h-8 w-full rounded-md border border-input bg-background px-2 py-1 text-xs shadow-sm transition-colors",
+  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-primary",
+  "placeholder:text-muted-foreground/60",
+);
+
+let _subKey = 0;
+function newSubItem(): SubItem {
+  return { _key: `k${_subKey++}`, name: "", color: "", size: "", dimensions: "", quantity: 0 };
+}
+
 function ItemForm({
   open,
   onClose,
@@ -1054,31 +1264,64 @@ function ItemForm({
   const [suppliers, setSuppliers] = useState<InventorySupplierOption[]>([]);
   const [suppliersLoading, setSuppliersLoading] = useState(false);
   const [typeOptions, setTypeOptions] = useState<Array<{ id: string; name: string }>>([]);
+  const [subItems, setSubItems] = useState<SubItem[]>([]);
 
   useEffect(() => {
     if (!open) return;
     setForm(item ? { ...empty, ...item } : { ...empty });
+    setSubItems([]);
   }, [open, item, empty]);
 
+  // Load suppliers, types, and sub-items
   useEffect(() => {
     if (!open) return;
     let alive = true;
     (async () => {
       setSuppliersLoading(true);
-      const [{ data: supData }, { data: typeData }] = await Promise.all([
+      const promises: Promise<unknown>[] = [
         supabase.from("suppliers").select("id,name,online_store_url,social_media_url").order("name"),
         supabase.from("inventory_type_options").select("id,name").order("name"),
-      ]);
+      ];
+      if (item?.id) {
+        promises.push(
+          supabase
+            .from("inventory_sub_items")
+            .select("id,name,color,size,dimensions,quantity,sort_order")
+            .eq("inventory_id", item.id)
+            .order("sort_order")
+            .order("created_at"),
+        );
+      }
+      const [supRes, typeRes, subRes] = await Promise.all(promises) as any[];
       if (!alive) return;
-      setSuppliers((supData as any) || []);
-      setTypeOptions((typeData as Array<{ id: string; name: string }>) || []);
+      setSuppliers((supRes?.data as any) || []);
+      setTypeOptions((typeRes?.data as Array<{ id: string; name: string }>) || []);
+      if (subRes?.data) {
+        setSubItems(
+          (subRes.data as Array<{ id: string; name: string; color: string; size: string; dimensions: string; quantity: number }>).map(
+            (r) => ({ _key: `k${_subKey++}`, id: r.id, name: r.name ?? "", color: r.color ?? "", size: r.size ?? "", dimensions: r.dimensions ?? "", quantity: Number(r.quantity) ?? 0 })
+          ),
+        );
+      }
       setSuppliersLoading(false);
     })();
     return () => { alive = false; };
-  }, [open, supabase]);
+  }, [open, item, supabase]);
 
   function set(k: keyof Item, v: string | number) {
     setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  function addSubItem() {
+    setSubItems((prev) => [...prev, newSubItem()]);
+  }
+
+  function removeSubItem(idx: number) {
+    setSubItems((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function updateSubItem(idx: number, field: keyof Omit<SubItem, "_key" | "id">, value: string | number) {
+    setSubItems((prev) => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
   }
 
   const derivedStatus = statusOf(form);
@@ -1104,17 +1347,45 @@ function ItemForm({
       supplier_link: showSupplierLink ? normalizeSupplierLinkUrl(form.supplier_link || "") || null : null,
       notes: form.notes?.trim() || null,
     };
+
+    let inventoryId = item?.id ?? "";
     if (item) {
       await supabase.from("inventory").update(payload).eq("id", item.id);
     } else {
-      await supabase.from("inventory").insert(payload);
+      const { data: inserted } = await supabase.from("inventory").insert(payload).select("id").single();
+      inventoryId = (inserted as { id: string } | null)?.id ?? "";
     }
+
+    // Save sub-items: delete existing then re-insert
+    if (inventoryId) {
+      await supabase.from("inventory_sub_items").delete().eq("inventory_id", inventoryId);
+      const nonEmpty = subItems.filter((s) => s.name.trim());
+      if (nonEmpty.length > 0) {
+        await supabase.from("inventory_sub_items").insert(
+          nonEmpty.map((s, idx) => ({
+            inventory_id: inventoryId,
+            name: s.name.trim(),
+            color: s.color.trim() || null,
+            size: s.size.trim() || null,
+            dimensions: s.dimensions.trim() || null,
+            quantity: Number(s.quantity) || 0,
+            sort_order: idx,
+          })),
+        );
+      }
+    }
+
     onClose();
     onSaved();
   }
 
+  const selectClass = cn(
+    "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background focus-visible:border-primary",
+  );
+
   return (
-    <Dialog open={open} onClose={onClose} title={item ? "Edit Item" : "Add Item"}>
+    <Dialog open={open} onClose={onClose} title={item ? "Edit Item" : "Add Item"} size="xl">
       <form onSubmit={save} className="grid grid-cols-2 gap-3">
         <div className="col-span-2">
           <Label>Item</Label>
@@ -1125,60 +1396,41 @@ function ItemForm({
           <select
             value={form.category || categories[0]?.name || ""}
             onChange={(e) => set("category", e.target.value)}
-            className={cn(
-              "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background focus-visible:border-primary",
-            )}
+            className={selectClass}
           >
             {categories.map((c) => (
-              <option key={c.id || c.slug} value={c.name}>
-                {c.name}
-              </option>
+              <option key={c.id || c.slug} value={c.name}>{c.name}</option>
             ))}
             {form.category && !categoryKnown && (
               <option value={form.category}>{form.category} (legacy)</option>
             )}
           </select>
-          {!categoryKnown && form.category && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Pick a category from the list, or edit categories on the Categories & types page.
-            </p>
-          )}
           <p className="mt-1 text-xs text-muted-foreground">
             <Link href="/admin/inventory/settings" className="text-primary underline-offset-4 hover:underline">
               Manage categories & types
             </Link>
           </p>
         </div>
-        <div className="col-span-2 sm:col-span-1">
+        <div>
           <Label>Type</Label>
           <select
             value={form.item_type || ""}
             onChange={(e) => set("item_type", e.target.value)}
-            aria-label="Item type"
-            className={cn(
-              "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background focus-visible:border-primary",
-              !form.item_type && "text-muted-foreground",
-            )}
+            className={cn(selectClass, !form.item_type && "text-muted-foreground")}
           >
             <option value="">Select type…</option>
-            {form.item_type &&
-              !typeOptions.some((t) => t.name === form.item_type) && (
-                <option value={form.item_type}>{form.item_type} (current)</option>
-              )}
+            {form.item_type && !typeOptions.some((t) => t.name === form.item_type) && (
+              <option value={form.item_type}>{form.item_type} (current)</option>
+            )}
             {typeOptions.map((t) => (
-              <option key={t.id} value={t.name}>
-                {t.name}
-              </option>
+              <option key={t.id} value={t.name}>{t.name}</option>
             ))}
           </select>
           <p className="mt-1 text-xs text-muted-foreground">
-            Types come from saved options. Add or rename them on{" "}
+            Types come from saved options. Add or rename on{" "}
             <Link href="/admin/inventory/settings" className="text-primary underline-offset-4 hover:underline">
               Manage categories & types
-            </Link>
-            .
+            </Link>.
           </p>
         </div>
         <div>
@@ -1195,9 +1447,9 @@ function ItemForm({
         </div>
         <div>
           <Label>Status</Label>
-          <div className="flex h-9 items-center">
+          <div className="flex h-9 items-center gap-2">
             <Badge variant={derivedStatus.v}>{derivedStatus.label}</Badge>
-            <span className="ml-2 text-xs text-muted-foreground">from on hand vs minimum</span>
+            <span className="text-xs text-muted-foreground">from on hand vs minimum</span>
           </div>
         </div>
         <div className="col-span-2">
@@ -1207,15 +1459,9 @@ function ItemForm({
             onChange={(e) => {
               const name = e.target.value;
               set("supplier", name);
-              if (!isOnlineEcommerceSupplier(name, suppliers)) {
-                set("supplier_link", "");
-              }
+              if (!isOnlineEcommerceSupplier(name, suppliers)) set("supplier_link", "");
             }}
-            className={cn(
-              "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background focus-visible:border-primary",
-              "disabled:cursor-not-allowed disabled:opacity-50",
-            )}
+            className={cn(selectClass, "disabled:cursor-not-allowed disabled:opacity-50")}
             disabled={suppliersLoading}
           >
             <option value="">{suppliersLoading ? "Loading suppliers…" : "Select supplier"}</option>
@@ -1240,13 +1486,8 @@ function ItemForm({
                 <p className="text-xs text-muted-foreground">
                   Supplier store:{" "}
                   <a
-                    href={
-                      selectedSupplierRow.online_store_url.startsWith("http")
-                        ? selectedSupplierRow.online_store_url
-                        : `https://${selectedSupplierRow.online_store_url}`
-                    }
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href={selectedSupplierRow.online_store_url.startsWith("http") ? selectedSupplierRow.online_store_url : `https://${selectedSupplierRow.online_store_url}`}
+                    target="_blank" rel="noopener noreferrer"
                     className="text-primary underline-offset-4 hover:underline"
                   >
                     Open shop
@@ -1254,7 +1495,7 @@ function ItemForm({
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                Paste the product listing URL so you can reorder this item from Shopee or another online store.
+                Paste the product listing URL so you can reorder from Shopee or another online store.
               </p>
             </div>
           )}
@@ -1263,12 +1504,107 @@ function ItemForm({
           <Label>Notes</Label>
           <textarea
             className={inputClass}
-            rows={3}
+            rows={2}
             value={form.notes || ""}
             onChange={(e) => set("notes", e.target.value)}
             placeholder="Optional details"
           />
         </div>
+
+        {/* ── Item List (sub-items / variants) ──────────────────────────── */}
+        <div className="col-span-2 rounded-lg border bg-muted/20 p-3">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <List className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-sm font-medium text-foreground">Item List</p>
+                <p className="text-xs text-muted-foreground">Add specific items with name, color, size, dimensions and quantity.</p>
+              </div>
+            </div>
+            <Button type="button" size="sm" variant="outline" onClick={addSubItem}>
+              <Plus className="mr-1 h-3.5 w-3.5" /> Add item
+            </Button>
+          </div>
+
+          {subItems.length === 0 ? (
+            <button
+              type="button"
+              onClick={addSubItem}
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed py-5 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+            >
+              <Plus className="h-4 w-4" />
+              Click to add the first item
+            </button>
+          ) : (
+            <div className="overflow-x-auto rounded-md border bg-background">
+              {/* Header */}
+              <div className="grid min-w-[560px] grid-cols-[1fr_90px_80px_110px_70px_32px] gap-x-1.5 border-b bg-muted/50 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <span>Item name</span>
+                <span>Color</span>
+                <span>Size</span>
+                <span>Dimensions</span>
+                <span>Qty</span>
+                <span />
+              </div>
+              {subItems.map((sub, idx) => (
+                <div
+                  key={sub._key}
+                  className="grid min-w-[560px] grid-cols-[1fr_90px_80px_110px_70px_32px] items-center gap-x-1.5 border-b px-2 py-1.5 last:border-b-0"
+                >
+                  <Input
+                    className={fieldClass}
+                    value={sub.name}
+                    onChange={(e) => updateSubItem(idx, "name", e.target.value)}
+                    placeholder="Item name"
+                  />
+                  <Input
+                    className={fieldClass}
+                    value={sub.color}
+                    onChange={(e) => updateSubItem(idx, "color", e.target.value)}
+                    placeholder="e.g. Red"
+                  />
+                  <Input
+                    className={fieldClass}
+                    value={sub.size}
+                    onChange={(e) => updateSubItem(idx, "size", e.target.value)}
+                    placeholder="e.g. XL"
+                  />
+                  <Input
+                    className={fieldClass}
+                    value={sub.dimensions}
+                    onChange={(e) => updateSubItem(idx, "dimensions", e.target.value)}
+                    placeholder="e.g. 30×40 cm"
+                  />
+                  <Input
+                    className={fieldClass}
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={sub.quantity}
+                    onChange={(e) => updateSubItem(idx, "quantity", Number(e.target.value))}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeSubItem(idx)}
+                    className="flex items-center justify-center rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                    title="Remove this item"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+              {/* Add row shortcut at the bottom */}
+              <button
+                type="button"
+                onClick={addSubItem}
+                className="flex w-full items-center gap-1.5 px-2 py-2 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add another item
+              </button>
+            </div>
+          )}
+        </div>
+
         <div className="col-span-2 flex justify-end gap-2 pt-2">
           <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
           <Button type="submit">Save</Button>

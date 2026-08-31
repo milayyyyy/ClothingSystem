@@ -34,6 +34,7 @@ import {
   PackageX,
   Download,
   FileStack,
+  BellRing,
 } from "lucide-react";
 import {
   canView,
@@ -42,13 +43,14 @@ import {
   type Permissions,
 } from "@/lib/role-permissions";
 
-type Role = "admin" | "sub_admin" | "employee";
+type Role = "admin" | "manager" | "employee";
 type Child = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; query?: Record<string, string> };
 type Item = {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
+  adminOrManagerOnly?: boolean;
   children?: Child[];
 };
 type Group = { title: string; items: Item[] };
@@ -92,6 +94,7 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/attendance", label: "Attendance", icon: Clock },
     { href: "/admin/salary", label: "Salary", icon: Wallet },
     { href: "/admin/tasks", label: "Tasks", icon: ListChecks },
+    { href: "/admin/reminders", label: "Reminders", icon: BellRing, adminOrManagerOnly: true },
     { href: "/admin/stores", label: "Stores", icon: Warehouse },
   ]},
   { title: "Audit", items: [
@@ -127,6 +130,7 @@ function filterStaffGroups(groups: Group[], perms: Permissions, role: Role): Gro
       ...g,
       items: g.items.filter((item) => {
         if (item.adminOnly && role !== "admin") return false;
+        if (item.adminOrManagerOnly && role === "employee") return false;
         const feature = hrefToFeature(item.href);
         if (!feature) return true;
         return canView(perms, feature);

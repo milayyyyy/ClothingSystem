@@ -40,10 +40,12 @@ import {
 
 type FlatRow = {
   rowId: string;
-  teamKey: string;
+  teamKey: string;      // team group key — groups sheets belonging to the same team
+  sheetKey: string;     // jersey-type sheet key (= sublimation_teams.id)
   playerKey: string;
   teamName: string;
-  /** Duplicated on each row of the team; kept in sync when editing. */
+  sheetName: string;    // jersey-type label, e.g. "Jersey", "Hoodie"
+  /** Duplicated on each row of the sheet; kept in sync when editing. */
   teamDesignUrls: string[];
   surname: string;
   jersey_number: string;
@@ -353,15 +355,19 @@ function JerseyOrderCell({
 // ---------------------------------------------------------------------------
 function teamsToFlatRows(teams: TeamDraft[]): FlatRow[] {
   const out: FlatRow[] = [];
-  const gallery = (t: TeamDraft) => [...(t.design_image_urls || [])];
   for (const t of teams) {
-    const urls = gallery(t);
+    const teamKey  = t.teamGroupKey || t.clientKey;
+    const sheetKey = t.clientKey;
+    const sheetName = t.sheetName || t.name || "Jersey";
+    const urls = [...(t.design_image_urls || [])];
     for (const p of t.players) {
       out.push({
-        rowId: `${t.clientKey}__${p.clientKey}`,
-        teamKey: t.clientKey,
+        rowId: `${sheetKey}__${p.clientKey}`,
+        teamKey,
+        sheetKey,
         playerKey: p.clientKey,
         teamName: t.name,
+        sheetName,
         teamDesignUrls: urls,
         surname: p.surname,
         jersey_number: p.jersey_number,
@@ -374,22 +380,28 @@ function teamsToFlatRows(teams: TeamDraft[]): FlatRow[] {
 
 function flatRowsToTeams(rows: FlatRow[]): TeamDraft[] {
   const orderKeys: string[] = [];
-  const byTeam = new Map<string, { name: string; designImageUrls: string[]; players: PlayerDraft[] }>();
+  const bySheet = new Map<string, {
+    teamKey: string; teamName: string;
+    sheetKey: string; sheetName: string;
+    designImageUrls: string[]; players: PlayerDraft[];
+  }>();
 
   for (const r of rows) {
-    if (!byTeam.has(r.teamKey)) {
-      orderKeys.push(r.teamKey);
-      byTeam.set(r.teamKey, {
-        name: r.teamName.trim() || "Team",
-        designImageUrls: [...r.teamDesignUrls],
-        players: [],
+    const key = `${r.teamKey}||${r.sheetKey}`;
+    if (!bySheet.has(key)) {
+      orderKeys.push(key);
+      bySheet.set(key, {
+        teamKey: r.teamKey, teamName: r.teamName.trim() || "Team",
+        sheetKey: r.sheetKey, sheetName: r.sheetName || "Jersey",
+        designImageUrls: [...r.teamDesignUrls], players: [],
       });
     } else {
-      const g = byTeam.get(r.teamKey)!;
-      g.name = r.teamName.trim() || "Team";
+      const g = bySheet.get(key)!;
+      g.teamName = r.teamName.trim() || "Team";
+      g.sheetName = r.sheetName || "Jersey";
       g.designImageUrls = [...r.teamDesignUrls];
     }
-    byTeam.get(r.teamKey)!.players.push({
+    bySheet.get(key)!.players.push({
       clientKey: r.playerKey,
       surname: r.surname,
       jersey_number: r.jersey_number,
@@ -399,28 +411,32 @@ function flatRowsToTeams(rows: FlatRow[]): TeamDraft[] {
     });
   }
 
-  return orderKeys.map((k) => {
-    const g = byTeam.get(k)!;
+  return orderKeys.map((key) => {
+    const g = bySheet.get(key)!;
     return {
-      clientKey: k,
-      name: g.name,
+      clientKey: g.sheetKey,
+      teamGroupKey: g.teamKey,
+      name: g.teamName,
+      sheetName: g.sheetName,
       design_image_urls: g.designImageUrls.map((u) => u.trim()).filter(Boolean),
-      players:
-        g.players.length > 0
-          ? g.players
-          : [emptyPlayer()].map((p) => ({ ...p, clientKey: newClientKey() })),
+      players: g.players.length > 0
+        ? g.players
+        : [emptyPlayer()].map((p) => ({ ...p, clientKey: newClientKey() })),
     };
   });
 }
 
 function defaultFlatRow(): FlatRow {
-  const tk = newClientKey();
-  const pk = newClientKey();
+  const teamKey  = newClientKey();
+  const sheetKey = newClientKey();
+  const pk       = newClientKey();
   return {
-    rowId: `${tk}__${pk}`,
-    teamKey: tk,
+    rowId: `${sheetKey}__${pk}`,
+    teamKey,
+    sheetKey,
     playerKey: pk,
     teamName: "Team",
+    sheetName: "Jersey",
     teamDesignUrls: [],
     surname: "",
     jersey_number: "",
@@ -428,20 +444,35 @@ function defaultFlatRow(): FlatRow {
   };
 }
 
-/** Preserve team order as first-seen in `rows` (matches save order). */
-function groupRowsByTeam(rows: FlatRow[]): { teamKey: string; teamName: string; rows: FlatRow[] }[] {
-  const keys: string[] = [];
-  const map = new Map<string, FlatRow[]>();
+type SheetGroup = { sheetKey: string; sheetName: string; rows: FlatRow[] };
+type TeamGroup  = { teamKey: string; teamName: string; sheets: SheetGroup[] };
+
+/** Preserve team and sheet order as first-seen in `rows` (matches save order). */
+function groupRowsByTeamAndSheet(rows: FlatRow[]): TeamGroup[] {
+  const teamOrder: string[] = [];
+  const teamMap = new Map<string, { teamName: string; sheetOrder: string[]; sheetMap: Map<string, SheetGroup> }>();
   for (const r of rows) {
-    if (!map.has(r.teamKey)) {
-      keys.push(r.teamKey);
-      map.set(r.teamKey, []);
+    if (!teamMap.has(r.teamKey)) {
+      teamOrder.push(r.teamKey);
+      teamMap.set(r.teamKey, { teamName: r.teamName, sheetOrder: [], sheetMap: new Map() });
     }
-    map.get(r.teamKey)!.push(r);
+    const team = teamMap.get(r.teamKey)!;
+    team.teamName = r.teamName;
+    if (!team.sheetMap.has(r.sheetKey)) {
+      team.sheetOrder.push(r.sheetKey);
+      team.sheetMap.set(r.sheetKey, { sheetKey: r.sheetKey, sheetName: r.sheetName, rows: [] });
+    }
+    const sheet = team.sheetMap.get(r.sheetKey)!;
+    sheet.sheetName = r.sheetName;
+    sheet.rows.push(r);
   }
-  return keys.map((teamKey) => {
-    const list = map.get(teamKey)!;
-    return { teamKey, teamName: list[0]?.teamName ?? "Team", rows: list };
+  return teamOrder.map((teamKey) => {
+    const team = teamMap.get(teamKey)!;
+    return {
+      teamKey,
+      teamName: team.teamName,
+      sheets: team.sheetOrder.map((sk) => team.sheetMap.get(sk)!),
+    };
   });
 }
 
@@ -697,14 +728,65 @@ export function TeamsSheetClient({
   // Pending save payload — held until the dialog resolves
   const pendingSave = useRef<{ computedTotal: number; dp: number } | null>(null);
 
-  const teamGroups = useMemo(() => groupRowsByTeam(flatRows), [flatRows]);
+  const teamGroups = useMemo(() => groupRowsByTeamAndSheet(flatRows), [flatRows]);
+
+  // Active team tab: defaults to first team key
+  const [activeTeamKey, setActiveTeamKey] = useState<string>("");
+  // Active sheet per team: maps teamKey → active sheetKey
+  const [activeSheetKeyByTeam, setActiveSheetKeyByTeam] = useState<Map<string, string>>(new Map());
+
+  // Keep activeTeamKey valid when teams change (e.g. after reload or removal)
+  useEffect(() => {
+    if (teamGroups.length === 0) return;
+    const keys = teamGroups.map((g) => g.teamKey);
+    if (!activeTeamKey || !keys.includes(activeTeamKey)) {
+      setActiveTeamKey(keys[0]!);
+    }
+  }, [teamGroups, activeTeamKey]);
+
+  /** Returns the currently active sheetKey for a given team. */
+  function getActiveSheetKeyForTeam(teamKey: string): string {
+    const stored = activeSheetKeyByTeam.get(teamKey);
+    if (stored) {
+      const group = teamGroups.find((g) => g.teamKey === teamKey);
+      if (group?.sheets.some((s) => s.sheetKey === stored)) return stored;
+    }
+    return teamGroups.find((g) => g.teamKey === teamKey)?.sheets[0]?.sheetKey ?? "";
+  }
+
+  function setActiveSheetForTeam(teamKey: string, sheetKey: string) {
+    setActiveSheetKeyByTeam((prev) => new Map(prev).set(teamKey, sheetKey));
+  }
 
   /** All unique jersey line types across the whole order, with counts. */
   const uniqueLines = useMemo(() => buildUniqueLines(flatRows), [flatRows]);
 
+  /** Active sheet key for the currently active team (used for the price chart). */
+  const activeSheetKey = useMemo(() => {
+    const stored = activeSheetKeyByTeam.get(activeTeamKey);
+    if (stored) {
+      const group = teamGroups.find((g) => g.teamKey === activeTeamKey);
+      if (group?.sheets.some((s) => s.sheetKey === stored)) return stored;
+    }
+    return teamGroups.find((g) => g.teamKey === activeTeamKey)?.sheets[0]?.sheetKey ?? "";
+  }, [activeTeamKey, activeSheetKeyByTeam, teamGroups]);
+
+  /** Jersey lines for only the active sheet — used for the per-tab price chart. */
+  const activeTeamRows = useMemo(() => {
+    const group = teamGroups.find((g) => g.teamKey === activeTeamKey);
+    if (!group) return [];
+    const sheet = group.sheets.find((s) => s.sheetKey === activeSheetKey);
+    return sheet?.rows ?? [];
+  }, [teamGroups, activeTeamKey, activeSheetKey]);
+  const activeUniqueLines = useMemo(() => buildUniqueLines(activeTeamRows), [activeTeamRows]);
+
   const orderTotal = useMemo(
     () => uniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0),
     [uniqueLines, linePrices],
+  );
+  const activeTeamTotal = useMemo(
+    () => activeUniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0),
+    [activeUniqueLines, linePrices],
   );
   const downPayment = Math.max(0, Number(downPaymentStr) || 0);
   const balance = orderTotal - downPayment;
@@ -714,7 +796,7 @@ export function TeamsSheetClient({
     setLoading(true);
     void supabase
       .from("sublimation_teams")
-      .select("id, name, sort_order, design_image_urls, players:sublimation_team_players(*)")
+      .select("id, name, team_group_key, sheet_name, sort_order, design_image_urls, players:sublimation_team_players(*)")
       .eq("order_id", orderId)
       .order("sort_order", { ascending: true })
       .then(({ data, error }) => {
@@ -754,9 +836,17 @@ export function TeamsSheetClient({
     setFlatRows((prev) => prev.map((r) => (r.teamKey === teamKey ? { ...r, teamName: name } : r)));
   }
 
-  async function handleDesignUrlsChange(teamKey: string, nextUrls: string[]) {
+  function patchSheetName(teamKey: string, sheetKey: string, name: string) {
+    setFlatRows((prev) =>
+      prev.map((r) =>
+        r.teamKey === teamKey && r.sheetKey === sheetKey ? { ...r, sheetName: name } : r,
+      ),
+    );
+  }
+
+  async function handleDesignUrlsChange(sheetKey: string, nextUrls: string[]) {
     const updatedRows = flatRows.map((r) =>
-      r.teamKey === teamKey ? { ...r, teamDesignUrls: nextUrls } : r,
+      r.sheetKey === sheetKey ? { ...r, teamDesignUrls: nextUrls } : r,
     );
     setFlatRows(updatedRows);
     if (viewOnly) return;
@@ -764,7 +854,7 @@ export function TeamsSheetClient({
       const { updatedInPlace } = await saveTeamDesignGallery(
         supabase,
         orderId,
-        teamKey,
+        sheetKey,
         nextUrls,
         flatRowsToTeams(updatedRows),
       );
@@ -776,44 +866,106 @@ export function TeamsSheetClient({
     }
   }
 
-  function sortTeamPlayers(teamKey: string, mode: TeamRowSortMode) {
+  function sortTeamPlayers(teamKey: string, sheetKey: string, mode: TeamRowSortMode) {
     setFlatRows((prev) => {
-      const groups = groupRowsByTeam(prev);
+      const groups = groupRowsByTeamAndSheet(prev);
       const next: FlatRow[] = [];
       for (const g of groups) {
-        next.push(...(g.teamKey === teamKey ? sortTeamPlayerRows(g.rows, mode) : g.rows));
+        for (const s of g.sheets) {
+          const sorted =
+            g.teamKey === teamKey && s.sheetKey === sheetKey
+              ? sortTeamPlayerRows(s.rows, mode)
+              : s.rows;
+          next.push(...sorted);
+        }
       }
       return next;
     });
   }
 
-  function addPlayerToTeam(teamKey: string) {
+  function addPlayerToTeam(teamKey: string, sheetKey: string) {
     setFlatRows((prev) => {
-      const sample = prev.find((r) => r.teamKey === teamKey);
+      const sample = prev.find((r) => r.teamKey === teamKey && r.sheetKey === sheetKey);
       const teamName = sample?.teamName ?? "Team";
+      const sheetName = sample?.sheetName ?? "Jersey";
       const teamDesignUrls = sample?.teamDesignUrls ?? [];
       const pk = newClientKey();
-      const rowId = `${teamKey}__${pk}`;
+      const rowId = `${sheetKey}__${pk}`;
       const newRow: FlatRow = {
-        rowId, teamKey, playerKey: pk, teamName, teamDesignUrls,
+        rowId, teamKey, sheetKey, playerKey: pk, teamName, sheetName, teamDesignUrls,
         surname: "", jersey_number: "", jerseyChecklist: [],
       };
       let insertAt = prev.length;
       for (let i = prev.length - 1; i >= 0; i--) {
-        if (prev[i]!.teamKey === teamKey) { insertAt = i + 1; break; }
+        if (prev[i]!.teamKey === teamKey && prev[i]!.sheetKey === sheetKey) {
+          insertAt = i + 1;
+          break;
+        }
       }
       return [...prev.slice(0, insertAt), newRow, ...prev.slice(insertAt)];
     });
   }
 
   function addTeam() {
-    setFlatRows((prev) => [...prev, defaultFlatRow()]);
+    const newRow = defaultFlatRow();
+    setFlatRows((prev) => [...prev, newRow]);
+    setActiveTeamKey(newRow.teamKey);
+    setActiveSheetKeyByTeam((prev) => new Map(prev).set(newRow.teamKey, newRow.sheetKey));
+  }
+
+  function addJerseyTypeToTeam(teamKey: string, teamName: string) {
+    const sheetKey  = newClientKey();
+    const playerKey = newClientKey();
+    const newRow: FlatRow = {
+      rowId: `${sheetKey}__${playerKey}`,
+      teamKey,
+      sheetKey,
+      playerKey,
+      teamName,
+      sheetName: "Jersey Type",
+      teamDesignUrls: [],
+      surname: "",
+      jersey_number: "",
+      jerseyChecklist: [],
+    };
+    setFlatRows((prev) => {
+      let insertAt = prev.length;
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i]!.teamKey === teamKey) { insertAt = i + 1; break; }
+      }
+      return [...prev.slice(0, insertAt), newRow, ...prev.slice(insertAt)];
+    });
+    setActiveSheetKeyByTeam((prev) => new Map(prev).set(teamKey, sheetKey));
   }
 
   function removeTeam(teamKey: string) {
     setFlatRows((prev) => {
       const next = prev.filter((r) => r.teamKey !== teamKey);
       return next.length ? next : [defaultFlatRow()];
+    });
+    setActiveSheetKeyByTeam((prev) => { const m = new Map(prev); m.delete(teamKey); return m; });
+    // Switch to an adjacent team when the active tab is removed
+    if (activeTeamKey === teamKey) {
+      const keys = teamGroups.map((g) => g.teamKey);
+      const idx = keys.indexOf(teamKey);
+      const fallback = keys[idx + 1] ?? keys[idx - 1] ?? "";
+      setActiveTeamKey(fallback);
+    }
+  }
+
+  function removeSheet(teamKey: string, sheetKey: string) {
+    setFlatRows((prev) => {
+      const next = prev.filter((r) => !(r.teamKey === teamKey && r.sheetKey === sheetKey));
+      return next.length ? next : [defaultFlatRow()];
+    });
+    setActiveSheetKeyByTeam((prev) => {
+      if (prev.get(teamKey) !== sheetKey) return prev;
+      // Switch to another sheet in the same team
+      const other = flatRows.find((r) => r.teamKey === teamKey && r.sheetKey !== sheetKey);
+      const m = new Map(prev);
+      if (other) m.set(teamKey, other.sheetKey);
+      else m.delete(teamKey);
+      return m;
     });
   }
 
@@ -922,20 +1074,24 @@ export function TeamsSheetClient({
       customerName,
       sheetKind: (isSvc ? "services" : "teams") as "teams" | "services",
       includePriceChart,
-      groups: teamGroups.map((group) => ({
-        teamName: group.teamName,
-        designImageUrls: [...(group.rows[0]?.teamDesignUrls ?? [])],
-        rows: group.rows.map((r, idx) => ({
-          index: idx + 1,
-          surname: r.surname,
-          jerseyNumber: r.jersey_number,
-          lines: r.jerseyChecklist.map((item) => ({
-            name: item.name,
-            size: item.size,
-            checked: item.checked,
+      groups: teamGroups.flatMap((group) =>
+        group.sheets.map((sheet) => ({
+          teamName: group.sheets.length > 1
+            ? `${group.teamName} — ${sheet.sheetName}`
+            : group.teamName,
+          designImageUrls: [...(sheet.rows[0]?.teamDesignUrls ?? [])],
+          rows: sheet.rows.map((r, idx) => ({
+            index: idx + 1,
+            surname: r.surname,
+            jerseyNumber: r.jersey_number,
+            lines: r.jerseyChecklist.map((item) => ({
+              name: item.name,
+              size: item.size,
+              checked: item.checked,
+            })),
           })),
         })),
-      })),
+      ),
       priceLines: uniqueLines.map((line) => ({
         name: line.name,
         size: line.size,
@@ -948,13 +1104,19 @@ export function TeamsSheetClient({
     };
   }
 
-  async function exportSheetPdf(includePriceChart: boolean) {
+  async function exportSheetPdf(mode: "full" | "roster" | "price_chart") {
     setExportingPdf(true);
     setMessage(null);
     try {
-      const blob = await buildTeamsSheetPdf(sheetPdfPayload(includePriceChart));
+      const base = sheetPdfPayload(true);
+      const payload = {
+        ...base,
+        includePriceChart: mode !== "roster",
+        priceChartOnly:    mode === "price_chart",
+      };
+      const blob = await buildTeamsSheetPdf(payload);
       const slug = isSvc ? "services" : "teams";
-      const suffix = includePriceChart ? "sheet" : "sheet_roster";
+      const suffix = mode === "roster" ? "teams_list" : mode === "price_chart" ? "price_chart" : "full";
       downloadTeamsSheetPdf(blob, `order_${orderNo}_${slug}_${suffix}.pdf`);
     } catch (err) {
       console.error(err);
@@ -969,19 +1131,19 @@ export function TeamsSheetClient({
     ? `/employee/orders/${orderId}/invoice`
     : `/admin/orders/${orderId}/invoice`;
   const L = {
-    pageTitle:     isSvc ? "Services Order — sheet"   : "Teams & jerseys — sheet",
-    addGroup:      isSvc ? "+ Services Order"          : "+ Team",
-    groupNameLabel:isSvc ? "Customer name"             : "Team name",
-    groupNamePlch: isSvc ? "Customer name"             : "Team name",
-    sortLabel:     isSvc ? "Sort services"             : "Sort players",
-    sortByName:    isSvc ? "Service name (A–Z)"        : "Surname (A–Z)",
-    addRow:        isSvc ? "+ Service"                 : "+ Player",
-    removeGroup:   isSvc ? "Remove services"           : "Remove team",
-    colName:       isSvc ? "Services"                  : "Surname",
-    colLines:      isSvc ? "Service Lines"             : "Jersey lines",
+    pageTitle:     isSvc ? "Services Order — sheet"    : "Teams & Jerseys — sheet",
+    addGroup:      isSvc ? "+ Services Order"           : "+ Team",
+    groupNameLabel:isSvc ? "Customer name"              : "Team name",
+    groupNamePlch: isSvc ? "Customer name"              : "Team name",
+    sortLabel:     isSvc ? "Sort services"              : "Sort players",
+    sortByName:    isSvc ? "Service name (A–Z)"         : "Surname (A–Z)",
+    addRow:        isSvc ? "+ Service"                  : "+ Player",
+    removeGroup:   isSvc ? "Remove services"            : "Remove team",
+    colName:       isSvc ? "Services"                   : "Surname",
+    colLines:      isSvc ? "Service Lines"              : "Jersey lines",
     noLines:       isSvc ? "No service lines yet. Add service lines above and they will appear here." : "No jersey lines yet. Add jersey lines to players above and they will appear here.",
-    priceLineHdr:  isSvc ? "Service line"              : "Jersey line",
-    footerHint:    isSvc ? "Each block is one customer/service order. Add design photos; set size beside each service line. Use + Services Order for another customer, then Save sheet." : "Each block is one team. Add design photos by the team name; set size beside each jersey line. Use + Team for another team, then Save sheet.",
+    priceLineHdr:  isSvc ? "Service line"               : "Jersey line",
+    footerHint:    isSvc ? "Each block is one customer/service order. Add design photos; set size beside each service line. Use + Services Order for another customer, then Save sheet." : "Each top tab is a team. Within a team, each jersey type (Jersey, Hoodie, etc.) is a separate sheet with its own player list and price chart. Use + Jersey Type to add a sheet, + Team to add a new team, then Save sheet.",
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1025,21 +1187,33 @@ export function TeamsSheetClient({
             variant="outline"
             size="sm"
             disabled={loading || exportingPdf}
-            onClick={() => void exportSheetPdf(true)}
+            onClick={() => void exportSheetPdf("roster")}
+            title="Player/surname lists with design photos — no pricing"
           >
             <FileDown className="mr-1 h-4 w-4" />
-            {exportingPdf ? "Exporting…" : "Export PDF"}
+            {exportingPdf ? "Exporting…" : "Teams list"}
           </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
             disabled={loading || exportingPdf}
-            onClick={() => void exportSheetPdf(false)}
-            title="Teams, players, and design photos only — no price chart"
+            onClick={() => void exportSheetPdf("price_chart")}
+            title="Price chart only — no player lists"
           >
             <FileDown className="mr-1 h-4 w-4" />
-            {exportingPdf ? "Exporting…" : "Export PDF (no prices)"}
+            {exportingPdf ? "Exporting…" : "Price chart"}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={loading || exportingPdf}
+            onClick={() => void exportSheetPdf("full")}
+            title="Full PDF — teams list + price chart"
+          >
+            <FileDown className="mr-1 h-4 w-4" />
+            {exportingPdf ? "Exporting…" : "Full PDF"}
           </Button>
         {!viewOnly && (
           <>
@@ -1062,9 +1236,6 @@ export function TeamsSheetClient({
               </button>
             </div>
           )}
-          <Button type="button" variant="outline" size="sm" onClick={addTeam} disabled={loading}>
-            {L.addGroup}
-          </Button>
           <Button type="button" size="sm" onClick={save} disabled={loading || saving}>
             {saving ? "Saving…" : "Save sheet"}
           </Button>
@@ -1085,155 +1256,284 @@ export function TeamsSheetClient({
         </p>
       )}
 
+      {/* Jersey Type tabs */}
+      {!isSvc && (
+        <div className="flex flex-wrap items-end gap-0 border-b">
+          {teamGroups.map((group) => {
+            const isActive = activeTeamKey === group.teamKey;
+            return (
+              <button
+                key={group.teamKey}
+                type="button"
+                onClick={() => setActiveTeamKey(group.teamKey)}
+                className={cn(
+                  "relative -mb-px px-5 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-t-md",
+                  isActive
+                    ? "border border-b-background bg-card text-foreground shadow-sm"
+                    : "border-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                )}
+              >
+                {group.teamName?.trim() || "Team"}
+                {isActive && teamGroups.length > 1 && !viewOnly && (
+                  <span
+                    role="button"
+                    aria-label="Remove this Jersey Type"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); removeTeam(group.teamKey); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); removeTeam(group.teamKey); } }}
+                    className="ml-2 inline-flex h-4 w-4 items-center justify-center rounded-full text-xs text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
+                  >
+                    ×
+                  </span>
+                )}
+              </button>
+            );
+          })}
+          {!viewOnly && (
+            <button
+              type="button"
+              onClick={addTeam}
+              disabled={loading}
+              className="mb-0.5 ml-1 flex items-center gap-1 rounded-md px-3 py-2 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+            >
+              <span className="text-base leading-none">+</span> Team
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Sheet */}
       <Card>
         <CardContent className="p-4">
           <div className="max-h-[calc(100dvh-14rem)] space-y-6 overflow-auto pr-1">
-            {teamGroups.map((group) => (
+            {teamGroups.filter((g) => isSvc || g.teamKey === activeTeamKey).map((group) => (
               <div
                 key={group.teamKey}
                 className="rounded-lg border border-border bg-card/30 p-4 shadow-sm"
               >
-                <div className="mb-3 flex flex-wrap items-end justify-between gap-3 border-b border-border/60 pb-3">
-                  <div className="flex min-w-0 flex-1 flex-wrap items-end gap-4">
-                    <div className="min-w-[10rem] max-w-md flex-1">
-                      <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {L.groupNameLabel}
-                      </label>
-                      {viewOnly ? (
-                        <p className="mt-1 h-9 font-medium leading-9">{group.teamName || "—"}</p>
-                      ) : (
-                        <Input
-                          className="mt-1 h-9 font-medium"
-                          value={group.teamName}
-                          onChange={(e: ChangeEvent<HTMLInputElement>) => patchTeamName(group.teamKey, e.target.value)}
-                          placeholder={L.groupNamePlch}
-                        />
-                      )}
-                    </div>
-                    <TeamDesignStrip
-                      urls={group.rows[0]?.teamDesignUrls ?? []}
-                      orderId={orderId}
-                      teamKey={group.teamKey}
-                      disabled={viewOnly}
-                      viewOnly={viewOnly}
-                      uploading={uploadingTeamKey === group.teamKey}
-                      onUrlsChange={(next) => handleDesignUrlsChange(group.teamKey, next)}
-                      onUploadError={(msg) => setMessage(msg)}
-                      onBusyChange={(busy) => setUploadingTeamKey(busy ? group.teamKey : null)}
-                    />
-                  </div>
-                  <div className="flex flex-wrap items-end gap-2">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {L.sortLabel}
-                      </span>
-                      <select
-                        className="h-9 min-w-[11rem] rounded-md border border-input bg-background px-2 text-xs shadow-sm"
-                        aria-label={L.sortLabel}
-                        defaultValue=""
-                        onChange={(e) => {
-                          const v = e.target.value as TeamRowSortMode | "";
-                          if (v) sortTeamPlayers(group.teamKey, v);
-                          e.target.value = "";
-                        }}
-                        disabled={loading}
-                      >
-                        <option value="" disabled>Sort by…</option>
-                        <option value="surname">{L.sortByName}</option>
-                        {!isSvc && <option value="jersey_number">Jersey number</option>}
-                        <option value="size">Size (first line)</option>
-                      </select>
-                    </div>
-                    {!viewOnly && (
-                      <>
-                        <Button type="button" size="sm" variant="secondary" onClick={() => addPlayerToTeam(group.teamKey)} disabled={loading}>
-                          {L.addRow}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => removeTeam(group.teamKey)}
-                          disabled={loading || teamGroups.length <= 1}
-                        >
-                          {L.removeGroup}
-                        </Button>
-                      </>
+                {/* Team name header */}
+                <div className="mb-3 flex flex-wrap items-end gap-4 border-b border-border/60 pb-3">
+                  <div className="min-w-[10rem] max-w-md flex-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {L.groupNameLabel}
+                    </label>
+                    {viewOnly ? (
+                      <p className="mt-1 h-9 font-medium leading-9">{group.teamName || "—"}</p>
+                    ) : (
+                      <Input
+                        className="mt-1 h-9 font-medium"
+                        value={group.teamName}
+                        onChange={(e: ChangeEvent<HTMLInputElement>) => patchTeamName(group.teamKey, e.target.value)}
+                        placeholder={L.groupNamePlch}
+                      />
                     )}
                   </div>
+                  {isSvc && !viewOnly && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => removeTeam(group.teamKey)}
+                      disabled={loading || teamGroups.length <= 1}
+                    >
+                      {L.removeGroup}
+                    </Button>
+                  )}
                 </div>
 
-                <div className="overflow-x-auto rounded-md border border-border/80">
-                  <table className="w-max min-w-full border-collapse text-left text-xs">
-                    <thead className="bg-muted/80">
-                      <tr className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        <th className="sticky left-0 z-[1] w-10 border-b border-r bg-muted/95 px-2 py-2 text-center">#</th>
-                        <th className="min-w-[6rem] border-b border-r px-2 py-2">{L.colName}</th>
-                        {!isSvc && <th className="w-14 border-b border-r px-2 py-2">Jersey #</th>}
-                        <th className="min-w-[14rem] border-b border-r px-2 py-2">
-                          {L.colLines} <span className="font-normal normal-case text-muted-foreground">(size)</span>
-                        </th>
-                        {!viewOnly && <th className="w-16 border-b px-2 py-2 text-center"> </th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.rows.map((r, idx) => (
-                        <tr key={r.rowId} className="border-b border-border/60 hover:bg-muted/15">
-                          <td className="sticky left-0 z-[1] border-r bg-card px-2 py-0.5 text-center font-mono text-muted-foreground">
-                            {idx + 1}
-                          </td>
-                          <td className="border-r p-0">
+                {/* Jersey type sheet sub-tabs */}
+                {!isSvc && (
+                  <div className="mb-3 flex flex-wrap items-end gap-0 border-b">
+                    {group.sheets.map((sheet) => {
+                      const isSheetActive = getActiveSheetKeyForTeam(group.teamKey) === sheet.sheetKey;
+                      return (
+                        <button
+                          key={sheet.sheetKey}
+                          type="button"
+                          onClick={() => setActiveSheetForTeam(group.teamKey, sheet.sheetKey)}
+                          className={cn(
+                            "relative -mb-px px-4 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-t-md",
+                            isSheetActive
+                              ? "border border-b-card bg-card text-foreground shadow-sm"
+                              : "border-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+                          )}
+                        >
+                          {sheet.sheetName?.trim() || "Jersey Type"}
+                          {isSheetActive && group.sheets.length > 1 && !viewOnly && (
+                            <span
+                              role="button"
+                              aria-label="Remove this jersey type"
+                              tabIndex={0}
+                              onClick={(e) => { e.stopPropagation(); removeSheet(group.teamKey, sheet.sheetKey); }}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); removeSheet(group.teamKey, sheet.sheetKey); } }}
+                              className="ml-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-xs text-muted-foreground hover:bg-destructive/20 hover:text-destructive"
+                            >
+                              ×
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                    {!viewOnly && (
+                      <button
+                        type="button"
+                        onClick={() => addJerseyTypeToTeam(group.teamKey, group.teamName)}
+                        disabled={loading}
+                        className="mb-0.5 ml-1 flex items-center gap-1 rounded-md px-3 py-2 text-xs font-medium text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                      >
+                        <span className="text-base leading-none">+</span> Jersey Type
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Active sheet content */}
+                {group.sheets
+                  .filter((s) => isSvc || s.sheetKey === getActiveSheetKeyForTeam(group.teamKey))
+                  .map((sheet) => (
+                  <div key={sheet.sheetKey} className="space-y-3">
+                    {/* Sheet name + design strip + sort/add controls */}
+                    <div className="flex flex-wrap items-end justify-between gap-3">
+                      <div className="flex min-w-0 flex-1 flex-wrap items-end gap-4">
+                        {!isSvc && group.sheets.length > 1 && (
+                          <div className="min-w-[9rem] max-w-xs flex-1">
+                            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                              Jersey type name
+                            </label>
                             {viewOnly ? (
-                              <span className="block h-9 px-2 leading-9">{r.surname || "—"}</span>
+                              <p className="mt-1 h-9 font-medium leading-9">{sheet.sheetName || "—"}</p>
                             ) : (
-                              <input
-                                className="h-9 w-full border-0 bg-transparent px-2 outline-none focus:bg-primary/5"
-                                value={r.surname}
-                                onChange={(e) => patchRow(r.rowId, { surname: e.target.value })}
-                                aria-label={L.colName}
+                              <Input
+                                className="mt-1 h-9"
+                                value={sheet.sheetName}
+                                placeholder="e.g. Jersey, Hoodie…"
+                                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                                  patchSheetName(group.teamKey, sheet.sheetKey, e.target.value)
+                                }
                               />
                             )}
-                          </td>
-                          {!isSvc && (
-                            <td className="border-r p-0">
-                              {viewOnly ? (
-                                <span className="block h-9 px-2 text-center font-mono leading-9">{r.jersey_number || "—"}</span>
-                              ) : (
-                                <input
-                                  className="h-9 w-full border-0 bg-transparent px-2 text-center font-mono outline-none focus:bg-primary/5"
-                                  value={r.jersey_number}
-                                  onChange={(e) => patchRow(r.rowId, { jersey_number: e.target.value })}
-                                  aria-label="Jersey number"
-                                />
+                          </div>
+                        )}
+                        <TeamDesignStrip
+                          urls={sheet.rows[0]?.teamDesignUrls ?? []}
+                          orderId={orderId}
+                          teamKey={sheet.sheetKey}
+                          disabled={viewOnly}
+                          viewOnly={viewOnly}
+                          uploading={uploadingTeamKey === sheet.sheetKey}
+                          onUrlsChange={(next) => handleDesignUrlsChange(sheet.sheetKey, next)}
+                          onUploadError={(msg) => setMessage(msg)}
+                          onBusyChange={(busy) => setUploadingTeamKey(busy ? sheet.sheetKey : null)}
+                        />
+                      </div>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            {L.sortLabel}
+                          </span>
+                          <select
+                            className="h-9 min-w-[11rem] rounded-md border border-input bg-background px-2 text-xs shadow-sm"
+                            aria-label={L.sortLabel}
+                            defaultValue=""
+                            onChange={(e) => {
+                              const v = e.target.value as TeamRowSortMode | "";
+                              if (v) sortTeamPlayers(group.teamKey, sheet.sheetKey, v);
+                              e.target.value = "";
+                            }}
+                            disabled={loading}
+                          >
+                            <option value="" disabled>Sort by…</option>
+                            <option value="surname">{L.sortByName}</option>
+                            {!isSvc && <option value="jersey_number">Jersey number</option>}
+                            <option value="size">Size (first line)</option>
+                          </select>
+                        </div>
+                        {!viewOnly && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => addPlayerToTeam(group.teamKey, sheet.sheetKey)}
+                            disabled={loading}
+                          >
+                            {L.addRow}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-md border border-border/80">
+                      <table className="w-max min-w-full border-collapse text-left text-xs">
+                        <thead className="bg-muted/80">
+                          <tr className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            <th className="sticky left-0 z-[1] w-10 border-b border-r bg-muted/95 px-2 py-2 text-center">#</th>
+                            <th className="min-w-[6rem] border-b border-r px-2 py-2">{L.colName}</th>
+                            {!isSvc && <th className="w-14 border-b border-r px-2 py-2">Jersey #</th>}
+                            <th className="min-w-[14rem] border-b border-r px-2 py-2">
+                              {L.colLines} <span className="font-normal normal-case text-muted-foreground">(size)</span>
+                            </th>
+                            {!viewOnly && <th className="w-16 border-b px-2 py-2 text-center"> </th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sheet.rows.map((r, idx) => (
+                            <tr key={r.rowId} className="border-b border-border/60 hover:bg-muted/15">
+                              <td className="sticky left-0 z-[1] border-r bg-card px-2 py-0.5 text-center font-mono text-muted-foreground">
+                                {idx + 1}
+                              </td>
+                              <td className="border-r p-0">
+                                {viewOnly ? (
+                                  <span className="block h-9 px-2 leading-9">{r.surname || "—"}</span>
+                                ) : (
+                                  <input
+                                    className="h-9 w-full border-0 bg-transparent px-2 outline-none focus:bg-primary/5"
+                                    value={r.surname}
+                                    onChange={(e) => patchRow(r.rowId, { surname: e.target.value })}
+                                    aria-label={L.colName}
+                                  />
+                                )}
+                              </td>
+                              {!isSvc && (
+                                <td className="border-r p-0">
+                                  {viewOnly ? (
+                                    <span className="block h-9 px-2 text-center font-mono leading-9">{r.jersey_number || "—"}</span>
+                                  ) : (
+                                    <input
+                                      className="h-9 w-full border-0 bg-transparent px-2 text-center font-mono outline-none focus:bg-primary/5"
+                                      value={r.jersey_number}
+                                      onChange={(e) => patchRow(r.rowId, { jersey_number: e.target.value })}
+                                      aria-label="Jersey number"
+                                    />
+                                  )}
+                                </td>
                               )}
-                            </td>
-                          )}
-                          <td className="border-r p-1 align-top">
-                            <JerseyOrderCell
-                              items={r.jerseyChecklist}
-                              onChange={(next) => patchRow(r.rowId, { jerseyChecklist: next })}
-                              readOnly={viewOnly}
-                              addLineLabel={isSvc ? "+ Add service line" : undefined}
-                            />
-                          </td>
-                          <td className="p-0 text-center">
-                            {!viewOnly && (
-                              <button
-                                type="button"
-                                className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                onClick={() => removeRow(r.rowId)}
-                              >
-                                Delete
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                              <td className="border-r p-1 align-top">
+                                <JerseyOrderCell
+                                  items={r.jerseyChecklist}
+                                  onChange={(next) => patchRow(r.rowId, { jerseyChecklist: next })}
+                                  readOnly={viewOnly}
+                                  addLineLabel={isSvc ? "+ Add service line" : undefined}
+                                />
+                              </td>
+                              <td className="p-0 text-center">
+                                {!viewOnly && (
+                                  <button
+                                    type="button"
+                                    className="rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                    onClick={() => removeRow(r.rowId)}
+                                  >
+                                    Delete
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -1244,16 +1544,39 @@ export function TeamsSheetClient({
       {/* Price chart */}
       <Card>
         <CardContent className="p-4">
-          <h2 className="mb-1 text-sm font-semibold">Price chart</h2>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">
+              Price chart
+              {!isSvc && (() => {
+                const activeGroup = teamGroups.find((g) => g.teamKey === activeTeamKey);
+                const activeSheet = activeGroup?.sheets.find((s) => s.sheetKey === activeSheetKey);
+                if (!activeGroup) return null;
+                const label = activeGroup.sheets.length > 1
+                  ? `${activeGroup.teamName} — ${activeSheet?.sheetName || "Jersey Type"}`
+                  : activeGroup.teamName;
+                return (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    — {label}
+                  </span>
+                );
+              })()}
+            </h2>
+            {!isSvc && (
+              <span className="text-xs text-muted-foreground">
+                Order total:{" "}
+                <span className="font-semibold text-foreground">{peso(orderTotal)}</span>
+              </span>
+            )}
+          </div>
           <p className="mb-4 text-xs text-muted-foreground">
             {viewOnly
-              ? "Grouped line items and pricing for this order."
+              ? "Grouped line items and pricing for this jersey type sheet."
               : isSvc
                 ? "Service lines with the same name & size are grouped. Set a unit price per type — the total updates automatically. Save sheet saves both the data and the pricing."
-                : "Jersey lines with the same name & size are grouped. Set a unit price per type — the total updates automatically. Save sheet saves both the data and the pricing."}
+                : "Jersey lines for the active sheet are grouped here. Set a unit price per type — the total updates automatically. Switch jersey type tabs to see each sheet's chart."}
           </p>
 
-          {uniqueLines.length === 0 ? (
+          {activeUniqueLines.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">{L.noLines}</p>
           ) : (
             <div className="overflow-x-auto rounded-md border">
@@ -1268,7 +1591,7 @@ export function TeamsSheetClient({
                   </tr>
                 </thead>
                 <tbody>
-                  {uniqueLines.map((line) => {
+                  {activeUniqueLines.map((line) => {
                     const unitPrice = linePrices[line.key] ?? 0;
                     const subtotal = line.count * unitPrice;
                     return (
@@ -1307,10 +1630,15 @@ export function TeamsSheetClient({
                 <tfoot className="bg-muted/30 text-sm font-semibold">
                   <tr className="border-t-2 border-border">
                     <td colSpan={4} className="border-r px-3 py-2 text-right text-muted-foreground">
-                      Grand Total
+                      {(() => {
+                        const g = teamGroups.find((t) => t.teamKey === activeTeamKey);
+                        if (g && g.sheets.length > 1) return "Sheet Total";
+                        if (teamGroups.length > 1) return "Team Total";
+                        return "Grand Total";
+                      })()}
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-base">
-                      {peso(orderTotal)}
+                      {peso(activeTeamTotal)}
                     </td>
                   </tr>
                   <tr className="border-t border-border/60">

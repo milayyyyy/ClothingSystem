@@ -12,7 +12,7 @@ const Sidebar = dynamic(() => import("@/components/sidebar").then((m) => m.Sideb
   ssr: false,
 });
 
-type Role = "admin" | "sub_admin" | "employee";
+type Role = "admin" | "manager" | "employee";
 
 export function AppShell({
   role,

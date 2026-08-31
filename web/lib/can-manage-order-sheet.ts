@@ -7,7 +7,7 @@ export async function canManageOrderSheet(
   profileRole: string,
   orderId: string,
 ): Promise<boolean> {
-  if (profileRole === "admin" || profileRole === "sub_admin") return true;
+  if (profileRole === "admin" || profileRole === "manager") return true;
 
   const perms = await getPermissionsForRole(supabase, profileRole);
   if (perms.all || perms.orders?.edit) return true;

@@ -13,7 +13,7 @@ import { peso, formatDate, formatDateTime, formatSupabaseError } from "@/lib/uti
 import { parseBigSellerPrintedTimeFromPdfText } from "@/lib/bigseller-printed-time";
 import { formatBigSellerPrintedAt } from "@/lib/bigseller-datetime";
 import { BigSellerItemNamesCell } from "@/components/bigseller-item-names-cell";
-import { ChevronDown, Eye, FileText, FileUp, Pencil, Plus, Settings2, Table2, Trash2, ArrowRight } from "lucide-react";
+import { ChevronDown, Eye, EyeOff, FileText, FileUp, Pencil, Plus, Settings2, Table2, Trash2, ArrowRight } from "lucide-react";
 import { BIGSELLER_KNOWN_STORES_SORTED } from "@/lib/bigseller-store-labels";
 import { ADMIN_ORDERS_SELECT } from "@/lib/admin-orders-select";
 import { BigSellerExcelImportButton } from "@/components/bigseller-excel-import-button";
@@ -1012,6 +1012,12 @@ export function OrdersClient({
   );
   const [search, setSearch] = useState(defaultSearch || "");
   const [sortBy, setSortBy] = useState<OrdersSortKey>("latest");
+  const [hideCompleted, setHideCompleted] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("orders_hide_completed") === "true";
+    }
+    return false;
+  });
   const [printedFrom, setPrintedFrom] = useState("");
   const [printedTo, setPrintedTo] = useState("");
   const [open, setOpen] = useState(false);
@@ -1087,6 +1093,14 @@ export function OrdersClient({
         }
       }
 
+      if (hideCompleted) {
+        if (k === "sublimation") {
+          if (String(o.sub_stage || "") === "for_pickup") return false;
+        } else {
+          if (normalizeOrderServiceStage(o.stage) === "completed") return false;
+        }
+      }
+
       if (search) {
         const s = search.toLowerCase().trim();
         const tokens = s.split(/\s+/).filter(Boolean);
@@ -1129,7 +1143,7 @@ export function OrdersClient({
 
       return true;
     });
-  }, [orders, kindFilter, stageFilter, search, hideKindTabs, printedFrom, printedTo]);
+  }, [orders, kindFilter, stageFilter, search, hideKindTabs, printedFrom, printedTo, hideCompleted]);
 
   const filtered = useMemo(() => sortOrders(filteredRows, sortBy), [filteredRows, sortBy]);
 
@@ -1516,6 +1530,30 @@ export function OrdersClient({
               ))}
             </select>
           </div>
+          <Button
+            type="button"
+            variant={hideCompleted ? "default" : "outline"}
+            size="sm"
+            title={hideCompleted ? "Show completed orders" : "Hide completed orders"}
+            onClick={() => {
+              const next = !hideCompleted;
+              setHideCompleted(next);
+              if (typeof window !== "undefined") localStorage.setItem("orders_hide_completed", String(next));
+            }}
+            className="gap-1.5"
+          >
+            {hideCompleted ? (
+              <>
+                <Eye className="h-4 w-4" />
+                Show completed
+              </>
+            ) : (
+              <>
+                <EyeOff className="h-4 w-4" />
+                Hide completed
+              </>
+            )}
+          </Button>
           {hideKindTabs && (
             <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               <span className="whitespace-nowrap">Printed</span>

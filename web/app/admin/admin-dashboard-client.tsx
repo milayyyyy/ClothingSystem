@@ -47,7 +47,7 @@ async function loadDashboard(supabase: ReturnType<typeof createClient>): Promise
 export function AdminDashboardClient() {
   const supabase = createClient();
   const { role, permissions } = useWorkspaceShell();
-  const canAddOrder = role === "admin" || role === "sub_admin";
+  const canAddOrder = role === "admin" || role === "manager";
   const canAddExpense = canEdit(permissions, "sales_expenses");
   const { data, loading, error } = useClientPageData({
     cacheKey: "page:admin-dashboard",

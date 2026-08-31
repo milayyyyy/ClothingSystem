@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default async function ReturnsPage() {
   const supabase = createClient();
   const user = await getSessionUser();
-  const canEdit = user?.profile?.role === "admin" || user?.profile?.role === "sub_admin";
+  const canEdit = user?.profile?.role === "admin" || user?.profile?.role === "manager";
 
   const [
     { data: returnOrders },

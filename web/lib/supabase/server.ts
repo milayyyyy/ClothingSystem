@@ -1,7 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-export type Role = "admin" | "sub_admin" | "employee";
+export type Role = "admin" | "manager" | "employee";
 
 function requirePublicEnv(name: "NEXT_PUBLIC_SUPABASE_URL" | "NEXT_PUBLIC_SUPABASE_ANON_KEY", v: string | undefined) {
   const t = (v ?? "").trim();
@@ -41,7 +41,7 @@ export async function getSessionUser() {
 }
 
 export function isStaff(role: Role | string | undefined) {
-  return role === "admin" || role === "sub_admin";
+  return role === "admin" || role === "manager";
 }
 
 export async function requireStaff() {

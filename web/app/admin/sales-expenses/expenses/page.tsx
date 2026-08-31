@@ -22,7 +22,7 @@ export default async function AdminExpensesSubPage() {
     supabase
       .from("profiles")
       .select("id,full_name,email,role,employment_category")
-      .in("role", ["employee", "sub_admin"])
+      .in("role", ["employee", "manager"])
       .order("full_name", { ascending: true }),
     supabase
       .from("on_call_staff")
