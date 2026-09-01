@@ -81,7 +81,7 @@ const STAFF_GROUPS: Group[] = [
     },
     { href: "/admin/finance", label: "Finance", icon: Landmark },
     { href: "/admin/returns", label: "Returns", icon: PackageX },
-    { href: "/admin/order-records", label: "Order Records", icon: FileStack },
+    { href: "/admin/order-records", label: "Daily Order Records", icon: FileStack },
   ]},
   { title: "Inventory", items: [
     { href: "/admin/inventory", label: "Inventory", icon: Package },
@@ -110,8 +110,8 @@ const EMPLOYEE_GROUPS: Group[] = [
   { title: "Workspace", items: [
     { href: "/employee", label: "Dashboard", icon: LayoutDashboard },
     { href: "/employee/orders", label: "My Orders", icon: ShoppingBag },
+    { href: "/employee/order-records", label: "Daily Order Records", icon: FileStack },
     { href: "/employee/tasks", label: "My Tasks", icon: ListChecks },
-    { href: "/employee/order-records", label: "Order Records", icon: FileStack },
   ]},
   { title: "Personal", items: [
     { href: "/employee/attendance", label: "Attendance", icon: Clock },

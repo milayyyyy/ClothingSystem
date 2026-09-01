@@ -38,7 +38,7 @@ export default async function AdminOrderRecordsPage() {
   return (
     <div>
       <PageHeader
-        title="Order Records"
+        title="Daily Order Records"
         description="Review employee submissions daily. Use their sheets as a guide and deduct inventory manually in Inventory / Ready-made."
       />
       <OrderRecordsClient

@@ -42,7 +42,7 @@ export default async function EmployeeOrderRecordsPage() {
   return (
     <div>
       <PageHeader
-        title="Order Records"
+        title="Daily Order Records"
         description="Upload order PDFs or photos and fill in usage sheets with your own row/column labels. Admin deducts stock manually after review."
       />
       <OrderRecordsClient
