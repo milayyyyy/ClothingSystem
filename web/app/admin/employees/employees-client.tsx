@@ -34,9 +34,11 @@ function initials(name?: string | null) {
 export function EmployeesClient({
   initialPermanent,
   initialOnCall,
+  viewerRole = "admin",
 }: {
   initialPermanent: P[];
   initialOnCall: OnCallStaff[];
+  viewerRole?: string;
 }) {
   const supabase = createClient();
   const { ask, dialog: confirmDialog } = useConfirmAction();
@@ -169,12 +171,21 @@ export function EmployeesClient({
         <OnCallStaffPanel list={onCallList} positions={positions} onRefresh={refresh} />
       ) : (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {permanentList.length === 0 && (
-          <p className="col-span-full rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-            No permanent employees yet.
-          </p>
-        )}
-        {permanentList.map((p) => (
+        {(() => {
+          const visibleList = viewerRole === "manager"
+            ? permanentList.filter((p) => p.role !== "admin")
+            : permanentList;
+          return (
+            <>
+              {visibleList.length === 0 && (
+                <p className="col-span-full rounded-lg border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                  No permanent employees yet.
+                </p>
+              )}
+              {visibleList.map((p) => {
+                const isAdminAccount = p.role === "admin";
+                const canActOnRow = viewerRole === "admin" || !isAdminAccount;
+                return (
           <Card key={p.id}>
             <CardContent className="p-5">
               <div className="flex items-start justify-between">
@@ -198,17 +209,29 @@ export function EmployeesClient({
                 <div className="flex items-center gap-0.5">
                   <button
                     type="button"
-                    onClick={() => setEditing(p)}
-                    className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                    title="Edit employee"
+                    onClick={() => canActOnRow && setEditing(p)}
+                    disabled={!canActOnRow}
+                    className={cn(
+                      "rounded p-1 transition-colors",
+                      canActOnRow
+                        ? "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        : "cursor-not-allowed opacity-30",
+                    )}
+                    title={canActOnRow ? "Edit employee" : "Managers cannot edit admin accounts"}
                   >
                     <Pencil className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
-                    onClick={() => deleteEmployee(p)}
-                    className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    title="Delete employee"
+                    onClick={() => canActOnRow && deleteEmployee(p)}
+                    disabled={!canActOnRow}
+                    className={cn(
+                      "rounded p-1 transition-colors",
+                      canActOnRow
+                        ? "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        : "cursor-not-allowed opacity-30",
+                    )}
+                    title={canActOnRow ? "Delete employee" : "Managers cannot delete admin accounts"}
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -268,7 +291,11 @@ export function EmployeesClient({
               </p>
             </CardContent>
           </Card>
-        ))}
+                );
+              })}
+            </>
+          );
+        })()}
       </div>
       )}
 

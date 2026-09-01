@@ -6,6 +6,12 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminEmployeesPage() {
   const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: viewerProfile } = user
+    ? await supabase.from("profiles").select("role").eq("id", user.id).single()
+    : { data: null };
+  const viewerRole = (viewerProfile as { role?: string } | null)?.role ?? "employee";
+
   const [{ data: profiles }, onCallRes] = await Promise.all([
     supabase.from("profiles").select("*").order("created_at", { ascending: false }),
     supabase.from("on_call_staff").select("*").order("full_name", { ascending: true }),
@@ -22,7 +28,7 @@ export default async function AdminEmployeesPage() {
         title="Employees"
         description="Permanent staff with login accounts, and on-call contacts (no app access)"
       />
-      <EmployeesClient initialPermanent={permanent} initialOnCall={onCall || []} />
+      <EmployeesClient initialPermanent={permanent} initialOnCall={onCall || []} viewerRole={viewerRole} />
     </div>
   );
 }
