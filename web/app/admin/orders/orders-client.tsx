@@ -122,6 +122,7 @@ function orderFormPrimaryKey(kind: string): (typeof ORDER_FORM_PRIMARY_KINDS)[nu
 }
 
 const ORDER_TOP_TABS = [
+  { href: "/admin/orders?type=all_orders", kind: "all_orders" as const, label: "All Orders" },
   { href: "/admin/orders?type=walkin_online", kind: "walkin_online" as const, label: "Walk In & Online" },
   { href: "/admin/orders?type=services", kind: "services" as const, label: "Services" },
   { href: "/admin/orders?type=sublimation", kind: "sublimation" as const, label: "Sublimation" },
@@ -155,8 +156,8 @@ const SUBLIMATION_BULK_TARGET_OPTIONS: { v: string; label: string }[] = [
 
 const LOCAL_STAGES = ORDER_SERVICE_STAGES;
 /** Main orders: walk-in + non-BigSeller online in one list. BigSeller page uses `online` internally. */
-type OrdersTabKind = "walkin_online" | "services" | "sublimation" | "online";
-const VALID_ORDERS_TAB_KINDS = new Set<string>(["walkin_online", "services", "sublimation"]);
+type OrdersTabKind = "walkin_online" | "services" | "sublimation" | "online" | "all_orders";
+const VALID_ORDERS_TAB_KINDS = new Set<string>(["walkin_online", "services", "sublimation", "all_orders"]);
 
 function normalizeOrdersTabKind(
   raw: string | null | undefined,
@@ -174,7 +175,7 @@ function normalizeOrdersTabKind(
 
 function stageOptions(kind: OrdersTabKind) {
   if (kind === "sublimation") return [] as const;
-  if (kind === "walkin_online" || kind === "online" || kind === "services") return LOCAL_STAGES;
+  if (kind === "walkin_online" || kind === "online" || kind === "services" || kind === "all_orders") return LOCAL_STAGES;
   return [] as const;
 }
 
@@ -1081,12 +1082,21 @@ export function OrdersClient({
       } else if (kindFilter === "online") {
         if (k !== "online") return false;
         if (!isBigSellerOnlineOrder(o)) return false;
+      } else if (kindFilter === "all_orders") {
+        // include walk-in, non-BigSeller online, services, sublimation
+        if (k === "online" && isBigSellerOnlineOrder(o)) return false;
       } else if (k !== kindFilter) {
         return false;
       }
 
       if (stageFilter !== "all") {
-        if (k === "sublimation") {
+        if (kindFilter === "all_orders") {
+          // map sublimation sub_stage to service stage for unified filtering
+          const effectiveStage = k === "sublimation"
+            ? defaultServiceStageFromSubStage(o.sub_stage)
+            : normalizeOrderServiceStage(o.stage);
+          if (effectiveStage !== stageFilter) return false;
+        } else if (k === "sublimation") {
           if (String(o.sub_stage || "") !== stageFilter) return false;
         } else {
           if (normalizeOrderServiceStage(o.stage) !== stageFilter) return false;
@@ -1487,7 +1497,9 @@ export function OrdersClient({
             return (
               <>
                 {k !== "sublimation" && (
-                  <span className="text-xs font-medium text-muted-foreground">Status</span>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {k === "all_orders" ? "Status" : "Status"}
+                  </span>
                 )}
                 {pills.map((p) => (
                   <button
@@ -1501,6 +1513,11 @@ export function OrdersClient({
                     {p.label}
                   </button>
                 ))}
+                {k === "all_orders" && stageFilter !== "all" && (
+                  <span className="text-[11px] text-muted-foreground italic">
+                    (sublimation mapped to nearest stage)
+                  </span>
+                )}
               </>
             );
           })()}
@@ -1653,7 +1670,7 @@ export function OrdersClient({
               )}
             </>
           )}
-          {kindFilter !== "online" && selectedListOrderIds.size > 0 && (
+          {kindFilter !== "online" && selectedListOrderIds.size > 0 && kindFilter !== "all_orders" && (
             <>
               <Button
                 type="button"
@@ -2047,9 +2064,21 @@ export function OrdersClient({
                         </div>
                       </td>
                       <td>
-                        <span className="text-xs text-muted-foreground">
-                          {k.label.replace(/\s+Order\s*$/i, "").trim() || k.label}
-                        </span>
+                        {kindFilter === "all_orders" ? (
+                          <span className={
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium " +
+                            (k.variant === "blue" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400" :
+                             k.variant === "amber" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400" :
+                             k.variant === "teal" ? "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-400" :
+                             "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400")
+                          }>
+                            {k.label.replace(/\s+Order\s*$/i, "").trim() || k.label}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            {k.label.replace(/\s+Order\s*$/i, "").trim() || k.label}
+                          </span>
+                        )}
                       </td>
                       <td>
                         <div className="flex flex-wrap items-center gap-1.5">
