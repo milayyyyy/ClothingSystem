@@ -1279,8 +1279,8 @@ function ItemForm({
     (async () => {
       setSuppliersLoading(true);
       const promises: Promise<unknown>[] = [
-        supabase.from("suppliers").select("id,name,online_store_url,social_media_url").order("name"),
-        supabase.from("inventory_type_options").select("id,name").order("name"),
+        supabase.from("suppliers").select("id,name,online_store_url,social_media_url").order("name") as unknown as Promise<unknown>,
+        supabase.from("inventory_type_options").select("id,name").order("name") as unknown as Promise<unknown>,
       ];
       if (item?.id) {
         promises.push(
@@ -1289,7 +1289,7 @@ function ItemForm({
             .select("id,name,color,size,dimensions,quantity,sort_order")
             .eq("inventory_id", item.id)
             .order("sort_order")
-            .order("created_at"),
+            .order("created_at") as unknown as Promise<unknown>,
         );
       }
       const [supRes, typeRes, subRes] = await Promise.all(promises) as any[];

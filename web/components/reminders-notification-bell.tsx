@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { BellRing } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /** Polls every 60 s for pending reminders with priority = 'urgent'. */
@@ -29,22 +28,18 @@ export function RemindersNotificationBell() {
   }, []);
 
   return (
-    <Button
-      asChild
-      variant="outline"
-      size="sm"
-      className="relative h-9 w-9 shrink-0 p-0"
+    <Link
+      href="/admin/reminders"
+      className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-sm shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
       title={count > 0 ? `${count} urgent reminder${count !== 1 ? "s" : ""}` : "Reminders"}
     >
-      <Link href="/admin/reminders">
-        <BellRing className={cn("h-4 w-4", count > 0 && "text-destructive")} />
-        {count > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-0.5 text-[10px] font-bold leading-none text-destructive-foreground">
-            {count > 99 ? "99+" : count}
-          </span>
-        )}
-        <span className="sr-only">Reminders</span>
-      </Link>
-    </Button>
+      <BellRing className={cn("h-4 w-4", count > 0 && "text-destructive")} />
+      {count > 0 && (
+        <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-0.5 text-[10px] font-bold leading-none text-destructive-foreground">
+          {count > 99 ? "99+" : count}
+        </span>
+      )}
+      <span className="sr-only">Reminders</span>
+    </Link>
   );
 }
