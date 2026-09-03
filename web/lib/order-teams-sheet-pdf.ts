@@ -1,4 +1,14 @@
-import { peso } from "@/lib/utils";
+import { peso as _pesoUI } from "@/lib/utils";
+void _pesoUI; // kept for tree-shaking; PDF uses pesoPdf below
+
+/** PDF-safe currency formatter — jsPDF Helvetica cannot render ₱,
+ *  which appears as ± with garbled digit spacing. */
+function pesoPdf(n: number | null | undefined): string {
+  const v = Number(n ?? 0);
+  const abs = Math.abs(v);
+  const s = abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (v < 0 ? "-PHP " : "PHP ") + s;
+}
 
 export type TeamsSheetPdfLineItem = {
   name: string;
@@ -56,6 +66,10 @@ const MARGIN = 10;
 const THUMB_MAX_MM = 42;
 const THUMB_GAP_MM = 3;
 const THUMBS_PER_ROW = 3;
+/** Size of the large "hero" design photo placed top-right beside the player table. */
+const HERO_PHOTO_MM = 62;
+/** Gap between the narrowed table and the hero photo. */
+const HERO_PHOTO_GAP_MM = 4;
 /** Empty checkbox prefix for handwritten marking on printed sheets. */
 const PDF_CHECKBOX = "[ ]";
 
@@ -249,20 +263,47 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
 
     for (const group of data.groups) {
       const urls = (group.designImageUrls || []).filter((u) => u.trim().length > 0);
-      const loadedImages = (
+      const allImages = (
         await Promise.all(urls.slice(0, 12).map((u) => loadPdfImage(u.trim())))
       ).filter((x): x is PdfImage => x != null);
 
-      const blockH =
-        12 + designPhotosBlockHeight(loadedImages.length) + Math.max(group.rows.length * 6, 18);
+      // First image → large hero in top-right; extras → thumbnail strip below table
+      const heroImage  = allImages[0] ?? null;
+      const extraImages = allImages.slice(1);
+
+      const blockH = 12 + Math.max(group.rows.length * 6, 18);
       y = ensureSpace(doc, y, blockH);
 
+      // ── Group header ──────────────────────────────────────────────────────
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
       doc.text(`${L.group}: ${group.teamName || "—"}`, MARGIN, y);
       y += 5;
 
-      y = drawDesignPhotos(doc, loadedImages, y);
+      const tableStartY = y;
+
+      // ── Hero photo — placed top-right, beside the table ───────────────────
+      let heroH = 0;
+      if (heroImage) {
+        const heroW = HERO_PHOTO_MM;
+        heroH = heroW / heroImage.aspect; // proportional height
+        const photoX = MARGIN + tableW - heroW;
+        const photoY = tableStartY;
+        try {
+          doc.setDrawColor(180, 180, 180);
+          doc.setLineWidth(0.2);
+          doc.rect(photoX, photoY, heroW, heroH);
+          doc.addImage(heroImage.dataUrl, heroImage.format, photoX, photoY, heroW, heroH);
+        } catch {
+          // silently skip broken image
+        }
+      }
+
+      // ── Player table — narrowed when hero photo present ───────────────────
+      const photoReserve = heroImage ? HERO_PHOTO_MM + HERO_PHOTO_GAP_MM : 0;
+      const narrowTableW = tableW - photoReserve;
+
+      const narrowColLinesW = narrowTableW - colIndexW - colJerseyW - colNameW;
 
       const head = isSvcLocal
         ? [["#", L.colName, L.colLines]]
@@ -282,8 +323,8 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
           ]);
 
       autoTable(doc, {
-        startY: y,
-        tableWidth: tableW,
+        startY: tableStartY,
+        tableWidth: narrowTableW,
         head,
         body,
         theme: "grid",
@@ -300,19 +341,27 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
           ? {
               0: { cellWidth: colIndexW, halign: "center" },
               1: { cellWidth: colNameW },
-              2: { cellWidth: colLinesW },
+              2: { cellWidth: narrowTableW - colIndexW - colNameW },
             }
           : {
               0: { cellWidth: colIndexW, halign: "center" },
               1: { cellWidth: colNameW },
               2: { cellWidth: colJerseyW, halign: "center" },
-              3: { cellWidth: colLinesW, fontSize: 7.5, cellPadding: 2.5 },
+              3: { cellWidth: Math.max(narrowColLinesW, 20), fontSize: 7.5, cellPadding: 2.5 },
             },
         margin: { left: MARGIN, right: MARGIN },
         rowPageBreak: "avoid",
       });
 
-      y = tableEndY(doc) + 8;
+      // Advance past whichever is taller — table or hero photo
+      y = Math.max(tableEndY(doc), tableStartY + heroH) + 5;
+
+      // ── Extra photos (2nd, 3rd, …) as small thumbnails below the table ───
+      if (extraImages.length > 0) {
+        y = drawDesignPhotos(doc, extraImages, y);
+      }
+
+      y += 4;
     }
   }
 
@@ -342,25 +391,25 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
             line.name.trim() || "—",
             line.size.trim() || "—",
             String(line.count),
-            line.unitPrice > 0 ? peso(line.unitPrice) : "—",
-            sub > 0 ? peso(sub) : "—",
+            line.unitPrice > 0 ? pesoPdf(line.unitPrice) : "—",
+            sub > 0 ? pesoPdf(sub) : "—",
           ];
         }),
         foot: [
           [
             { content: "Grand total", colSpan: 4, styles: { halign: "right", fontStyle: "bold" } },
-            { content: peso(data.orderTotal), styles: { halign: "right", fontStyle: "bold" } },
+            { content: pesoPdf(data.orderTotal), styles: { halign: "right", fontStyle: "bold" } },
           ],
           [
             { content: "Down payment", colSpan: 4, styles: { halign: "right" } },
             {
-              content: data.downPayment > 0 ? peso(data.downPayment) : "—",
+              content: data.downPayment > 0 ? pesoPdf(data.downPayment) : "—",
               styles: { halign: "right" },
             },
           ],
           [
             { content: "Balance", colSpan: 4, styles: { halign: "right", fontStyle: "bold" } },
-            { content: peso(data.balance), styles: { halign: "right", fontStyle: "bold" } },
+            { content: pesoPdf(data.balance), styles: { halign: "right", fontStyle: "bold" } },
           ],
         ],
         theme: "grid",
