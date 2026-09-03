@@ -98,7 +98,7 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/stores", label: "Stores", icon: Warehouse },
   ]},
   { title: "Audit", items: [
-    { href: "/admin/activity", label: "Activity Log", icon: Activity },
+    { href: "/admin/activity", label: "Activity Log", icon: Activity, adminOrManagerOnly: true },
   ]},
   { title: "Account", items: [
     { href: "/admin/settings", label: "Settings", icon: Settings, adminOnly: true },

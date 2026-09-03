@@ -77,11 +77,13 @@ function defaultSubAdminPerms(): Permissions {
   return p;
 }
 
-/** Manager default permissions — full access except activity_log, employees, and settings. */
+/** Manager default permissions — full access except employees and settings.
+ *  Managers can VIEW the activity log but cannot delete entries (enforced in the page). */
 export function defaultManagerPerms(): Permissions {
   const p = blankPerms();
   for (const k of FEATURE_KEYS) {
-    if (k === "employees" || k === "activity_log" || k === "settings") continue;
+    if (k === "employees" || k === "settings") continue;
+    if (k === "activity_log") { p[k] = { view: true, edit: false }; continue; }
     p[k] = { view: true, edit: true };
   }
   return p;
