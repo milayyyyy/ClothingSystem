@@ -8,7 +8,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDate, peso } from "@/lib/utils";
-import { MapPin, Pencil, Plus, Search, Settings2, Trash2, Hash } from "lucide-react";
+import { ChevronDown, ChevronRight, MapPin, Pencil, Plus, Search, Settings2, Trash2, Hash } from "lucide-react";
 import { MachineTypesDialog, fetchMachineTypes } from "@/components/machine-types-dialog";
 import {
   ASSET_STATUS_OPTIONS,
@@ -171,69 +171,13 @@ export function AssetsClient({
         </p>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {filtered.map((row) => {
-          const typeName = assetMachineTypeName(row);
-          return (
-            <Card key={row.id} className="card-hover">
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="font-semibold">{row.name}</div>
-                    {typeName && (
-                      <div className="mt-1 text-xs text-muted-foreground">{typeName}</div>
-                    )}
-                  </div>
-                  <Badge variant={statusBadgeVariant(row.status)}>{assetStatusLabel(row.status)}</Badge>
-                </div>
-
-                <div className="mt-3 space-y-1.5 text-sm text-muted-foreground">
-                  {row.location && (
-                    <div className="flex items-center gap-1.5">
-                      <MapPin className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">{row.location}</span>
-                    </div>
-                  )}
-                  {row.serial_number && (
-                    <div className="flex items-center gap-1.5">
-                      <Hash className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate font-mono text-xs">{row.serial_number}</span>
-                    </div>
-                  )}
-                  {(row.purchase_date || row.purchase_cost != null) && (
-                    <div>
-                      {row.purchase_date && <span>Purchased {formatDate(row.purchase_date)}</span>}
-                      {row.purchase_date && row.purchase_cost != null && " · "}
-                      {row.purchase_cost != null && <span>{peso(Number(row.purchase_cost))}</span>}
-                    </div>
-                  )}
-                  {row.warranty_expires && (
-                    <div>Warranty until {formatDate(row.warranty_expires)}</div>
-                  )}
-                </div>
-
-                {row.notes && (
-                  <p className="mt-3 line-clamp-2 text-xs text-muted-foreground">{row.notes}</p>
-                )}
-
-                {canEdit && (
-                  <div className="mt-4 flex gap-2">
-                    <Button type="button" size="sm" variant="outline" onClick={() => openEdit(row)}>
-                      <Pencil className="mr-1 h-3.5 w-3.5" />
-                      Edit
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => remove(row.id)}>
-                      <Trash2 className="mr-1 h-3.5 w-3.5" />
-                      Delete
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
+      <AssetGroups
+        filtered={filtered}
+        machineTypesList={machineTypesList}
+        canEdit={canEdit}
+        onEdit={openEdit}
+        onRemove={remove}
+      />
       {filtered.length === 0 && (
         <p className="py-16 text-center text-sm text-muted-foreground">
           {list.length === 0
@@ -267,6 +211,160 @@ export function AssetsClient({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Asset card
+// ---------------------------------------------------------------------------
+function AssetCard({
+  row,
+  canEdit,
+  onEdit,
+  onRemove,
+}: {
+  row: InventoryAssetRow;
+  canEdit: boolean;
+  onEdit: (row: InventoryAssetRow) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <Card className="card-hover">
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-semibold">{row.name}</div>
+          </div>
+          <Badge variant={statusBadgeVariant(row.status)}>{assetStatusLabel(row.status)}</Badge>
+        </div>
+
+        <div className="mt-3 space-y-1.5 text-sm text-muted-foreground">
+          {row.location && (
+            <div className="flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{row.location}</span>
+            </div>
+          )}
+          {row.serial_number && (
+            <div className="flex items-center gap-1.5">
+              <Hash className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate font-mono text-xs">{row.serial_number}</span>
+            </div>
+          )}
+          {(row.purchase_date || row.purchase_cost != null) && (
+            <div>
+              {row.purchase_date && <span>Purchased {formatDate(row.purchase_date)}</span>}
+              {row.purchase_date && row.purchase_cost != null && " · "}
+              {row.purchase_cost != null && <span>{peso(Number(row.purchase_cost))}</span>}
+            </div>
+          )}
+          {row.warranty_expires && (
+            <div>Warranty until {formatDate(row.warranty_expires)}</div>
+          )}
+        </div>
+
+        {row.notes && (
+          <p className="mt-3 line-clamp-2 text-xs text-muted-foreground">{row.notes}</p>
+        )}
+
+        {canEdit && (
+          <div className="mt-4 flex gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => onEdit(row)}>
+              <Pencil className="mr-1 h-3.5 w-3.5" />
+              Edit
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => onRemove(row.id)}>
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              Delete
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Grouped asset list
+// ---------------------------------------------------------------------------
+function AssetGroups({
+  filtered,
+  machineTypesList,
+  canEdit,
+  onEdit,
+  onRemove,
+}: {
+  filtered: InventoryAssetRow[];
+  machineTypesList: MachineTypeOption[];
+  canEdit: boolean;
+  onEdit: (row: InventoryAssetRow) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+
+  function toggle(key: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+
+  // Build ordered groups: named types first (in machineTypesList order), then untyped
+  const typeMap = new Map(machineTypesList.map((t) => [t.id, t.name]));
+  const groups: { key: string; label: string; rows: InventoryAssetRow[] }[] = [];
+
+  for (const t of machineTypesList) {
+    const rows = filtered.filter((r) => r.machine_type_id === t.id);
+    if (rows.length > 0) groups.push({ key: t.id, label: t.name, rows });
+  }
+  const untyped = filtered.filter((r) => !r.machine_type_id || !typeMap.has(r.machine_type_id ?? ""));
+  if (untyped.length > 0) groups.push({ key: "__untyped__", label: "No type", rows: untyped });
+
+  if (groups.length === 0) return null;
+
+  return (
+    <div className="space-y-6">
+      {groups.map((g) => {
+        const isOpen = !collapsed.has(g.key);
+        return (
+          <div key={g.key}>
+            {/* Group header */}
+            <button
+              type="button"
+              onClick={() => toggle(g.key)}
+              className="mb-3 flex w-full items-center gap-2 rounded-lg border bg-muted/40 px-4 py-2.5 text-left hover:bg-muted/70 transition-colors"
+            >
+              {isOpen
+                ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+              <span className="font-semibold text-sm">{g.label}</span>
+              <span className="ml-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                {g.rows.length}
+              </span>
+            </button>
+
+            {/* Cards grid */}
+            {isOpen && (
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {g.rows.map((row) => (
+                  <AssetCard
+                    key={row.id}
+                    row={row}
+                    canEdit={canEdit}
+                    onEdit={onEdit}
+                    onRemove={onRemove}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Form dialog
+// ---------------------------------------------------------------------------
 function AssetFormDialog({
   open,
   onClose,
