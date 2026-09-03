@@ -13,7 +13,17 @@ import {
 } from "@/lib/inventory-stock-export";
 import { formatActivityLog, type ActivityLogRow } from "@/lib/activity-log-format";
 import { mergeUnifiedSaleRows, type ManualSaleRow, type UnifiedSaleListRow } from "@/lib/sales-list";
-import { peso } from "@/lib/utils";
+import { peso as _peso } from "@/lib/utils";
+
+/** PDF-safe currency formatter — avoids the ₱ glyph which jsPDF Helvetica
+ *  cannot render (it appears as ± with garbled spacing). Uses plain ASCII. */
+function peso(n: number | null | undefined): string {
+  const v = Number(n ?? 0);
+  const abs = Math.abs(v);
+  const formatted = abs.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (v < 0 ? "-PHP " : "PHP ") + formatted;
+}
+void _peso; // suppress unused-import warning
 
 export type ExportReportOptions = {
   /** Report date (YYYY-MM-DD) for sales, expenses, money flow, and activity log. */
