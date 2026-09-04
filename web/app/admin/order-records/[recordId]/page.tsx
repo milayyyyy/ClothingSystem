@@ -22,9 +22,10 @@ export default async function AdminOrderRecordReviewPage({
 
   if (!row) notFound();
 
-  const [{ data: attachments }, { data: submitter }] = await Promise.all([
+  const [{ data: attachments }, { data: submitter }, { data: profile }] = await Promise.all([
     supabase.from("order_record_attachments").select("*").eq("record_id", row.id),
     supabase.from("profiles").select("id, full_name, email").eq("id", row.submitted_by).maybeSingle(),
+    supabase.from("profiles").select("role").eq("id", me.id).single(),
   ]);
 
   const record: OrderRecordRow = {
@@ -46,6 +47,7 @@ export default async function AdminOrderRecordReviewPage({
   return (
     <AdminOrderRecordReview
       userId={me.id}
+      viewerRole={(profile?.role as string) ?? "manager"}
       record={record}
       attachments={attachments || []}
     />

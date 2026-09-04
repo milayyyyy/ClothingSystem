@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,7 +13,8 @@ import {
   type OrderRecordRow,
   type OrderRecordStatus,
 } from "@/lib/order-records";
-import { ClipboardList, Plus } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { ClipboardList, Plus, Trash2 } from "lucide-react";
 
 const STATUS_LABEL: Record<OrderRecordStatus, string> = {
   draft: "Draft",
@@ -41,6 +43,8 @@ type ProfileBrief = { id: string; full_name: string | null; email: string };
 type Props = {
   mode: "employee" | "admin";
   userId: string;
+  /** Role of the viewer — only admins can delete approved records. */
+  viewerRole?: string;
   initialRecords: OrderRecordRow[];
   initialAttachments: OrderRecordAttachment[];
   submitters: ProfileBrief[];
@@ -49,10 +53,13 @@ type Props = {
 export function OrderRecordsClient({
   mode,
   userId,
+  viewerRole = "manager",
   initialRecords,
   initialAttachments,
   submitters,
 }: Props) {
+  const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
   const submitterMap = useMemo(() => new Map(submitters.map((p) => [p.id, p])), [submitters]);
   const enrichRecord = useCallback(
     (r: OrderRecordRow): OrderRecordRow => ({
@@ -61,8 +68,11 @@ export function OrderRecordsClient({
     }),
     [submitterMap],
   );
-  const [records] = useState(initialRecords.map(enrichRecord));
+  const [records, setRecords] = useState(initialRecords.map(enrichRecord));
   const [filter, setFilter] = useState<"all" | "pending">(mode === "admin" ? "pending" : "all");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const isAdmin = viewerRole === "admin";
 
   const attByRecord = useMemo(() => {
     const m = new Map<string, OrderRecordAttachment[]>();
@@ -91,6 +101,27 @@ export function OrderRecordsClient({
     mode === "employee"
       ? `/employee/order-records/${r.id}`
       : `/admin/order-records/${r.id}`;
+
+  async function handleDelete(r: OrderRecordRow) {
+    const label = r.title || "Order record";
+    const confirmed = window.confirm(
+      `Delete "${label}" (${fmtDate(r.record_date)})?\n\nThis will permanently remove the record and all its attachments. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setDeletingId(r.id);
+    const { error } = await supabase.from("order_records").delete().eq("id", r.id);
+    setDeletingId(null);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    // Remove from local state immediately
+    setRecords((prev) => prev.filter((x) => x.id !== r.id));
+    router.refresh();
+  }
 
   return (
     <div className="space-y-4">
@@ -145,9 +176,16 @@ export function OrderRecordsClient({
             const atts = attByRecord.get(r.id) || [];
             const name = r.submitter?.full_name || r.submitter?.email || (mode === "employee" ? "You" : "Employee");
             const href = recordHref(r);
-            const inner = (
-              <>
-                <div>
+            const isDeleting = deletingId === r.id;
+            const canDelete = isAdmin && mode === "admin";
+
+            return (
+              <div
+                key={r.id}
+                className="flex w-full flex-col gap-1 rounded-lg border px-4 py-3 transition-colors hover:bg-muted/40 sm:flex-row sm:items-center sm:justify-between"
+              >
+                {/* Left: info — clicking this navigates to the record */}
+                <Link href={href} className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{r.title || "Order record"}</span>
                     <Badge variant={statusVariant(r.status)}>{STATUS_LABEL[r.status]}</Badge>
@@ -158,29 +196,40 @@ export function OrderRecordsClient({
                     {` · ${usageSheetsSummary(parseUsageSheets(r.stock_lines))}`}
                     {atts.length > 0 && ` · ${atts.length} file(s)`}
                   </div>
-                </div>
-                {mode === "admin" && (
-                  <span className="text-xs text-primary">
-                    {r.status === "submitted" ? "Review →" : "View →"}
-                  </span>
-                )}
-                {mode === "employee" && canEditRecord(r) && (
-                  <span className="text-xs text-primary">Edit →</span>
-                )}
-                {mode === "employee" && !canEditRecord(r) && (
-                  <span className="text-xs text-primary">View →</span>
-                )}
-              </>
-            );
+                </Link>
 
-            return (
-              <Link
-                key={r.id}
-                href={href}
-                className="flex w-full flex-col gap-1 rounded-lg border px-4 py-3 text-left transition-colors hover:bg-muted/40 sm:flex-row sm:items-center sm:justify-between"
-              >
-                {inner}
-              </Link>
+                {/* Right: actions */}
+                <div className="flex shrink-0 items-center gap-3">
+                  {mode === "admin" && (
+                    <Link href={href} className="text-xs text-primary">
+                      {r.status === "submitted" ? "Review →" : "View →"}
+                    </Link>
+                  )}
+                  {mode === "employee" && canEditRecord(r) && (
+                    <Link href={href} className="text-xs text-primary">Edit →</Link>
+                  )}
+                  {mode === "employee" && !canEditRecord(r) && (
+                    <Link href={href} className="text-xs text-primary">View →</Link>
+                  )}
+                  {canDelete && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      disabled={isDeleting}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        void handleDelete(r);
+                      }}
+                      title="Delete this record"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="sr-only">Delete</span>
+                    </Button>
+                  )}
+                </div>
+              </div>
             );
           })}
         </div>

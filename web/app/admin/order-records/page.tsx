@@ -11,10 +11,11 @@ export default async function AdminOrderRecordsPage() {
   if (!me) redirect("/login");
 
   const supabase = createClient();
-  const [{ data: records }, { data: attachments }, { data: profiles }] = await Promise.all([
+  const [{ data: records }, { data: attachments }, { data: profiles }, { data: profile }] = await Promise.all([
     supabase.from("order_records").select("*").order("record_date", { ascending: false }),
     supabase.from("order_record_attachments").select("*"),
     supabase.from("profiles").select("id, full_name, email"),
+    supabase.from("profiles").select("role").eq("id", me.id).single(),
   ]);
 
   const profileMap = new Map((profiles || []).map((p) => [p.id, p]));
@@ -44,6 +45,7 @@ export default async function AdminOrderRecordsPage() {
       <OrderRecordsClient
         mode="admin"
         userId={me.id}
+        viewerRole={(profile?.role as string) ?? "manager"}
         initialRecords={initialRecords}
         initialAttachments={attachments || []}
         submitters={profiles || []}
