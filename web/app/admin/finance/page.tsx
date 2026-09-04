@@ -18,6 +18,13 @@ export default async function FinancePage({ searchParams }: { searchParams?: { f
   const supabase = createClient();
   const { from: flowFrom, to: flowTo, valid: flowRangeActive } = parseFlowRange(searchParams);
 
+  // Fetch viewer role so the client can restrict balance editing to admins only
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: profile } = user
+    ? await supabase.from("profiles").select("role").eq("id", user.id).single()
+    : { data: null };
+  const viewerRole = (profile?.role as string | null) ?? "employee";
+
   let txQuery = supabase
     .from("finance_transactions")
     .select("id,occurred_at,account_id,direction,amount,description,notes,created_at")
@@ -54,6 +61,7 @@ export default async function FinancePage({ searchParams }: { searchParams?: { f
           flowDateFrom={flowFrom}
           flowDateTo={flowTo}
           flowRangeActive={flowRangeActive}
+          viewerRole={viewerRole}
         />
       </Suspense>
     </div>

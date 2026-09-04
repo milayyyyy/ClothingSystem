@@ -81,6 +81,7 @@ export function FinanceClient({
   flowDateFrom = "",
   flowDateTo = "",
   flowRangeActive = false,
+  viewerRole = "manager",
 }: {
   accounts: FinanceAccountRow[];
   transactions: FinanceTxRow[];
@@ -91,12 +92,17 @@ export function FinanceClient({
   flowDateTo?: string;
   /** True when both dates are valid and from <= to (server applied filter). */
   flowRangeActive?: boolean;
+  /** Role of the current viewer — only admins can edit account balances. */
+  viewerRole?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const { ask, dialog: confirmDialog } = useConfirmAction();
+
+  // Only admin accounts can set / edit the opening balance of a finance account.
+  const isAdmin = viewerRole === "admin";
 
   const [flowFromInput, setFlowFromInput] = useState(flowDateFrom);
   const [flowToInput, setFlowToInput] = useState(flowDateTo);
@@ -165,15 +171,22 @@ export function FinanceClient({
   const [transferMemo, setTransferMemo] = useState("");
   const [transferBusy, setTransferBusy] = useState(false);
 
+  // Local copy of accounts so we can apply optimistic balance updates immediately
+  // after a transfer without waiting for router.refresh() to complete.
+  const [liveAccounts, setLiveAccounts] = useState<FinanceAccountRow[]>(accounts || []);
+  useEffect(() => {
+    setLiveAccounts(accounts || []);
+  }, [accounts]);
+
   const byId = useMemo(() => {
     const m = new Map<string, FinanceAccountRow>();
-    for (const a of accounts || []) m.set(a.id, a);
+    for (const a of liveAccounts) m.set(a.id, a);
     return m;
-  }, [accounts]);
+  }, [liveAccounts]);
 
   const totals = useMemo(() => {
     const t = { bank: 0, ewallet: 0, cash: 0, all: 0 };
-    for (const r of accounts || []) {
+    for (const r of liveAccounts) {
       const v = Number(r.balance || 0);
       t.all += v;
       if (r.kind === "bank") t.bank += v;
@@ -181,7 +194,7 @@ export function FinanceClient({
       else if (r.kind === "cash") t.cash += v;
     }
     return t;
-  }, [accounts]);
+  }, [liveAccounts]);
 
   function openCreateAccount() {
     setEditingAccount(null);
@@ -203,7 +216,8 @@ export function FinanceClient({
     setAccAccountName((a.account_name || "") ?? "");
     setAccNumber((a.account_number || "") ?? "");
     setAccDesc((a.description || a.notes || "") ?? "");
-    setAccOpening(a.opening_balance != null ? String(a.opening_balance) : "");
+    // Pre-fill with the current live balance so admins edit what they see
+    setAccOpening(a.balance != null ? String(a.balance) : "");
     setAccQrFile(null);
     setAccQrUrl(a.qr_code_url || "");
     setAccountOpen(true);
@@ -224,10 +238,24 @@ export function FinanceClient({
 
   async function saveAccount() {
     if (!accName.trim()) return alert("Account name is required.");
-    const opening = accOpening.trim() === "" ? null : Number(accOpening);
-    if (opening != null && Number.isNaN(opening)) return alert("Opening balance must be a number.");
 
     if (editingAccount) {
+      // --- EDIT ---
+      // accOpening holds the DESIRED current balance (admin-entered).
+      // The DB computes balance = opening_balance + net_transactions.
+      // To hit the desired balance we back-calculate:
+      //   new_opening_balance = desired_balance - net
+      // where net = current_balance - current_opening_balance (both known from the row).
+      let newOpeningBalance: number | null = null;
+      if (isAdmin && accOpening.trim() !== "") {
+        const desired = Number(accOpening);
+        if (Number.isNaN(desired)) return alert("Balance must be a valid number.");
+        const currentBalance  = Number(editingAccount.balance  || 0);
+        const currentOpening  = Number(editingAccount.opening_balance || 0);
+        const net             = currentBalance - currentOpening; // sum(in) − sum(out)
+        newOpeningBalance     = desired - net;
+      }
+
       try {
         const qrUrl = await uploadQrIfNeeded(editingAccount.id);
         const { error: e } = await supabase
@@ -238,15 +266,34 @@ export function FinanceClient({
             account_name: accAccountName.trim() || null,
             account_number: accNumber.trim() || null,
             description: accDesc.trim(),
-            ...(opening != null ? { opening_balance: opening } : {}),
+            // Only admins may change the balance (via opening_balance adjustment)
+            ...(isAdmin && newOpeningBalance != null ? { opening_balance: newOpeningBalance } : {}),
             ...(qrUrl ? { qr_code_url: qrUrl } : {}),
           })
           .eq("id", editingAccount.id);
         if (e) return alert(e.message);
+
+        // Optimistic balance update so the UI reflects immediately
+        if (isAdmin && accOpening.trim() !== "") {
+          const desired = Number(accOpening);
+          if (!Number.isNaN(desired)) {
+            setLiveAccounts((prev) =>
+              prev.map((acc) =>
+                acc.id === editingAccount.id
+                  ? { ...acc, balance: desired, opening_balance: newOpeningBalance ?? acc.opening_balance }
+                  : acc,
+              ),
+            );
+          }
+        }
       } catch (err: any) {
         return alert(err?.message || "Failed to upload QR code.");
       }
     } else {
+      // --- CREATE ---
+      const opening = isAdmin && accOpening.trim() !== "" ? Number(accOpening) : null;
+      if (opening != null && Number.isNaN(opening)) return alert("Opening balance must be a number.");
+
       const { data: inserted, error: insErr } = await supabase
         .from("finance_accounts")
         .insert({
@@ -255,7 +302,8 @@ export function FinanceClient({
           account_name: accAccountName.trim() || null,
           account_number: accNumber.trim() || null,
           description: accDesc.trim(),
-          ...(opening != null ? { opening_balance: opening, balance: opening } : {}),
+          // Only admins may set an opening balance on creation
+          ...(isAdmin && opening != null ? { opening_balance: opening, balance: opening } : {}),
         })
         .select("id")
         .single();
@@ -295,7 +343,7 @@ export function FinanceClient({
   }
 
   function openTransfer(fromAccountId?: string) {
-    const list = accounts || [];
+    const list = liveAccounts;
     if (list.length < 2) {
       alert("Create at least two accounts before transferring between them.");
       return;
@@ -361,8 +409,22 @@ export function FinanceClient({
       return;
     }
 
+    // Optimistic balance update so the UI reflects the change immediately
+    // without waiting for router.refresh() to propagate the server data.
+    setLiveAccounts((prev) =>
+      prev.map((acc) => {
+        if (acc.id === transferFromId) {
+          return { ...acc, balance: Number(acc.balance || 0) - amt };
+        }
+        if (acc.id === transferToId) {
+          return { ...acc, balance: Number(acc.balance || 0) + amt };
+        }
+        return acc;
+      }),
+    );
+
     setTransferOpen(false);
-    router.refresh();
+    router.refresh(); // sync with server in background
   }
 
   function openCreateTx() {
@@ -371,7 +433,7 @@ export function FinanceClient({
     setTxDir("in");
     setTxAmount("");
     setTxDesc("");
-    setTxAccountId(accounts?.[0]?.id || "");
+    setTxAccountId(liveAccounts[0]?.id || "");
     setTxOpen(true);
   }
 
@@ -477,7 +539,7 @@ export function FinanceClient({
               size="sm"
               variant="outline"
               onClick={() => openTransfer()}
-              disabled={(accounts || []).length < 2}
+              disabled={liveAccounts.length < 2}
             >
               <ArrowLeftRight className="mr-1 h-4 w-4" />
               Transfer balance
@@ -503,14 +565,14 @@ export function FinanceClient({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(accounts || []).length === 0 ? (
+                {liveAccounts.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
                       No finance accounts yet.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  accounts.map((r) => (
+                  liveAccounts.map((r) => (
                     <TableRow key={r.id} className={cn(r.balance < 0 && "bg-destructive/5")}>
                       <TableCell className="text-sm text-muted-foreground">{labelKind(r.kind)}</TableCell>
                       <TableCell className="font-medium">{r.name}</TableCell>
@@ -539,7 +601,7 @@ export function FinanceClient({
                           variant="outline"
                           onClick={() => openTransfer(r.id)}
                           className="mr-2"
-                          disabled={(accounts || []).length < 2}
+                          disabled={liveAccounts.length < 2}
                           title="Transfer from this account"
                         >
                           Transfer
@@ -571,13 +633,13 @@ export function FinanceClient({
             </p>
           </div>
           <div className="flex shrink-0 self-end gap-2 sm:self-start">
-            <Button type="button" size="sm" onClick={openCreateTx} disabled={(accounts || []).length === 0}>
+            <Button type="button" size="sm" onClick={openCreateTx} disabled={liveAccounts.length === 0}>
               Add money flow
             </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {(accounts || []).length > 0 && (
+          {liveAccounts.length > 0 && (
             <div className="flex flex-col gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-end">
               <div className="grid gap-1 sm:min-w-[160px]">
                 <Label htmlFor="flow-from" className="text-xs">
@@ -601,7 +663,7 @@ export function FinanceClient({
               </div>
             </div>
           )}
-          {(accounts || []).length === 0 ? (
+          {liveAccounts.length === 0 ? (
             <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
               Create an account first to start recording money flow.
             </div>
@@ -754,20 +816,26 @@ export function FinanceClient({
               <p className="text-xs text-muted-foreground">Optional. Upload an image QR for payments/transfers.</p>
             )}
           </div>
-          <div className="grid gap-1">
-            <Label htmlFor="acc-opening">Opening balance</Label>
-            <Input
-              id="acc-opening"
-              type="number"
-              step="0.01"
-              value={accOpening}
-              onChange={(e) => setAccOpening(e.target.value)}
-              placeholder="Optional"
-            />
-            <p className="text-xs text-muted-foreground">
-              Balance is computed as opening balance + total(in) − total(out).
-            </p>
-          </div>
+          {isAdmin && (
+            <div className="grid gap-1">
+              <Label htmlFor="acc-opening">
+                {editingAccount ? "Current balance" : "Opening balance"}
+              </Label>
+              <Input
+                id="acc-opening"
+                type="number"
+                step="0.01"
+                value={accOpening}
+                onChange={(e) => setAccOpening(e.target.value)}
+                placeholder="Optional"
+              />
+              <p className="text-xs text-muted-foreground">
+                {editingAccount
+                  ? "Set the balance to any value. Existing money-flow records are kept — only the starting offset is adjusted."
+                  : "Balance is computed as opening balance + total(in) − total(out)."}
+              </p>
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="outline" onClick={() => setAccountOpen(false)}>
               Cancel
@@ -811,13 +879,13 @@ export function FinanceClient({
                 const id = e.target.value;
                 setTransferFromId(id);
                 if (id === transferToId) {
-                  const other = (accounts || []).find((a) => a.id !== id);
+                  const other = liveAccounts.find((a) => a.id !== id);
                   if (other) setTransferToId(other.id);
                 }
               }}
               disabled={transferBusy}
             >
-              {(accounts || []).map((a) => (
+              {liveAccounts.map((a) => (
                 <option key={a.id} value={a.id}>
                   {labelKind(a.kind)} — {a.name} ({money(Number(a.balance || 0))})
                 </option>
@@ -833,7 +901,7 @@ export function FinanceClient({
               onChange={(e) => setTransferToId(e.target.value)}
               disabled={transferBusy}
             >
-              {(accounts || [])
+              {liveAccounts
                 .filter((a) => a.id !== transferFromId)
                 .map((a) => (
                   <option key={a.id} value={a.id}>
@@ -907,7 +975,7 @@ export function FinanceClient({
               value={txAccountId}
               onChange={(e) => setTxAccountId(e.target.value)}
             >
-              {(accounts || []).map((a) => (
+              {liveAccounts.map((a) => (
                 <option key={a.id} value={a.id}>
                   {labelKind(a.kind)} — {a.name}
                 </option>

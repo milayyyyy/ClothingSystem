@@ -11,7 +11,7 @@ import {
   type InventoryStockRow,
   type ReadyMadeSheetGrid,
 } from "@/lib/inventory-stock-export";
-import { formatActivityLog, type ActivityLogRow } from "@/lib/activity-log-format";
+import { formatActivityLog, formatActivityLogForPdf, type ActivityLogRow } from "@/lib/activity-log-format";
 import { mergeUnifiedSaleRows, type ManualSaleRow, type UnifiedSaleListRow } from "@/lib/sales-list";
 import { peso as _peso } from "@/lib/utils";
 
@@ -44,10 +44,10 @@ export type ExpenseExportRow = {
 export type ActivityLogExportRow = {
   created_at: string;
   actor_name: string;
-  action_label: string;
-  entity_label: string;
-  context: string;
-  changes: string;
+  /** e.g. "Edited Order" or "Added Task" */
+  what: string;
+  /** Context line + change details, pre-formatted for the PDF cell */
+  details: string;
 };
 
 export type ExportReportData = {
@@ -189,14 +189,12 @@ export async function fetchExportReportData(
   }));
 
   const activityLogs: ActivityLogExportRow[] = ((activityRows || []) as any[]).map((row) => {
-    const detail = formatActivityLog(row as ActivityLogRow);
+    const detail = formatActivityLogForPdf(row as ActivityLogRow);
     return {
       created_at: row.created_at,
       actor_name: row.actor?.full_name || row.actor?.email || "—",
-      action_label: detail.actionLabel,
-      entity_label: detail.entityLabel,
-      context: detail.context,
-      changes: detail.lines.join("\n"),
+      what: detail.what,
+      details: detail.details,
     };
   });
 
@@ -548,28 +546,56 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
     doc.text(exp.note, PDF_MARGIN_MM, tableEndY(doc) + 2);
   }
 
-  // --- Activity log (landscape for more columns per page) ---
+  // --- Activity log (landscape, 4-column layout for readability) ---
   doc.addPage("a4", "landscape");
   const landscapeW = tableContentWidth(doc);
   tableStartY = sectionHeading(doc, "7. Activity log", `Date: ${data.reportDate} · ${data.activityLogs.length} entry(ies)`);
   const act = truncateRows(data.activityLogs, "Activity log");
-  const actW = [26, 30, 18, 22, 95, landscapeW - 26 - 30 - 18 - 22 - 95];
+
+  // Columns: Time | Who | What | Details
+  // "Details" gets the remaining space (widest — holds context + field changes)
+  const timeW = 22;
+  const whoW  = 36;
+  const whatW = 38;
+  const detW  = landscapeW - timeW - whoW - whatW;
+  const actW  = [timeW, whoW, whatW, detW];
+
+  // Action-word colour map for the "What" cell
+  const ACTION_COLORS: Record<string, [number, number, number]> = {
+    Added:   [22, 101, 52],   // dark green
+    Edited:  [30, 64, 175],   // dark blue
+    Deleted: [153, 27, 27],   // dark red
+  };
+
   autoTable(
     doc,
     compactTableOptions({
       startY: tableStartY + 1,
       tableWidth: landscapeW,
-      head: [["Time", "Actor", "Action", "Area", "Context", "Changes"]],
+      head: [["Time", "Who", "What", "Details"]],
       body: act.rows.map((r) => [
         formatPdfTime(r.created_at),
         r.actor_name.trim() || "—",
-        r.action_label,
-        r.entity_label.trim() || "—",
-        r.context.trim() || "—",
-        r.changes.trim() || "—",
+        r.what.trim() || "—",
+        r.details.trim() || "—",
       ]),
-      columnStyles: colStyles(actW, ["left", "left", "left", "left", "left", "left"]),
+      columnStyles: colStyles(actW, ["left", "left", "left", "left"]),
       margin: { left: PDF_MARGIN_MM, right: PDF_MARGIN_MM },
+      // Colour-code the "What" cell by action type
+      didParseCell(hookData) {
+        if (hookData.section === "body" && hookData.column.index === 2) {
+          const text = String(hookData.cell.raw ?? "");
+          const word = text.split(" ")[0] as keyof typeof ACTION_COLORS;
+          const rgb = ACTION_COLORS[word];
+          if (rgb) hookData.cell.styles.textColor = rgb;
+          hookData.cell.styles.fontStyle = "bold";
+        }
+        // Make the Details column use a slightly lighter text colour so the
+        // "What" cell stays visually prominent
+        if (hookData.section === "body" && hookData.column.index === 3) {
+          hookData.cell.styles.textColor = [40, 40, 40];
+        }
+      },
     }),
   );
   if (act.note) {

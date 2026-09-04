@@ -24,6 +24,7 @@ export type ActivityFormatted = {
 const ENTITY_LABELS: Record<string, string> = {
   orders: "Order",
   inventory: "Inventory",
+  inventory_sub_items: "Inventory item",
   inventory_assets: "Asset",
   expenses: "Expense",
   suppliers: "Supplier",
@@ -39,11 +40,18 @@ const ENTITY_LABELS: Record<string, string> = {
   ready_made_rows: "Ready-made row",
   ready_made_cells: "Ready-made cell",
   ready_made_sheet_groups: "Sheet group",
+  profiles: "Account",
+  reminders: "Reminder",
+  order_assignees: "Order assignment",
+  sublimation_teams: "Jersey sheet",
+  returns: "Return",
+  attendance: "Attendance",
 };
 
 const TITLE_FIELDS: Record<string, string[]> = {
   orders: ["order_no", "customer_name", "external_order_no"],
   inventory: ["name"],
+  inventory_sub_items: ["name"],
   inventory_assets: ["name"],
   expenses: ["description", "category"],
   suppliers: ["name"],
@@ -56,6 +64,9 @@ const TITLE_FIELDS: Record<string, string[]> = {
   maintenance_schedules: ["title", "machine_name"],
   ready_made_boards: ["name"],
   ready_made_sheet_groups: ["name"],
+  profiles: ["full_name", "email", "role"],
+  reminders: ["title", "priority"],
+  sublimation_teams: ["name"],
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -124,12 +135,17 @@ export function fieldDisplayName(field: string): string {
   return field.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function formatActivityValue(value: unknown): string {
+/** UUID pattern — 8-4-4-4-12 hex groups */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function formatActivityValue(value: unknown, forPdf = false): string {
   if (value === null || value === undefined || value === "") return "(empty)";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "number") return String(value);
   if (typeof value === "string") {
     const t = value.trim();
+    // Shorten raw UUIDs so they're readable
+    if (forPdf && UUID_RE.test(t)) return `${t.slice(0, 8)}…`;
     if (t.length <= MAX_VALUE_LEN) return t;
     return `${t.slice(0, MAX_VALUE_LEN)}…`;
   }
@@ -157,19 +173,19 @@ function recordContext(entity: string, record: Record<string, unknown> | undefin
   return "";
 }
 
-function formatChangeLine(c: ActivityChange): string {
+function formatChangeLine(c: ActivityChange, forPdf = false): string {
   const label = fieldDisplayName(c.field);
-  const from = formatActivityValue(c.from);
-  const to = formatActivityValue(c.to);
+  const from = formatActivityValue(c.from, forPdf);
+  const to = formatActivityValue(c.to, forPdf);
   return `${label}: ${from} → ${to}`;
 }
 
-function formatInsertLines(record: Record<string, unknown>): string[] {
+function formatInsertLines(record: Record<string, unknown>, forPdf = false): string[] {
   const lines: string[] = [];
   for (const [key, value] of Object.entries(record)) {
     if (HIDDEN_ON_INSERT.has(key)) continue;
     if (value === null || value === undefined || value === "") continue;
-    lines.push(`${fieldDisplayName(key)}: ${formatActivityValue(value)}`);
+    lines.push(`${fieldDisplayName(key)}: ${formatActivityValue(value, forPdf)}`);
     if (lines.length >= MAX_INSERT_FIELDS) {
       lines.push("…and more fields");
       break;
@@ -178,12 +194,12 @@ function formatInsertLines(record: Record<string, unknown>): string[] {
   return lines;
 }
 
-function formatLegacySnapshot(record: Record<string, unknown>): string[] {
+function formatLegacySnapshot(record: Record<string, unknown>, forPdf = false): string[] {
   const lines: string[] = [];
   for (const [key, value] of Object.entries(record)) {
     if (["id", "created_at", "updated_at"].includes(key)) continue;
     if (value === null || value === undefined || value === "") continue;
-    lines.push(`${fieldDisplayName(key)}: ${formatActivityValue(value)}`);
+    lines.push(`${fieldDisplayName(key)}: ${formatActivityValue(value, forPdf)}`);
     if (lines.length >= MAX_LEGACY_FIELDS) break;
   }
   if (Object.keys(record).length > MAX_LEGACY_FIELDS) {
@@ -192,7 +208,7 @@ function formatLegacySnapshot(record: Record<string, unknown>): string[] {
   return lines;
 }
 
-export function formatActivityLog(row: ActivityLogRow): ActivityFormatted {
+export function formatActivityLog(row: ActivityLogRow, forPdf = false): ActivityFormatted {
   const action = String(row.action || "").toUpperCase();
   const entityLabel = entityDisplayName(row.entity);
   const payload = row.payload;
@@ -212,11 +228,10 @@ export function formatActivityLog(row: ActivityLogRow): ActivityFormatted {
 
     if (action === "UPDATE" && Array.isArray(payload.changes) && payload.changes.length > 0) {
       const lines = payload.changes.map((c) =>
-        formatChangeLine({
-          field: String(c.field),
-          from: c.from,
-          to: c.to,
-        }),
+        formatChangeLine(
+          { field: String(c.field), from: c.from, to: c.to },
+          forPdf,
+        ),
       );
       return {
         actionLabel: "Edited",
@@ -228,7 +243,7 @@ export function formatActivityLog(row: ActivityLogRow): ActivityFormatted {
     }
 
     if (action === "INSERT" && payload.record) {
-      const lines = formatInsertLines(payload.record);
+      const lines = formatInsertLines(payload.record, forPdf);
       return {
         actionLabel: "Added",
         entityLabel,
@@ -239,7 +254,7 @@ export function formatActivityLog(row: ActivityLogRow): ActivityFormatted {
     }
 
     if (action === "DELETE" && payload.record) {
-      const lines = formatInsertLines(payload.record);
+      const lines = formatInsertLines(payload.record, forPdf);
       return {
         actionLabel: "Deleted",
         entityLabel,
@@ -255,7 +270,7 @@ export function formatActivityLog(row: ActivityLogRow): ActivityFormatted {
   const context = recordContext(row.entity, legacyRecord);
 
   if (action === "INSERT") {
-    const lines = legacyRecord ? formatInsertLines(legacyRecord) : ["New record"];
+    const lines = legacyRecord ? formatInsertLines(legacyRecord, forPdf) : ["New record"];
     return {
       actionLabel: "Added",
       entityLabel,
@@ -266,7 +281,7 @@ export function formatActivityLog(row: ActivityLogRow): ActivityFormatted {
   }
 
   if (action === "DELETE") {
-    const lines = legacyRecord ? formatLegacySnapshot(legacyRecord) : ["Record removed"];
+    const lines = legacyRecord ? formatLegacySnapshot(legacyRecord, forPdf) : ["Record removed"];
     return {
       actionLabel: "Deleted",
       entityLabel,
@@ -277,7 +292,7 @@ export function formatActivityLog(row: ActivityLogRow): ActivityFormatted {
   }
 
   const lines = legacyRecord
-    ? formatLegacySnapshot(legacyRecord)
+    ? formatLegacySnapshot(legacyRecord, forPdf)
     : [row.summary || "Updated (no field details stored)"];
   return {
     actionLabel: "Edited",
@@ -285,5 +300,41 @@ export function formatActivityLog(row: ActivityLogRow): ActivityFormatted {
     context,
     lines,
     searchText: [entityLabel, context, row.summary || "", ...lines].join(" "),
+  };
+}
+
+const MAX_PDF_DETAIL_LINES = 6;
+
+/**
+ * Returns a pre-formatted pair of strings for the PDF activity log table.
+ *
+ * - `what`:    e.g. "Edited Order"
+ * - `details`: context on the first line (if any), then up to MAX_PDF_DETAIL_LINES
+ *              change-lines, then a "…N more" suffix when truncated.
+ */
+export function formatActivityLogForPdf(row: ActivityLogRow): {
+  what: string;
+  details: string;
+  actionLabel: ActivityFormatted["actionLabel"];
+  entityLabel: string;
+} {
+  const fmt = formatActivityLog(row, true);
+  const what = `${fmt.actionLabel} ${fmt.entityLabel}`;
+
+  const parts: string[] = [];
+  if (fmt.context) parts.push(fmt.context);
+
+  const totalLines = fmt.lines.length;
+  const shown = fmt.lines.slice(0, MAX_PDF_DETAIL_LINES);
+  parts.push(...shown);
+  if (totalLines > MAX_PDF_DETAIL_LINES) {
+    parts.push(`…${totalLines - MAX_PDF_DETAIL_LINES} more change(s)`);
+  }
+
+  return {
+    what,
+    details: parts.join("\n"),
+    actionLabel: fmt.actionLabel,
+    entityLabel: fmt.entityLabel,
   };
 }
