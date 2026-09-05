@@ -16,7 +16,6 @@ export type FeatureKey =
   | "tasks"
   | "stores"
   | "activity_log"
-  | "jersey_automation"
   | "settings";
 
 export type FeaturePerm = { view: boolean; edit: boolean };
@@ -38,7 +37,6 @@ const FEATURE_KEYS: FeatureKey[] = [
   "tasks",
   "stores",
   "activity_log",
-  "jersey_automation",
   "settings",
 ];
 
@@ -125,7 +123,6 @@ export function featureForAdminPath(path: string): FeatureKey | null {
   if (path.startsWith("/admin/tasks")) return "tasks";
   if (path.startsWith("/admin/stores")) return "stores";
   if (path.startsWith("/admin/activity")) return "activity_log";
-  if (path.startsWith("/admin/jersey-automation")) return "jersey_automation";
   return null;
 }
 
