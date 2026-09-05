@@ -23,6 +23,7 @@ import {
   Activity,
   Store,
   Sparkles,
+  Wand2,
   Warehouse,
   LayoutGrid,
   Wrench,
@@ -82,6 +83,7 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/finance", label: "Finance", icon: Landmark },
     { href: "/admin/returns", label: "Returns", icon: PackageX },
     { href: "/admin/order-records", label: "Daily Order Records", icon: FileStack },
+    { href: "/admin/jersey-automation", label: "Jersey Automation", icon: Wand2, adminOrManagerOnly: true },
   ]},
   { title: "Inventory", items: [
     { href: "/admin/inventory", label: "Inventory", icon: Package },
