@@ -876,7 +876,9 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                   className="h-8 min-w-0 flex-1 text-sm font-medium"
                   key={`gname:${g.id}:${g.name}`}
                   defaultValue={g.name}
+                  readOnly={!canEdit}
                   onBlur={(e) => {
+                    if (!canEdit) return;
                     if (e.target.value !== g.name) void renameGroup(g.id, e.target.value);
                   }}
                   aria-label="Group name"
@@ -990,7 +992,9 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                     className="max-w-md font-medium"
                     key={`${activeBoard.id}:${activeBoard.name}`}
                     defaultValue={activeBoard.name}
+                    readOnly={!canEdit}
                     onBlur={(e) => {
+                      if (!canEdit) return;
                       if (e.target.value !== activeBoard.name) void renameBoard(activeBoard.id, e.target.value);
                     }}
                     onKeyDown={(e) => {
@@ -1042,8 +1046,8 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                       type="checkbox"
                       className="mt-0.5 h-4 w-4 shrink-0 rounded border-input accent-primary"
                       checked={activeBoard.low_stock_minimum_enabled !== false}
-                      onChange={(e) => void setBoardLowStockMinimum(activeBoard.id, e.target.checked)}
-                      disabled={saving}
+                      onChange={(e) => { if (canEdit) void setBoardLowStockMinimum(activeBoard.id, e.target.checked); }}
+                      disabled={saving || !canEdit}
                       aria-label="Low stock minimum for this sheet"
                     />
                     <span className="min-w-0 flex-1">
@@ -1066,7 +1070,8 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                         type="number"
                         min={0}
                         step={1}
-                        disabled={saving}
+                        disabled={saving || !canEdit}
+                        readOnly={!canEdit}
                         className="h-9"
                         key={`${activeBoard.id}:lsm:${activeBoard.low_stock_sheet_minimum ?? ""}`}
                         defaultValue={activeBoard.low_stock_sheet_minimum ?? ""}
@@ -1184,7 +1189,9 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                               className="w-full min-w-[6rem] border-0 bg-transparent px-1 py-1.5 text-[11px] outline-none focus:bg-primary/5"
                               key={`r:${r.id}:${r.row_label}`}
                               defaultValue={r.row_label}
+                              readOnly={!canEdit}
                               onBlur={(e) => {
+                                if (!canEdit) return;
                                 if (e.target.value !== r.row_label) void updateRowLabel(r, e.target.value);
                               }}
                               aria-label="Row name"
@@ -1196,7 +1203,9 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                                 className="h-8 w-full min-w-[5rem] border-0 bg-transparent px-1 text-[11px] outline-none focus:bg-primary/5"
                                 key={`c:${r.id}:${c.id}:${cellByPair.get(`${r.id}:${c.id}`) ?? ""}`}
                                 defaultValue={cellByPair.get(`${r.id}:${c.id}`) ?? ""}
+                                readOnly={!canEdit}
                                 onBlur={(e) => {
+                                  if (!canEdit) return;
                                   const v = e.target.value;
                                   const prev = cellByPair.get(`${r.id}:${c.id}`) ?? "";
                                   if (v !== prev) void setCellValue(r.id, c.id, v);
