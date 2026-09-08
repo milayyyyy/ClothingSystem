@@ -82,8 +82,7 @@ function defaultSubAdminPerms(): Permissions {
 export function defaultManagerPerms(): Permissions {
   const p = blankPerms();
   for (const k of FEATURE_KEYS) {
-    if (k === "employees" || k === "settings") continue;
-    if (k === "activity_log") { p[k] = { view: true, edit: false }; continue; }
+    if (k === "employees" || k === "settings" || k === "activity_log") continue;
     p[k] = { view: true, edit: true };
   }
   return p;
