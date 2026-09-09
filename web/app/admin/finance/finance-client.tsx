@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FinanceCsvExportDialog } from "@/components/finance-csv-export-dialog";
 import { useConfirmAction } from "@/components/confirm-dialog";
-import { ArrowLeftRight } from "lucide-react";
+import { ArrowLeftRight, Copy, Check, Download } from "lucide-react";
 
 type FinanceAccountRow = {
   id: string;
@@ -75,6 +75,94 @@ function newTransferId() {
   return `t-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+// ─── Copy-to-clipboard mini hook ───────────────────────────────────────────
+function useCopyText() {
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  function copy(id: string, text: string) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((c) => (c === id ? null : c)), 2000);
+    });
+  }
+  return { copiedId, copy };
+}
+
+// ─── Download account details as PNG ───────────────────────────────────────
+function downloadAccountPng(account: {
+  name: string;
+  kind: string;
+  account_name?: string | null;
+  account_number?: string | null;
+}) {
+  const W = 640, H = 280;
+  const canvas = document.createElement("canvas");
+  canvas.width = W * 2;
+  canvas.height = H * 2;
+  const ctx = canvas.getContext("2d")!;
+  ctx.scale(2, 2); // retina
+
+  // Background
+  ctx.fillStyle = "#0f1117";
+  ctx.roundRect(0, 0, W, H, 18);
+  ctx.fill();
+
+  // Top accent bar
+  const grad = ctx.createLinearGradient(0, 0, W, 0);
+  grad.addColorStop(0, "#6d28d9");
+  grad.addColorStop(1, "#4f46e5");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, 6);
+
+  // Bank name (large)
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 28px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  ctx.textBaseline = "top";
+  ctx.fillText(account.name, 36, 40);
+
+  // Kind pill
+  const kindLabel = account.kind.charAt(0).toUpperCase() + account.kind.slice(1);
+  ctx.font = "12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  const kindW = ctx.measureText(kindLabel).width + 20;
+  ctx.fillStyle = "#1e293b";
+  ctx.roundRect(36, 84, kindW, 24, 12);
+  ctx.fill();
+  ctx.fillStyle = "#94a3b8";
+  ctx.fillText(kindLabel, 46, 89);
+
+  // Divider
+  ctx.fillStyle = "#1e293b";
+  ctx.fillRect(36, 124, W - 72, 1);
+
+  // Account name label + value
+  ctx.fillStyle = "#64748b";
+  ctx.font = "12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  ctx.fillText("ACCOUNT NAME", 36, 144);
+  ctx.fillStyle = "#e2e8f0";
+  ctx.font = "bold 18px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  ctx.fillText(account.account_name || "—", 36, 164);
+
+  // Account number label + value
+  ctx.fillStyle = "#64748b";
+  ctx.font = "12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  ctx.fillText("ACCOUNT NUMBER", 36, 208);
+  ctx.fillStyle = "#e2e8f0";
+  ctx.font = "bold 22px 'Courier New', Courier, monospace";
+  ctx.fillText(account.account_number || "—", 36, 228);
+
+  // Footer watermark
+  ctx.fillStyle = "#334155";
+  ctx.font = "11px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  ctx.textAlign = "right";
+  ctx.fillText("Payment details", W - 36, H - 24);
+
+  // Download
+  const link = document.createElement("a");
+  link.download = `${account.name.replace(/\s+/g, "_")}_account.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
 export function FinanceClient({
   accounts,
   transactions,
@@ -104,6 +192,7 @@ export function FinanceClient({
 
   // Only admin accounts can set / edit the opening balance of a finance account.
   const isAdmin = viewerRole === "admin";
+  const { copiedId, copy } = useCopyText();
 
   const [flowFromInput, setFlowFromInput] = useState(flowDateFrom);
   const [flowToInput, setFlowToInput] = useState(flowDateTo);
@@ -638,8 +727,36 @@ export function FinanceClient({
                     <TableRow key={r.id} className={cn(r.balance < 0 && "bg-destructive/5")}>
                       <TableCell className="text-sm text-muted-foreground">{labelKind(r.kind)}</TableCell>
                       <TableCell className="font-medium">{r.name}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{r.account_name || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{r.account_number || "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {r.account_name ? (
+                          <div className="flex items-center gap-1.5">
+                            <span>{r.account_name}</span>
+                            <button
+                              type="button"
+                              title="Copy account name"
+                              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                              onClick={() => copy(`acname-${r.id}`, r.account_name!)}
+                            >
+                              {copiedId === `acname-${r.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                            </button>
+                          </div>
+                        ) : "—"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {r.account_number ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono">{r.account_number}</span>
+                            <button
+                              type="button"
+                              title="Copy account number"
+                              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                              onClick={() => copy(`acnum-${r.id}`, r.account_number!)}
+                            >
+                              {copiedId === `acnum-${r.id}` ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                            </button>
+                          </div>
+                        ) : "—"}
+                      </TableCell>
                       <TableCell className="text-right tabular-nums">{money(Number(r.balance || 0))}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">{(r.description || r.notes) ?? "—"}</TableCell>
                       <TableCell className="text-sm">
@@ -657,6 +774,16 @@ export function FinanceClient({
                         )}
                       </TableCell>
                       <TableCell className="text-right whitespace-nowrap">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => downloadAccountPng(r)}
+                          className="mr-2"
+                          title="Download account details as PNG"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </Button>
                         <Button
                           type="button"
                           size="sm"
