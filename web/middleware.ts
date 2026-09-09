@@ -62,10 +62,10 @@ export async function middleware(request: NextRequest) {
       url.pathname = "/admin";
       return NextResponse.redirect(url);
     }
-    // employees cannot access reminders
-    if (path.startsWith("/admin/reminders") && role === "employee") {
+    // employees cannot access reminders or POS
+    if ((path.startsWith("/admin/reminders") || path.startsWith("/admin/pos")) && role === "employee") {
       const url = request.nextUrl.clone();
-      url.pathname = "/admin";
+      url.pathname = "/employee";
       return NextResponse.redirect(url);
     }
   }

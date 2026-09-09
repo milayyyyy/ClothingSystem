@@ -10,7 +10,7 @@ export default async function PosPage() {
   if (!user) redirect("/login");
 
   const role = user.profile.role as string;
-  if (role === "employee") redirect("/admin");
+  if (role !== "admin" && role !== "manager") redirect("/employee");
 
   // Load inventory products for the product picker
   const [{ data: inventoryItems }, { data: financeAccounts }] = await Promise.all([

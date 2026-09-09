@@ -45,7 +45,7 @@ import {
 } from "@/lib/role-permissions";
 
 type Role = "admin" | "manager" | "employee";
-type Child = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; query?: Record<string, string> };
+type Child = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; query?: Record<string, string>; adminOrManagerOnly?: boolean; adminOnly?: boolean };
 type Item = {
   href: string;
   label: string;
@@ -68,7 +68,7 @@ const STAFF_GROUPS: Group[] = [
         { href: "/admin/orders?type=walkin_online", label: "Walk In & Online", icon: Store, query: { type: "walkin_online" } },
         { href: "/admin/orders?type=services",    label: "Services",     icon: Briefcase, query: { type: "services" } },
         { href: "/admin/orders?type=sublimation", label: "Sublimation",  icon: Sparkles, query: { type: "sublimation" } },
-        { href: "/admin/orders?type=pos",         label: "POS",          icon: ShoppingCart, query: { type: "pos" } },
+        { href: "/admin/orders?type=pos",         label: "POS",          icon: ShoppingCart, query: { type: "pos" }, adminOrManagerOnly: true },
       ],
     },
     {
@@ -308,7 +308,11 @@ export function Sidebar({
                         >
                           <div className="min-h-0">
                             <div className="mt-0.5 ml-4 space-y-0.5 border-l pl-2">
-                              {item.children!.map((c) => {
+                              {item.children!.filter((c) => {
+                                if (c.adminOnly && role !== "admin") return false;
+                                if (c.adminOrManagerOnly && role === "employee") return false;
+                                return true;
+                              }).map((c) => {
                                 const CIcon = c.icon;
                                 const cActive = isChildActive(item.href, c);
                                 return (
