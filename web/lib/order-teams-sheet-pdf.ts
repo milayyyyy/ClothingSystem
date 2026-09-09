@@ -43,6 +43,7 @@ export type TeamsSheetPdfData = {
   sheetKind: "teams" | "services";
   groups: TeamsSheetPdfGroup[];
   priceLines: TeamsSheetPdfPriceLine[];
+  extraAmount?: number;
   orderTotal: number;
   downPayment: number;
   balance: number;
@@ -400,6 +401,10 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
             { content: "Grand total", colSpan: 4, styles: { halign: "right", fontStyle: "bold" } },
             { content: pesoPdf(data.orderTotal), styles: { halign: "right", fontStyle: "bold" } },
           ],
+          ...(data.extraAmount && data.extraAmount > 0 ? [[
+            { content: "Extra", colSpan: 4, styles: { halign: "right" as const } },
+            { content: pesoPdf(data.extraAmount), styles: { halign: "right" as const } },
+          ]] : []),
           [
             { content: "Down payment", colSpan: 4, styles: { halign: "right" } },
             {

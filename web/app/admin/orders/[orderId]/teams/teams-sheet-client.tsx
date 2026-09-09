@@ -781,13 +781,18 @@ export function TeamsSheetClient({
   const activeUniqueLines = useMemo(() => buildUniqueLines(activeTeamRows), [activeTeamRows]);
 
   const orderTotal = useMemo(
-    () => uniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0),
+    () => {
+      const linesTotal = uniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0);
+      const extra = linePrices["__extra__"] ?? 0;
+      return linesTotal + extra;
+    },
     [uniqueLines, linePrices],
   );
   const activeTeamTotal = useMemo(
     () => activeUniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0),
     [activeUniqueLines, linePrices],
   );
+  const extraAmount = linePrices["__extra__"] ?? 0;
   const downPayment = Math.max(0, Number(downPaymentStr) || 0);
   const balance = orderTotal - downPayment;
 
@@ -1099,6 +1104,7 @@ export function TeamsSheetClient({
         count: line.count,
         unitPrice: linePrices[line.key] ?? 0,
       })),
+      extraAmount,
       orderTotal,
       downPayment,
       balance,
@@ -1640,6 +1646,30 @@ export function TeamsSheetClient({
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-base">
                       {peso(activeTeamTotal)}
+                    </td>
+                  </tr>
+                  <tr className="border-t border-border/60">
+                    <td colSpan={4} className="border-r px-3 py-1.5 text-right text-muted-foreground">
+                      Extra
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">
+                      {viewOnly ? (
+                        extraAmount > 0 ? peso(extraAmount) : <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          className="h-8 w-full rounded border border-border/60 bg-transparent px-2 text-right font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
+                          value={extraAmount > 0 ? extraAmount : ""}
+                          placeholder="0.00"
+                          onChange={(e) => {
+                            const v = Math.max(0, Number(e.target.value) || 0);
+                            setLinePrices((prev) => ({ ...prev, "__extra__": v }));
+                          }}
+                          aria-label="Extra amount"
+                        />
+                      )}
                     </td>
                   </tr>
                   <tr className="border-t border-border/60">
