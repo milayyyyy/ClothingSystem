@@ -278,6 +278,8 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
       const { data: { user } } = await supabase.auth.getUser();
       const userId = user?.id;
 
+      // "stage" (text) tracks completed vs pending — "status" must stay "pending"
+      // because the order_status enum does NOT have a "completed" value.
       const stage = orderStatus === "completed" ? "completed" : "design_layout";
 
       // 1. Create the POS order
@@ -291,7 +293,7 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
           quantity: cart.reduce((s, ci) => s + ci.quantity, 0),
           notes: notes.trim() || null,
           stage,
-          status: orderStatus,
+          status: "pending", // order_status enum only has: pending, printing, sewing, ready, delivered, cancelled
         })
         .select("id, order_no")
         .single();

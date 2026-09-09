@@ -191,9 +191,10 @@ function orderStatusHighlightVariant(order: any): "outline" | "amber" | "blue" |
   if (String(order?.status || "").toLowerCase() === "cancelled") return "red";
   const kind = getOrderKind(order);
   if (kind === "pos") {
-    // pending POS orders show amber, completed show green
-    const st = String(order?.status || "").toLowerCase();
-    return st === "pending" ? "amber" : "green";
+    // Use stage (text) — "completed" stage = green, anything else = amber
+    // (order_status enum never has "completed"; we track it in stage)
+    const st = String(order?.stage || "").toLowerCase();
+    return st === "completed" ? "green" : "amber";
   }
   if (kind === "sublimation") {
     const sub = String(order?.sub_stage || "").toLowerCase().trim();
@@ -709,8 +710,14 @@ function PaymentCollectDialog({
     setMsg(null);
     try {
       const newPaid = Math.min(orderTotal, alreadyPaid + amt);
-      const { error: oe } = await supabase.from("orders").update({ down_payment: newPaid }).eq("id", order.id);
+      const isPendingPOS = getOrderKind(order) === "pos" && String(order?.stage || "").toLowerCase() !== "completed";
+
+      // Update order: record payment + advance POS stage if pending
+      const orderPatch: Record<string, unknown> = { down_payment: newPaid };
+      if (isPendingPOS) orderPatch.stage = "completed";
+      const { error: oe } = await supabase.from("orders").update(orderPatch).eq("id", order.id);
       if (oe) throw oe;
+
       const today = new Date().toISOString().slice(0, 10);
       const desc = `Order payment: #${order.order_no} — ${order.customer_name || ""}`;
       const { error: te } = await supabase.from("finance_transactions").insert({
@@ -722,6 +729,52 @@ function PaymentCollectDialog({
         notes: `order:${order.id}`,
       });
       if (te) throw te;
+
+      // Auto-submit Daily Order Record for pending POS orders being completed
+      if (isPendingPOS) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id) {
+          const { data: posItems } = await supabase
+            .from("pos_order_items")
+            .select("product_name, quantity, unit_price")
+            .eq("order_id", order.id)
+            .order("sort_order");
+
+          if (posItems && posItems.length > 0) {
+            const colProduct = "col-product";
+            const colQty     = "col-qty";
+            const colPrice   = "col-price";
+            const colTotal   = "col-total";
+            await supabase.from("order_records").insert({
+              submitted_by: user.id,
+              record_date: today,
+              title: `POS Sale #${order.order_no}${order.customer_name ? ` — ${order.customer_name}` : ""}`,
+              notes: `POS sale total: ${peso(orderTotal)}`,
+              status: "submitted",
+              stock_lines: [{
+                id: "sheet-pos",
+                name: `POS Sale #${order.order_no} — Items`,
+                columns: [
+                  { id: colProduct, label: "Product" },
+                  { id: colQty,     label: "Qty" },
+                  { id: colPrice,   label: "Unit Price" },
+                  { id: colTotal,   label: "Total" },
+                ],
+                rows: posItems.map((item, i) => ({
+                  id: `row-${i}`,
+                  cells: {
+                    [colProduct]: item.product_name,
+                    [colQty]:     String(item.quantity),
+                    [colPrice]:   peso(Number(item.unit_price)),
+                    [colTotal]:   peso(Number(item.quantity) * Number(item.unit_price)),
+                  },
+                })),
+              }],
+            });
+          }
+        }
+      }
+
       onPaid();
     } catch (err: unknown) {
       setMsg("Error: " + (err instanceof Error ? err.message : String(err)));
@@ -2104,7 +2157,7 @@ export function OrdersClient({
                       ? ORDER_SERVICE_LABEL[normalizeOrderServiceStage(o.stage)]
                       : null;
                   const stageLabel = isPOS
-                    ? (String(o.status || "").toLowerCase() === "pending" ? "Pending" : "POS Sale")
+                    ? (String(o.stage || "").toLowerCase() === "completed" ? "POS Sale" : "Pending")
                     : isSub
                     ? [svc, stage?.label].filter(Boolean).join(" · ") || stage?.label || "—"
                     : ORDER_SERVICE_LABEL[normalizeOrderServiceStage(o.stage)] ||
