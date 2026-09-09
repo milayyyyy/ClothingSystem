@@ -219,6 +219,9 @@ function nowIso() { return new Date().toISOString(); }
 
 function computeOrderForwardUpdate(order: Order): OrderForwardPatch | null {
   if (String(order?.status || "").toLowerCase() === "cancelled") return null;
+  // Completed is the terminal state — no further forwarding allowed
+  const currentStage = normalizeOrderServiceStage(order.stage);
+  if (currentStage === "completed") return null;
   const kind = getOrderKind(order);
   if (kind === "sublimation") {
     const curSub = String(order.sub_stage || "design_layout");
@@ -245,10 +248,25 @@ function computeOrderTargetUpdate(order: Order, target: string): OrderForwardPat
   const kind = getOrderKind(order);
   if (kind === "sublimation") {
     if (!(SUB_STAGE_FORWARD_ORDER as readonly string[]).includes(t)) return null;
+    // Block forwarding if the order is completed — only allow going backward
+    const currentStage = normalizeOrderServiceStage(order.stage);
+    if (currentStage === "completed") {
+      const targetStage = mergedServiceStageForSub(null, t);
+      const currentIdx = (ORDER_SERVICE_STAGES as readonly string[]).indexOf(currentStage);
+      const targetIdx  = (ORDER_SERVICE_STAGES as readonly string[]).indexOf(targetStage);
+      if (targetIdx >= currentIdx) return null; // forward blocked
+    }
     return { sub_stage: t, stage: mergedServiceStageForSub(order.stage, t), updated_at: nowIso() };
   }
   const normalized = normalizeOrderServiceStage(t);
   if (!(ORDER_SERVICE_STAGES as readonly string[]).includes(normalized)) return null;
+  // Block forwarding if the order is completed — only allow going backward
+  const currentStage = normalizeOrderServiceStage(order.stage);
+  if (currentStage === "completed") {
+    const currentIdx = (ORDER_SERVICE_STAGES as readonly string[]).indexOf(currentStage);
+    const targetIdx  = (ORDER_SERVICE_STAGES as readonly string[]).indexOf(normalized);
+    if (targetIdx >= currentIdx) return null; // forward blocked
+  }
   return { stage: normalized, sub_stage: null, updated_at: nowIso() };
 }
 
@@ -1368,7 +1386,7 @@ export function OrdersClient({
       if (patch) updates.push({ id, patch });
     }
     if (updates.length === 0) {
-      alert("None of the selected orders could be set to that status (e.g. cancelled rows are skipped).");
+      alert("None of the selected orders could be set to that status (e.g. completed or cancelled orders are skipped).");
       return;
     }
     for (const { id, patch } of updates) {
@@ -1940,7 +1958,7 @@ export function OrdersClient({
                                 ? "text-muted-foreground hover:bg-accent hover:text-foreground"
                                 : "cursor-not-allowed opacity-40")
                             }
-                            title={canForwardOrder(o) ? "Forward one status step" : "Already at final step or cancelled"}
+                            title={canForwardOrder(o) ? "Forward one status step" : normalizeOrderServiceStage(o.stage) === "completed" ? "Order is completed — cannot advance further" : "Already at final step or cancelled"}
                             aria-label="Forward order status"
                             onClick={() => void forwardOrderRow(o)}
                           >
@@ -2125,7 +2143,7 @@ export function OrdersClient({
                               ? "text-muted-foreground hover:bg-accent hover:text-foreground"
                               : "cursor-not-allowed opacity-40")
                           }
-                          title={canForwardOrder(o) ? "Forward one status step" : "Already at final step or cancelled"}
+                          title={canForwardOrder(o) ? "Forward one status step" : normalizeOrderServiceStage(o.stage) === "completed" ? "Order is completed — cannot advance further" : "Already at final step or cancelled"}
                           aria-label="Forward order status"
                           onClick={() => void forwardOrderRow(o)}
                         >
