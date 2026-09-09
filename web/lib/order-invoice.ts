@@ -24,6 +24,7 @@ export type OrderInvoiceData = {
   createdAt: string;
   dueDate: string | null;
   isServicesSheet: boolean;
+  isPOS: boolean;
   lineItems: InvoiceLineItem[];
   subtotal: number;
   downPayment: number;
@@ -88,6 +89,50 @@ export async function fetchOrderInvoiceData(
       ? (order.jersey_line_prices as Record<string, number>)
       : {};
 
+  const kind = getOrderKind(order as { kind?: string; order_type?: string });
+  const isPOS = String(order.kind ?? order.order_type ?? "").toLowerCase() === "pos";
+  const sheetFmt = String(order.teams_sheet_format ?? "").toLowerCase();
+  const isServicesSheet =
+    kind === "services" || sheetFmt === "services";
+
+  // ── POS orders: load from pos_order_items ──────────────────────────────
+  if (isPOS) {
+    const { data: posItems } = await supabase
+      .from("pos_order_items")
+      .select("id, product_name, quantity, unit_price, line_total, sort_order")
+      .eq("order_id", orderId)
+      .order("sort_order", { ascending: true });
+
+    const lineItems: InvoiceLineItem[] = (posItems ?? []).map((item, i) => ({
+      key: item.id ?? String(i),
+      name: item.product_name,
+      size: "",
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unit_price),
+      subtotal: Number(item.line_total ?? item.quantity * item.unit_price),
+    }));
+
+    const subtotal = lineItems.reduce((s, l) => s + l.subtotal, 0);
+    const downPayment = Math.max(0, Number(order.down_payment) || 0);
+    return {
+      orderId: order.id,
+      orderNo: Number(order.order_no),
+      customerName: order.customer_name || "Customer",
+      customerPhone: order.customer_phone ?? null,
+      createdAt: order.created_at || new Date().toISOString(),
+      dueDate: order.due_date ?? null,
+      isServicesSheet: false,
+      isPOS: true,
+      lineItems,
+      subtotal,
+      downPayment,
+      balance: Math.max(0, subtotal - downPayment),
+      notes: order.notes ?? null,
+      hasSheetPricing: lineItems.length > 0,
+    };
+  }
+
+  // ── Non-POS orders: jersey / service sheet ────────────────────────────
   let teams: TeamDraft[] = [];
   if (orderHasTeamsSheet(order)) {
     const { data: teamRows } = await supabase
@@ -100,11 +145,6 @@ export async function fetchOrderInvoiceData(
 
   let lineItems = buildLineItemsFromTeams(teams, linePrices);
   const hasSheetPricing = lineItems.length > 0;
-
-  const kind = getOrderKind(order as { kind?: string; order_type?: string });
-  const sheetFmt = String(order.teams_sheet_format ?? "").toLowerCase();
-  const isServicesSheet =
-    kind === "services" || sheetFmt === "services";
 
   if (lineItems.length === 0) {
     const qty = Math.max(1, Number(order.quantity) || 1);
@@ -135,6 +175,7 @@ export async function fetchOrderInvoiceData(
     createdAt: order.created_at || new Date().toISOString(),
     dueDate: order.due_date ?? null,
     isServicesSheet,
+    isPOS: false,
     lineItems,
     subtotal,
     downPayment,

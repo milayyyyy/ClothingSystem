@@ -8,6 +8,7 @@ import { OrderInvoiceToolbar } from "@/components/order-invoice-toolbar";
 export const dynamic = "force-dynamic";
 
 function backHrefForKind(kind: string) {
+  if (kind === "pos") return "/admin/orders?type=pos";
   if (kind === "sublimation") return "/admin/orders?type=sublimation";
   if (kind === "services") return "/admin/orders?type=services";
   return "/admin/orders?type=walkin_online";
@@ -30,15 +31,19 @@ export default async function AdminOrderInvoicePage({
 
   const rawKind = String(order?.kind ?? order?.order_type ?? "local").toLowerCase();
   const orderKind =
-    rawKind === "sublimation"
-      ? "sublimation"
-      : rawKind === "services"
-        ? "services"
-        : rawKind === "online"
-          ? "online"
-          : "local";
+    rawKind === "pos"
+      ? "pos"
+      : rawKind === "sublimation"
+        ? "sublimation"
+        : rawKind === "services"
+          ? "services"
+          : rawKind === "online"
+            ? "online"
+            : "local";
 
-  const backHref = `/admin/orders/${params.orderId}/teams`;
+  const backHref = orderKind === "pos"
+    ? `/admin/orders?type=pos`
+    : `/admin/orders/${params.orderId}/teams`;
   const ordersHref = backHrefForKind(orderKind);
 
   return (
@@ -48,10 +53,14 @@ export default async function AdminOrderInvoicePage({
         <Link href={ordersHref} className="text-primary underline-offset-4 hover:underline">
           Orders list
         </Link>
-        {" · "}
-        <Link href={backHref} className="text-primary underline-offset-4 hover:underline">
-          Order sheet
-        </Link>
+        {orderKind !== "pos" && (
+          <>
+            {" · "}
+            <Link href={backHref} className="text-primary underline-offset-4 hover:underline">
+              Order sheet
+            </Link>
+          </>
+        )}
       </p>
       <OrderInvoiceDocument invoice={invoice} />
     </div>
