@@ -27,7 +27,7 @@ export default async function FinancePage({ searchParams }: { searchParams?: { f
 
   let txQuery = supabase
     .from("finance_transactions")
-    .select("id,occurred_at,account_id,direction,amount,description,notes,created_at")
+    .select("id,occurred_at,account_id,direction,amount,description,notes,expense_id,created_at")
     .order("created_at", { ascending: false })
     .order("occurred_at", { ascending: false })
     .order("id", { ascending: false });

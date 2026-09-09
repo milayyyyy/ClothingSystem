@@ -992,6 +992,7 @@ export function TeamsSheetClient({
           jersey_line_prices: linePrices,
           unit_price: computedTotal,
           quantity: 1,
+          total: computedTotal,          // explicitly set total so the trigger doesn't leave a stale value
           down_payment: dp,
           ...(canSwitchFormat ? { teams_sheet_format: sheetFormat } : {}),
         })
@@ -1000,7 +1001,7 @@ export function TeamsSheetClient({
       if (orderErr) {
         const { error: fallbackErr } = await supabase
           .from("orders")
-          .update({ unit_price: computedTotal, quantity: 1, down_payment: dp })
+          .update({ unit_price: computedTotal, quantity: 1, total: computedTotal, down_payment: dp })
           .eq("id", orderId);
         if (fallbackErr) throw fallbackErr;
       }

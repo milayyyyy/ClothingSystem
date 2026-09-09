@@ -36,6 +36,7 @@ type FinanceTxRow = {
   amount: number;
   description?: string | null;
   notes?: string | null;
+  expense_id?: string | null;
   created_at?: string | null;
 };
 
@@ -170,6 +171,9 @@ export function FinanceClient({
   const [transferAmount, setTransferAmount] = useState("");
   const [transferMemo, setTransferMemo] = useState("");
   const [transferBusy, setTransferBusy] = useState(false);
+  // Linked-expense delete dialog
+  const [linkedExpenseTx, setLinkedExpenseTx] = useState<FinanceTxRow | null>(null);
+  const [deletingLinked, setDeletingLinked] = useState(false);
 
   // Local copy of accounts so we can apply optimistic balance updates immediately
   // after a transfer without waiting for router.refresh() to complete.
@@ -474,24 +478,82 @@ export function FinanceClient({
   }
 
   function deleteTx(t: FinanceTxRow) {
-    ask({
-      title: "Delete money flow entry?",
-      description: "Remove this transaction from the ledger? Account balances will be recalculated. This cannot be undone.",
-      confirmLabel: "Delete entry",
-      onConfirm: async () => {
-        const { error: e } = await supabase.from("finance_transactions").delete().eq("id", t.id);
-        if (e) {
-          alert(e.message);
-          return;
-        }
-        router.refresh();
-      },
-    });
+    if (t.expense_id) {
+      // Transaction is linked to an expense record — ask what to delete
+      setLinkedExpenseTx(t);
+    } else {
+      ask({
+        title: "Delete money flow entry?",
+        description: "Remove this transaction from the ledger? Account balances will be recalculated. This cannot be undone.",
+        confirmLabel: "Delete entry",
+        onConfirm: async () => {
+          const { error: e } = await supabase.from("finance_transactions").delete().eq("id", t.id);
+          if (e) { alert(e.message); return; }
+          router.refresh();
+        },
+      });
+    }
   }
 
   return (
     <div className="space-y-6">
       {confirmDialog}
+
+      {/* Linked-expense delete dialog */}
+      <Dialog
+        open={!!linkedExpenseTx}
+        onClose={() => { if (!deletingLinked) setLinkedExpenseTx(null); }}
+        title="Delete money flow entry"
+        description="This transaction is linked to a connected expense / sales record. Choose what to delete:"
+        size="md"
+      >
+        <div className="space-y-2 pb-2">
+          <button
+            type="button"
+            disabled={deletingLinked}
+            onClick={async () => {
+              if (!linkedExpenseTx) return;
+              setDeletingLinked(true);
+              const { error: e } = await supabase.from("finance_transactions").delete().eq("id", linkedExpenseTx.id);
+              setDeletingLinked(false);
+              setLinkedExpenseTx(null);
+              if (e) { alert(e.message); return; }
+              router.refresh();
+            }}
+            className="w-full rounded-md border px-4 py-3 text-left text-sm hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <span className="block font-medium">Delete transaction only</span>
+            <span className="block text-xs text-muted-foreground mt-0.5">
+              Removes this money flow entry. The linked expense / sales record is kept.
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={deletingLinked}
+            onClick={async () => {
+              if (!linkedExpenseTx?.expense_id) return;
+              setDeletingLinked(true);
+              // Deleting the expense cascades and removes the transaction automatically
+              const { error: e } = await supabase.from("expenses").delete().eq("id", linkedExpenseTx.expense_id);
+              setDeletingLinked(false);
+              setLinkedExpenseTx(null);
+              if (e) { alert(e.message); return; }
+              router.refresh();
+            }}
+            className="w-full rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-left text-sm hover:bg-destructive/10 transition-colors disabled:opacity-50"
+          >
+            <span className="block font-medium text-destructive">Delete transaction + linked expense / sales record</span>
+            <span className="block text-xs text-muted-foreground mt-0.5">
+              Permanently removes both this transaction and the connected expense or sales record. Cannot be undone.
+            </span>
+          </button>
+          <div className="pt-1">
+            <Button type="button" variant="outline" className="w-full" disabled={deletingLinked} onClick={() => setLinkedExpenseTx(null)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </Dialog>
       {error && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
           Finance is unavailable until migrations <code className="rounded bg-muted px-1">037_finance_accounts.sql</code> and{" "}
