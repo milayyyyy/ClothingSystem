@@ -662,7 +662,7 @@ type JobType = { id: string; name: string; sort_order: number };
 // ---------------------------------------------------------------------------
 // Payment Collection Dialog — shown when an order reaches "Completed" stage
 // ---------------------------------------------------------------------------
-type FinanceAccount = { id: string; name: string; kind: string; balance?: number | null };
+type FinanceAccount = { id: string; name: string; kind: string; balance?: number | null; account_name?: string | null; account_number?: string | null };
 
 function PaymentCollectDialog({
   open,
@@ -763,14 +763,26 @@ function PaymentCollectDialog({
                 const sel = financeAccounts.find((a) => a.id === accountId);
                 if (!sel) return null;
                 return (
-                  <div className="mt-1.5 flex items-center gap-1.5 rounded-md bg-primary/8 px-3 py-1.5 text-xs">
-                    <span className="text-muted-foreground">Crediting to:</span>
-                    <span className="font-semibold text-foreground">{sel.name}</span>
-                    <span className="text-muted-foreground">({sel.kind})</span>
-                    {sel.balance != null && (
-                      <span className="ml-auto font-mono text-muted-foreground">
-                        balance {peso(Number(sel.balance))}
-                      </span>
+                  <div className="mt-1.5 rounded-md bg-primary/8 px-3 py-2 text-xs space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-muted-foreground">Crediting to:</span>
+                      <span className="font-semibold text-foreground">{sel.name}</span>
+                      <span className="text-muted-foreground">({sel.kind})</span>
+                      {sel.balance != null && (
+                        <span className="ml-auto font-mono text-muted-foreground">
+                          balance {peso(Number(sel.balance))}
+                        </span>
+                      )}
+                    </div>
+                    {(sel.account_name || sel.account_number) && (
+                      <div className="flex items-center gap-3 pl-[4.5rem]">
+                        {sel.account_name && (
+                          <span className="font-medium text-foreground">{sel.account_name}</span>
+                        )}
+                        {sel.account_number && (
+                          <span className="font-mono text-muted-foreground">{sel.account_number}</span>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
@@ -1073,7 +1085,7 @@ export function OrdersClient({
 
   async function ensureFinanceAccounts() {
     if (financeAccounts.length > 0) return;
-    const { data } = await supabase.from("finance_accounts").select("id, name, kind, balance").order("name");
+    const { data } = await supabase.from("finance_accounts").select("id, name, kind, balance, account_name, account_number").order("name");
     setFinanceAccounts(data || []);
   }
 
