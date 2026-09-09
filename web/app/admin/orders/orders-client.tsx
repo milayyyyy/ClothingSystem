@@ -731,6 +731,7 @@ function PaymentCollectDialog({
         amount: amt,
         description: desc,
         notes: `order:${order.id}`,
+        order_id: order.id,
       });
       if (te) throw te;
 
@@ -1357,7 +1358,26 @@ export function OrdersClient({
     setOrders(((data as any[]) || []).map(normalizeOrderAssigneesRow));
   }
 
+  /**
+   * Delete finance_transactions that were recorded for an order.
+   * Links are stored in the `notes` field as "order:{id}" or "teams_sheet_order:{id}".
+   * The DB trigger auto-recalculates the account balance after each deletion.
+   */
+  async function deleteOrderFinanceTransactions(orderIds: string[]) {
+    if (!orderIds.length) return;
+    for (const id of orderIds) {
+      // Delete both payment-collection and teams-sheet-payment transactions
+      await supabase
+        .from("finance_transactions")
+        .delete()
+        .or(`notes.eq.order:${id},notes.eq.teams_sheet_order:${id},notes.like.order:${id}%`);
+    }
+  }
+
   async function deleteOrdersByIds(ids: string[]) {
+    // 1. Clean up linked finance transactions first (triggers balance recalc)
+    await deleteOrderFinanceTransactions(ids);
+    // 2. Delete orders in batches
     const chunkSize = 100;
     for (let i = 0; i < ids.length; i += chunkSize) {
       const slice = ids.slice(i, i + chunkSize);
@@ -1370,10 +1390,12 @@ export function OrdersClient({
     ask({
       title: "Delete order?",
       description: o
-        ? `Delete order #${o.order_no} for ${o.customer_name}? This permanently removes the order and its saved sheet data. This cannot be undone.`
-        : "Delete this order? This cannot be undone.",
+        ? `Delete order #${o.order_no} for ${o.customer_name}? This permanently removes the order, its sheet data, and any recorded payments from finance. This cannot be undone.`
+        : "Delete this order? This will also remove any recorded payments from finance. This cannot be undone.",
       confirmLabel: "Delete order",
       onConfirm: async () => {
+        // Delete linked finance transactions first (auto-recalculates account balances)
+        await deleteOrderFinanceTransactions([id]);
         const { error } = await supabase.from("orders").delete().eq("id", id);
         if (error) {
           alert(error.message);

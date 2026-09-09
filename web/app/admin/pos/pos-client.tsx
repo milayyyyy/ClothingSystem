@@ -323,6 +323,7 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
             amount: subtotal,
             description: `POS Sale #${order.order_no}${customerName ? ` — ${customerName.trim()}` : ""}`,
             occurred_at: new Date().toISOString(),
+            order_id: order.id,
           });
         }
 

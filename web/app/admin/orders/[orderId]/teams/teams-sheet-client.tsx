@@ -1022,6 +1022,7 @@ export function TeamsSheetClient({
           amount: newPortion,
           description: `Down payment — Order #${orderNo}${customerName ? ` (${customerName})` : ""}`,
           notes: `teams_sheet_order:${orderId}`,
+          order_id: orderId,
         });
       }
 
