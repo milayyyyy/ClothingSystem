@@ -759,6 +759,22 @@ function PaymentCollectDialog({
                   </option>
                 ))}
               </select>
+              {(() => {
+                const sel = financeAccounts.find((a) => a.id === accountId);
+                if (!sel) return null;
+                return (
+                  <div className="mt-1.5 flex items-center gap-1.5 rounded-md bg-primary/8 px-3 py-1.5 text-xs">
+                    <span className="text-muted-foreground">Crediting to:</span>
+                    <span className="font-semibold text-foreground">{sel.name}</span>
+                    <span className="text-muted-foreground">({sel.kind})</span>
+                    {sel.balance != null && (
+                      <span className="ml-auto font-mono text-muted-foreground">
+                        balance {peso(Number(sel.balance))}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium">Amount received (₱)</label>
