@@ -27,6 +27,7 @@ export default async function AdminOrderRecordsPage() {
     title: r.title,
     notes: r.notes,
     status: r.status,
+    source: (r.source as "manual" | "pos") ?? "manual",
     stock_lines: parseUsageSheets(r.stock_lines),
     reviewed_by: r.reviewed_by,
     reviewed_at: r.reviewed_at,

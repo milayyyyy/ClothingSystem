@@ -176,7 +176,11 @@ function normalizeOrdersTabKind(
 }
 
 function stageOptions(kind: OrdersTabKind) {
-  if (kind === "sublimation" || kind === "pos") return [] as const;
+  if (kind === "pos") return [
+    { v: "pending_pos", label: "Pending" },
+    { v: "completed",   label: "Completed" },
+  ] as const;
+  if (kind === "sublimation") return [] as const;
   if (kind === "walkin_online" || kind === "online" || kind === "services" || kind === "all_orders") return LOCAL_STAGES;
   return [] as const;
 }
@@ -751,6 +755,7 @@ function PaymentCollectDialog({
               title: `POS Sale #${order.order_no}${order.customer_name ? ` — ${order.customer_name}` : ""}`,
               notes: `POS sale total: ${peso(orderTotal)}`,
               status: "submitted",
+              source: "pos",   // ← POS Sales section in Daily Order Records
               stock_lines: [{
                 id: "sheet-pos",
                 name: `POS Sale #${order.order_no} — Items`,
@@ -1199,7 +1204,11 @@ export function OrdersClient({
       }
 
       if (stageFilter !== "all") {
-        if (kindFilter === "all_orders") {
+        if (kindFilter === "pos") {
+          const posStage = String(o.stage || "").toLowerCase();
+          if (stageFilter === "completed" && posStage !== "completed") return false;
+          if (stageFilter === "pending_pos" && posStage === "completed") return false;
+        } else if (kindFilter === "all_orders") {
           // map sublimation sub_stage to service stage for unified filtering
           const effectiveStage = k === "sublimation"
             ? defaultServiceStageFromSubStage(o.sub_stage)
@@ -1602,8 +1611,10 @@ export function OrdersClient({
             const pills: Array<{ v: string; label: string }> = [{ v: "all", label: "All" }];
             if (k === "sublimation") {
               SUB_STAGES.forEach((s) => pills.push({ v: s.v, label: s.label }));
+            } else if (k === "pos") {
+              stageOptions(k).forEach((s) => pills.push({ v: (s as {v:string;label:string}).v, label: (s as {v:string;label:string}).label }));
             } else {
-              stageOptions(k).forEach((v) => pills.push({ v, label: ORDER_SERVICE_LABEL[v] || v }));
+              (stageOptions(k) as readonly string[]).forEach((v) => pills.push({ v, label: ORDER_SERVICE_LABEL[v as keyof typeof ORDER_SERVICE_LABEL] || v }));
             }
             return (
               <>

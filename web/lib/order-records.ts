@@ -20,6 +20,7 @@ export type OrderRecordRow = {
   title: string | null;
   notes: string | null;
   status: OrderRecordStatus;
+  source?: "manual" | "pos" | null;
   stock_lines: ManualUsageSheet[];
   reviewed_by: string | null;
   reviewed_at: string | null;

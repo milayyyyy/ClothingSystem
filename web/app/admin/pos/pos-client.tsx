@@ -164,7 +164,7 @@ function CompleteSaleDialog({
             onClick={handleConfirm}
           >
             <CheckCircle2 className="h-4 w-4" />
-            Complete Sale
+            Completed
           </button>
         </div>
       </div>
@@ -288,7 +288,7 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
         .insert({
           kind: "pos",
           order_type: "POS",
-          customer_name: customerName.trim() || null,
+          customer_name: customerName.trim() || "Walk-in Customer",
           total: subtotal,
           quantity: cart.reduce((s, ci) => s + ci.quantity, 0),
           notes: notes.trim() || null,
@@ -333,13 +333,14 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
           const colPrice   = "col-price";
           const colTotal   = "col-total";
 
-          await supabase.from("order_records").insert({
-            submitted_by: userId,
-            record_date: new Date().toISOString().slice(0, 10),
-            title: `POS Sale #${order.order_no}${customerName ? ` — ${customerName.trim()}` : ""}`,
-            notes: `POS sale total: ${peso(subtotal)}${notes.trim() ? `\n${notes.trim()}` : ""}`,
-            status: "submitted",
-            stock_lines: [{
+            await supabase.from("order_records").insert({
+              submitted_by: userId,
+              record_date: new Date().toISOString().slice(0, 10),
+              title: `POS Sale #${order.order_no}${customerName ? ` — ${customerName.trim()}` : ""}`,
+              notes: `POS sale total: ${peso(subtotal)}${notes.trim() ? `\n${notes.trim()}` : ""}`,
+              status: "submitted",
+              source: "pos",   // ← separate section in Daily Order Records
+              stock_lines: [{
               id: "sheet-pos",
               name: `POS Sale #${order.order_no} — Items`,
               columns: [
@@ -587,7 +588,7 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
                 className={"flex items-center justify-center gap-2 rounded-lg border py-2.5 text-sm font-medium transition-all " + (orderStatus === "completed" ? "border-green-500/60 bg-green-500/10 text-green-600 dark:text-green-400" : "border-border bg-background text-muted-foreground hover:bg-accent")}
                 onClick={() => setOrderStatus("completed")}
               >
-                <CheckCircle2 className="h-4 w-4" /> Complete Sale
+                <CheckCircle2 className="h-4 w-4" /> Completed
               </button>
               <button
                 className={"flex items-center justify-center gap-2 rounded-lg border py-2.5 text-sm font-medium transition-all " + (orderStatus === "pending" ? "border-amber-500/60 bg-amber-500/10 text-amber-600 dark:text-amber-400" : "border-border bg-background text-muted-foreground hover:bg-accent")}
@@ -610,8 +611,6 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
                 Order will be saved as pending in the POS orders list.
               </p>
             )}
-
-            {/* Totals */}
             <div className="mb-4 space-y-1 rounded-lg bg-background px-4 py-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Items ({cart.reduce((s, ci) => s + ci.quantity, 0)})</span>
@@ -631,7 +630,7 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
               {saving ? <span className="animate-pulse">Processing…</span>
                 : orderStatus === "pending"
                 ? <><Clock className="h-4 w-4" /> Save as Pending — {peso(subtotal)}</>
-                : <><CheckCircle2 className="h-4 w-4" /> Complete Sale — {peso(subtotal)}</>}
+                : <><CheckCircle2 className="h-4 w-4" /> Completed — {peso(subtotal)}</>}
             </button>
           </div>
         </div>
