@@ -62,6 +62,7 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/reports", label: "Reports", icon: BarChart3 },
   ]},
   { title: "Orders & sales", items: [
+    { href: "/admin/pos", label: "POS Terminal", icon: ShoppingCart, adminOrManagerOnly: true },
     {
       href: "/admin/orders", label: "Orders", icon: ShoppingBag,
       children: [
@@ -82,7 +83,6 @@ const STAFF_GROUPS: Group[] = [
       ],
     },
     { href: "/admin/finance", label: "Finance", icon: Landmark },
-    { href: "/admin/pos", label: "POS Terminal", icon: ShoppingCart, adminOrManagerOnly: true },
     { href: "/admin/returns", label: "Returns", icon: PackageX },
     { href: "/admin/order-records", label: "Daily Order Records", icon: FileStack },
   ]},
