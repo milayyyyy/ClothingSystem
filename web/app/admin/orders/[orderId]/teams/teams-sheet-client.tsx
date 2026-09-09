@@ -1037,7 +1037,7 @@ export function TeamsSheetClient({
   }
 
   async function save() {
-    const computedTotal = uniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0);
+    const computedTotal = uniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0) + (linePrices["__extra__"] ?? 0);
     const dp = Math.max(0, Number(downPaymentStr) || 0);
 
     // If there's a new/increased down payment, ask for a finance account first
