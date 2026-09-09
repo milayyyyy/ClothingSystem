@@ -190,7 +190,11 @@ function getOrderKind(order: any): "local" | "online" | "sublimation" | "service
 function orderStatusHighlightVariant(order: any): "outline" | "amber" | "blue" | "green" | "red" | "teal" {
   if (String(order?.status || "").toLowerCase() === "cancelled") return "red";
   const kind = getOrderKind(order);
-  if (kind === "pos") return "green"; // POS orders are always completed sales
+  if (kind === "pos") {
+    // pending POS orders show amber, completed show green
+    const st = String(order?.status || "").toLowerCase();
+    return st === "pending" ? "amber" : "green";
+  }
   if (kind === "sublimation") {
     const sub = String(order?.sub_stage || "").toLowerCase().trim();
     if (sub === "for_pickup") return "green";
@@ -1156,7 +1160,9 @@ export function OrdersClient({
       }
 
       if (hideCompleted) {
-        if (k === "sublimation") {
+        if (k === "pos") {
+          // Never hide POS orders — always show both pending and completed
+        } else if (k === "sublimation") {
           if (String(o.sub_stage || "") === "for_pickup") return false;
         } else {
           if (normalizeOrderServiceStage(o.stage) === "completed") return false;
@@ -1609,7 +1615,7 @@ export function OrdersClient({
               setHideCompleted(next);
               if (typeof window !== "undefined") localStorage.setItem("orders_hide_completed", String(next));
             }}
-            className="gap-1.5"
+            className={`gap-1.5${kindFilter === "pos" ? " hidden" : ""}`}
           >
             {hideCompleted ? (
               <>
@@ -2098,7 +2104,7 @@ export function OrdersClient({
                       ? ORDER_SERVICE_LABEL[normalizeOrderServiceStage(o.stage)]
                       : null;
                   const stageLabel = isPOS
-                    ? "POS Sale"
+                    ? (String(o.status || "").toLowerCase() === "pending" ? "Pending" : "POS Sale")
                     : isSub
                     ? [svc, stage?.label].filter(Boolean).join(" · ") || stage?.label || "—"
                     : ORDER_SERVICE_LABEL[normalizeOrderServiceStage(o.stage)] ||
