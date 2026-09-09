@@ -94,6 +94,7 @@ const KINDS = [
   },
   { v: "services", label: "Services", hint: "Embroidery, DTF, vinyl, numbering, other add-ons", variant: "amber" },
   { v: "sublimation", label: "Sublimation Order", hint: "Full sublimation pipeline", variant: "teal" },
+  { v: "pos", label: "POS", hint: "Point of Sale — ready-made products", variant: "green" },
 ] as const;
 
 /** New / edit order dialog: three groups; DB still uses `local` | `online` under Walk In & Online. */
@@ -126,6 +127,7 @@ const ORDER_TOP_TABS = [
   { href: "/admin/orders?type=walkin_online", kind: "walkin_online" as const, label: "Walk In & Online" },
   { href: "/admin/orders?type=services", kind: "services" as const, label: "Services" },
   { href: "/admin/orders?type=sublimation", kind: "sublimation" as const, label: "Sublimation" },
+  { href: "/admin/orders?type=pos", kind: "pos" as const, label: "POS" },
 ] as const;
 
 const SUB_STAGES = [
@@ -156,8 +158,8 @@ const SUBLIMATION_BULK_TARGET_OPTIONS: { v: string; label: string }[] = [
 
 const LOCAL_STAGES = ORDER_SERVICE_STAGES;
 /** Main orders: walk-in + non-BigSeller online in one list. BigSeller page uses `online` internally. */
-type OrdersTabKind = "walkin_online" | "services" | "sublimation" | "online" | "all_orders";
-const VALID_ORDERS_TAB_KINDS = new Set<string>(["walkin_online", "services", "sublimation", "all_orders"]);
+type OrdersTabKind = "walkin_online" | "services" | "sublimation" | "online" | "all_orders" | "pos";
+const VALID_ORDERS_TAB_KINDS = new Set<string>(["walkin_online", "services", "sublimation", "all_orders", "pos"]);
 
 function normalizeOrdersTabKind(
   raw: string | null | undefined,
@@ -174,20 +176,21 @@ function normalizeOrdersTabKind(
 }
 
 function stageOptions(kind: OrdersTabKind) {
-  if (kind === "sublimation") return [] as const;
+  if (kind === "sublimation" || kind === "pos") return [] as const;
   if (kind === "walkin_online" || kind === "online" || kind === "services" || kind === "all_orders") return LOCAL_STAGES;
   return [] as const;
 }
 
-function getOrderKind(order: any): "local" | "online" | "sublimation" | "services" {
+function getOrderKind(order: any): "local" | "online" | "sublimation" | "services" | "pos" {
   const raw = String(order?.kind ?? order?.order_type ?? "local").toLowerCase().trim();
-  if (raw === "online" || raw === "sublimation" || raw === "services") return raw;
+  if (raw === "online" || raw === "sublimation" || raw === "services" || raw === "pos") return raw;
   return "local";
 }
 
 function orderStatusHighlightVariant(order: any): "outline" | "amber" | "blue" | "green" | "red" | "teal" {
   if (String(order?.status || "").toLowerCase() === "cancelled") return "red";
   const kind = getOrderKind(order);
+  if (kind === "pos") return "green"; // POS orders are always completed sales
   if (kind === "sublimation") {
     const sub = String(order?.sub_stage || "").toLowerCase().trim();
     if (sub === "for_pickup") return "green";
@@ -876,7 +879,7 @@ function OutstandingBalancesSection({
                     const paid = Number(o.down_payment || 0);
                     const balance = total - paid;
                     const k = getOrderKind(o);
-                    const kindLabel = k === "sublimation" ? "Sublimation" : k === "services" ? "Services" : k === "online" ? "Online" : "Walk-in";
+                    const kindLabel = k === "pos" ? "POS" : k === "sublimation" ? "Sublimation" : k === "services" ? "Services" : k === "online" ? "Online" : "Walk-in";
                     return (
                       <tr key={o.id} className="border-t hover:bg-muted/20">
                         <td className="px-4 py-2 font-mono text-xs text-muted-foreground">#{o.order_no}</td>
@@ -1100,8 +1103,11 @@ export function OrdersClient({
       } else if (kindFilter === "online") {
         if (k !== "online") return false;
         if (!isBigSellerOnlineOrder(o)) return false;
+      } else if (kindFilter === "pos") {
+        if (k !== "pos") return false;
       } else if (kindFilter === "all_orders") {
-        // include walk-in, non-BigSeller online, services, sublimation
+        // include walk-in, non-BigSeller online, services, sublimation (exclude POS from All Orders)
+        if (k === "pos") return false;
         if (k === "online" && isBigSellerOnlineOrder(o)) return false;
       } else if (k !== kindFilter) {
         return false;
@@ -1790,7 +1796,7 @@ export function OrdersClient({
               <Settings2 className="mr-1 h-4 w-4" /> Job Types
             </Button>
           )}
-          {!hideNewOrder && canCreate && (
+          {!hideNewOrder && canCreate && kindFilter !== "pos" && (
             <Button
               onClick={() => {
                 setEditing(null);
@@ -1798,6 +1804,11 @@ export function OrdersClient({
               }}
             >
               <Plus className="mr-1 h-4 w-4" /> New Order
+            </Button>
+          )}
+          {!hideNewOrder && canCreate && kindFilter === "pos" && (
+            <Button onClick={() => router.push("/admin/pos")}>
+              <Plus className="mr-1 h-4 w-4" /> New Sale
             </Button>
           )}
         </div>
@@ -2052,12 +2063,15 @@ export function OrdersClient({
                   const balance = Number(o.total) - Number(o.down_payment || 0);
                   const k = KINDS.find((x) => x.v === getOrderKind(o)) || KINDS[0];
                   const isSub = getOrderKind(o) === "sublimation";
+                  const isPOS = getOrderKind(o) === "pos";
                   const stage = isSub ? SUB_STAGES.find((s) => s.v === o.sub_stage) : null;
                   const svc =
                     o.stage != null && String(o.stage).trim() !== ""
                       ? ORDER_SERVICE_LABEL[normalizeOrderServiceStage(o.stage)]
                       : null;
-                  const stageLabel = isSub
+                  const stageLabel = isPOS
+                    ? "POS Sale"
+                    : isSub
                     ? [svc, stage?.label].filter(Boolean).join(" · ") || stage?.label || "—"
                     : ORDER_SERVICE_LABEL[normalizeOrderServiceStage(o.stage)] ||
                       normalizeOrderServiceStage(o.stage);

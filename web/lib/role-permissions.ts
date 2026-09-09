@@ -110,6 +110,7 @@ export function featureForAdminPath(path: string): FeatureKey | null {
   if (path.startsWith("/admin/reports")) return "reports";
   if (path.startsWith("/admin/orders")) return "orders";
   if (path.startsWith("/admin/order-records")) return "orders";
+  if (path.startsWith("/admin/pos")) return "orders";
   if (path.startsWith("/admin/inventory/ready-made")) return "ready_made";
   if (path.startsWith("/admin/inventory")) return "inventory";
   if (path.startsWith("/admin/suppliers")) return "suppliers";

@@ -35,6 +35,7 @@ import {
   Download,
   FileStack,
   BellRing,
+  ShoppingCart,
 } from "lucide-react";
 import {
   canView,
@@ -67,6 +68,7 @@ const STAFF_GROUPS: Group[] = [
         { href: "/admin/orders?type=walkin_online", label: "Walk In & Online", icon: Store, query: { type: "walkin_online" } },
         { href: "/admin/orders?type=services",    label: "Services",     icon: Briefcase, query: { type: "services" } },
         { href: "/admin/orders?type=sublimation", label: "Sublimation",  icon: Sparkles, query: { type: "sublimation" } },
+        { href: "/admin/orders?type=pos",         label: "POS",          icon: ShoppingCart, query: { type: "pos" } },
       ],
     },
     {
@@ -80,6 +82,7 @@ const STAFF_GROUPS: Group[] = [
       ],
     },
     { href: "/admin/finance", label: "Finance", icon: Landmark },
+    { href: "/admin/pos", label: "POS Terminal", icon: ShoppingCart, adminOrManagerOnly: true },
     { href: "/admin/returns", label: "Returns", icon: PackageX },
     { href: "/admin/order-records", label: "Daily Order Records", icon: FileStack },
   ]},
