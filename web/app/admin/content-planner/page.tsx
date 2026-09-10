@@ -15,7 +15,7 @@ export default async function ContentPlannerPage() {
     supabase.from("reminders").select("*").order("due_at"),
     supabase
       .from("tasks")
-      .select("id, title, description, due_date, priority, status")
+      .select("id, title, description, due_date, priority, status, task_type, machine_type_id, repeat_mode, repeat_interval_days")
       .order("due_date", { ascending: true }),
   ]);
 

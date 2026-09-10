@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Bell, CheckSquare, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Bell, CheckSquare, X, Check, ArrowRight, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { spawnNextRecurringTask } from "@/lib/task-recurrence";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,10 @@ export type ReminderItem = {
 export type TaskItem = {
   id: string; title: string; description?: string | null; due_date?: string | null;
   priority?: string | null; status: string;
+  task_type?: string | null;
+  machine_type_id?: string | null;
+  repeat_mode?: string | null;
+  repeat_interval_days?: number | null;
 };
 
 /** Calendar day key YYYY-MM-DD from a date or timestamp string. */
@@ -70,6 +75,14 @@ const PRIORITY_LABEL: Record<string, string> = {
 };
 const TASK_STATUS_LABEL: Record<string, string> = {
   open: "Open", in_progress: "In progress", done: "Done", cancelled: "Cancelled",
+};
+const TASK_STATUS_FLOW: Record<string, string> = {
+  open: "in_progress",
+  in_progress: "done",
+};
+const TASK_FORWARD_LABEL: Record<string, string> = {
+  open: "Start",
+  in_progress: "Mark Done",
 };
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -133,7 +146,7 @@ export function ContentPlannerClient({
   const todayStr = toLocalDateStr(today);
 
   const [items,     setItems]     = useState<ContentItem[]>(initial);
-  const [reminders]               = useState<ReminderItem[]>(initialReminders);
+  const [reminders, setReminders] = useState<ReminderItem[]>(initialReminders);
   const [tasks,     setTasks]     = useState<TaskItem[]>(initialTasks);
   const [viewYear,  setViewYear]  = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -147,12 +160,15 @@ export function ContentPlannerClient({
   const [expandDay, setExpandDay] = useState<string | null>(null);
   const [showReminders, setShowReminders] = useState(true);
   const [showTasks,     setShowTasks]     = useState(true);
+  const [actionSaving,  setActionSaving]  = useState(false);
+
+  const TASK_SELECT = "id, title, description, due_date, priority, status, task_type, machine_type_id, repeat_mode, repeat_interval_days";
 
   // Re-fetch tasks on mount so newly created tasks appear immediately
   useEffect(() => {
     void supabase
       .from("tasks")
-      .select("id, title, description, due_date, priority, status")
+      .select(TASK_SELECT)
       .order("due_date", { ascending: true })
       .then(({ data, error }) => {
         if (error) {
@@ -201,6 +217,66 @@ export function ContentPlannerClient({
   // ── Navigation ────────────────────────────────────────────────────────────
   function prevMonth() { viewMonth === 0 ? (setViewYear(y=>y-1), setViewMonth(11)) : setViewMonth(m=>m-1); }
   function nextMonth() { viewMonth === 11 ? (setViewYear(y=>y+1), setViewMonth(0)) : setViewMonth(m=>m+1); }
+
+  function patchReminder(id: string, patch: Partial<ReminderItem>) {
+    setReminders(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
+    setReminderDetail(cur => (cur?.id === id ? { ...cur, ...patch } : cur));
+  }
+
+  function patchTask(id: string, patch: Partial<TaskItem>) {
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
+    setTaskDetail(cur => (cur?.id === id ? { ...cur, ...patch } : cur));
+  }
+
+  async function markReminderDone() {
+    if (!reminderDetail || reminderDetail.status === "done") return;
+    setActionSaving(true);
+    const { error } = await supabase
+      .from("reminders")
+      .update({ status: "done", updated_at: new Date().toISOString() })
+      .eq("id", reminderDetail.id);
+    if (!error) patchReminder(reminderDetail.id, { status: "done" });
+    setActionSaving(false);
+  }
+
+  async function markReminderPending() {
+    if (!reminderDetail || reminderDetail.status !== "done") return;
+    setActionSaving(true);
+    const { error } = await supabase
+      .from("reminders")
+      .update({ status: "pending", updated_at: new Date().toISOString() })
+      .eq("id", reminderDetail.id);
+    if (!error) patchReminder(reminderDetail.id, { status: "pending" });
+    setActionSaving(false);
+  }
+
+  async function forwardTask() {
+    if (!taskDetail) return;
+    const next = TASK_STATUS_FLOW[taskDetail.status];
+    if (!next) return;
+    setActionSaving(true);
+    const patch: Record<string, unknown> = { status: next };
+    if (next === "done") patch.completed_at = new Date().toISOString();
+    const { error } = await supabase.from("tasks").update(patch).eq("id", taskDetail.id);
+    if (!error) {
+      patchTask(taskDetail.id, { status: next });
+      if (next === "done") {
+        await spawnNextRecurringTask(supabase, taskDetail, []);
+      }
+    }
+    setActionSaving(false);
+  }
+
+  async function reopenTask() {
+    if (!taskDetail) return;
+    setActionSaving(true);
+    const { error } = await supabase
+      .from("tasks")
+      .update({ status: "open", completed_at: null })
+      .eq("id", taskDetail.id);
+    if (!error) patchTask(taskDetail.id, { status: "open" });
+    setActionSaving(false);
+  }
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
   function openAdd(dateStr?: string) { setEditing(null); setForm(blankForm(dateStr)); setFormOpen(true); }
@@ -469,6 +545,16 @@ export function ContentPlannerClient({
               <p className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">No notes</p>
             )}
           </div>
+
+          {reminderDetail.status === "done" ? (
+            <Button size="sm" variant="outline" className="w-full gap-1.5" disabled={actionSaving} onClick={() => void markReminderPending()}>
+              <RotateCcw className="h-3.5 w-3.5" /> Mark pending
+            </Button>
+          ) : (
+            <Button size="sm" className="w-full gap-1.5" disabled={actionSaving} onClick={() => void markReminderDone()}>
+              <Check className="h-3.5 w-3.5" /> Done
+            </Button>
+          )}
         </div>
       )}
 
@@ -515,6 +601,17 @@ export function ContentPlannerClient({
               <p className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">No description</p>
             )}
           </div>
+
+          {taskDetail.status === "done" || taskDetail.status === "cancelled" ? (
+            <Button size="sm" variant="outline" className="w-full gap-1.5" disabled={actionSaving} onClick={() => void reopenTask()}>
+              <RotateCcw className="h-3.5 w-3.5" /> Reopen
+            </Button>
+          ) : (
+            <Button size="sm" className="w-full gap-1.5" disabled={actionSaving} onClick={() => void forwardTask()}>
+              {taskDetail.status === "open" ? <ArrowRight className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+              {TASK_FORWARD_LABEL[taskDetail.status] ?? "Update"}
+            </Button>
+          )}
         </div>
       )}
 
