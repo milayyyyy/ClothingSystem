@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
-import { ChevronRight, Copy, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronRight, Copy, Plus, Search, Tag, Trash2 } from "lucide-react";
 import { InventoryFullStockExportButton } from "@/components/inventory-full-stock-export-button";
 import { computeReadyMadeLowStockRows } from "@/lib/ready-made-low-stock";
 import { fetchReadyMadeLowStockRowsForBoard } from "@/lib/ready-made-board-low-stock-fetch";
@@ -28,7 +28,17 @@ type Board = {
 };
 type Col = { id: string; board_id: string; header_name: string; sort_order: number };
 type Row = { id: string; board_id: string; row_label: string; sort_order: number };
-type Cell = { id: string; row_id: string; column_id: string; value: string };
+type Cell = {
+  id: string;
+  row_id: string;
+  column_id: string;
+  value: string;
+  item_name?: string | null;
+  category?: string | null;
+  board_name_cache?: string | null;
+  row_label_cache?: string | null;
+  col_header_cache?: string | null;
+};
 
 function sortByOrder<T extends { sort_order: number }>(arr: T[]) {
   return [...arr].sort((a, b) => a.sort_order - b.sort_order);
@@ -59,6 +69,9 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   const collapsedInitRef = useRef(false);
   /** Active sheet only: show rows flagged low stock (any column below minimum). */
   const [lowStockOnly, setLowStockOnly] = useState(false);
+  // Connect row dialog: row whose cells are being tagged
+  const [connectingRow, setConnectingRow] = useState<Row | null>(null);
+  const [connectDraft, setConnectDraft] = useState<Record<string, { item_name: string; category: string }>>({});
   /** Increment to rescan every sheet’s low stock from the server (not only the open sheet). */
   const [lowStockScanKey, setLowStockScanKey] = useState(0);
   const [allSheetsLowStockTotal, setAllSheetsLowStockTotal] = useState(0);
@@ -68,6 +81,12 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   const cellByPair = useMemo(() => {
     const m = new Map<string, string>();
     for (const c of cells) m.set(`${c.row_id}:${c.column_id}`, c.value);
+    return m;
+  }, [cells]);
+
+  const cellMetaByPair = useMemo(() => {
+    const m = new Map<string, { item_name?: string | null; category?: string | null }>();
+    for (const c of cells) m.set(`${c.row_id}:${c.column_id}`, { item_name: c.item_name, category: c.category });
     return m;
   }, [cells]);
 
@@ -102,7 +121,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
     }
     const { data: cellsData } = await supabase
       .from("ready_made_cells")
-      .select("id,row_id,column_id,value")
+      .select("id,row_id,column_id,value,item_name,category,board_name_cache,row_label_cache,col_header_cache")
       .in("row_id", rowIds);
     setCells((cellsData as Cell[]) || []);
     setLowStockScanKey((k) => k + 1);
@@ -439,6 +458,16 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   }
 
   async function setCellValue(rowId: string, columnId: string, value: string) {
+    // Lookup labels for activity log context cache
+    const row = rows.find((r) => r.id === rowId);
+    const col = cols.find((c) => c.id === columnId);
+    const boardName = activeBoard?.name ?? null;
+    const contextPatch = {
+      board_name_cache:  boardName,
+      row_label_cache:   row?.row_label ?? null,
+      col_header_cache:  col?.header_name ?? null,
+    };
+
     const { data: existing } = await supabase
       .from("ready_made_cells")
       .select("id")
@@ -446,20 +475,72 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
       .eq("column_id", columnId)
       .maybeSingle();
     if (existing?.id) {
-      await supabase.from("ready_made_cells").update({ value }).eq("id", (existing as { id: string }).id);
+      await supabase.from("ready_made_cells").update({ value, ...contextPatch }).eq("id", (existing as { id: string }).id);
       setCells((prev) =>
-        prev.map((c) => (c.row_id === rowId && c.column_id === columnId ? { ...c, value } : c)),
+        prev.map((c) => (c.row_id === rowId && c.column_id === columnId ? { ...c, value, ...contextPatch } : c)),
       );
       setLowStockScanKey((k) => k + 1);
     } else {
       const { data: inserted } = await supabase
         .from("ready_made_cells")
-        .insert({ row_id: rowId, column_id: columnId, value })
-        .select("id,row_id,column_id,value")
+        .insert({ row_id: rowId, column_id: columnId, value, ...contextPatch })
+        .select("id,row_id,column_id,value,item_name,category,board_name_cache,row_label_cache,col_header_cache")
         .single();
       if (inserted) setCells((prev) => [...prev.filter((c) => !(c.row_id === rowId && c.column_id === columnId)), inserted as Cell]);
       setLowStockScanKey((k) => k + 1);
     }
+  }
+
+  async function setCellMeta(rowId: string, columnId: string, item_name: string | null, category: string | null) {
+    const { data: existing } = await supabase
+      .from("ready_made_cells")
+      .select("id")
+      .eq("row_id", rowId)
+      .eq("column_id", columnId)
+      .maybeSingle();
+
+    const row = rows.find((r) => r.id === rowId);
+    const col = cols.find((c) => c.id === columnId);
+    const contextPatch = {
+      board_name_cache: activeBoard?.name ?? null,
+      row_label_cache:  row?.row_label ?? null,
+      col_header_cache: col?.header_name ?? null,
+      item_name:        item_name || null,
+      category:         category || null,
+    };
+
+    if (existing?.id) {
+      await supabase.from("ready_made_cells").update(contextPatch).eq("id", (existing as { id: string }).id);
+    } else {
+      // Cell doesn't exist yet — create it with empty value
+      await supabase.from("ready_made_cells").insert({
+        row_id: rowId, column_id: columnId, value: "", ...contextPatch,
+      });
+    }
+    setCells((prev) => prev.map((c) =>
+      c.row_id === rowId && c.column_id === columnId
+        ? { ...c, ...contextPatch }
+        : c
+    ));
+  }
+
+  function openConnectRow(row: Row) {
+    const draft: Record<string, { item_name: string; category: string }> = {};
+    for (const c of colsSorted) {
+      const meta = cellMetaByPair.get(`${row.id}:${c.id}`);
+      draft[c.id] = { item_name: meta?.item_name ?? "", category: meta?.category ?? "" };
+    }
+    setConnectDraft(draft);
+    setConnectingRow(row);
+  }
+
+  async function saveConnectRow() {
+    if (!connectingRow) return;
+    for (const c of colsSorted) {
+      const draft = connectDraft[c.id];
+      await setCellMeta(connectingRow.id, c.id, draft?.item_name || null, draft?.category || null);
+    }
+    setConnectingRow(null);
   }
 
   async function addColumn() {
@@ -1185,17 +1266,29 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                           }
                         >
                           <td className="sticky left-0 z-[1] border-r bg-card px-1 py-0">
-                            <input
-                              className="w-full min-w-[6rem] border-0 bg-transparent px-1 py-1.5 text-[11px] outline-none focus:bg-primary/5"
-                              key={`r:${r.id}:${r.row_label}`}
-                              defaultValue={r.row_label}
-                              readOnly={!canEdit}
-                              onBlur={(e) => {
-                                if (!canEdit) return;
-                                if (e.target.value !== r.row_label) void updateRowLabel(r, e.target.value);
-                              }}
-                              aria-label="Row name"
-                            />
+                            <div className="group flex items-center">
+                              <input
+                                className="w-full min-w-[6rem] border-0 bg-transparent px-1 py-1.5 text-[11px] outline-none focus:bg-primary/5"
+                                key={`r:${r.id}:${r.row_label}`}
+                                defaultValue={r.row_label}
+                                readOnly={!canEdit}
+                                onBlur={(e) => {
+                                  if (!canEdit) return;
+                                  if (e.target.value !== r.row_label) void updateRowLabel(r, e.target.value);
+                                }}
+                                aria-label="Row name"
+                              />
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  title="Connect row — set item name & category per column"
+                                  className="mr-0.5 shrink-0 rounded p-0.5 text-muted-foreground/40 opacity-0 hover:bg-primary/10 hover:text-primary group-hover:opacity-100"
+                                  onClick={() => openConnectRow(r)}
+                                >
+                                  <Tag className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
                           </td>
                           {colsSorted.map((c) => (
                             <td key={c.id} className="border-r p-0">
@@ -1299,6 +1392,71 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
             </Button>
             <Button type="button" onClick={() => void createGroup()} disabled={saving}>
               Create group
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* Connect row dialog — set item name & category per column */}
+      <Dialog
+        open={!!connectingRow}
+        onClose={() => setConnectingRow(null)}
+        title={`Connect: ${connectingRow?.row_label ?? ""}`}
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Set an item name and category for each column in this row. These labels appear in the activity log when a cell&apos;s stock value is changed.
+          </p>
+          <div className="max-h-[60vh] overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="pb-1.5 pr-3 font-medium">Column</th>
+                  <th className="pb-1.5 pr-3 font-medium">Item name</th>
+                  <th className="pb-1.5 font-medium">Category</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {colsSorted.map((c) => (
+                  <tr key={c.id}>
+                    <td className="py-1.5 pr-3 font-medium text-foreground">{c.header_name}</td>
+                    <td className="py-1 pr-3">
+                      <Input
+                        className="h-7 text-xs"
+                        placeholder="e.g. Kaya Ko To T-Shirt"
+                        value={connectDraft[c.id]?.item_name ?? ""}
+                        onChange={(e) =>
+                          setConnectDraft((prev) => ({
+                            ...prev,
+                            [c.id]: { ...prev[c.id], item_name: e.target.value },
+                          }))
+                        }
+                      />
+                    </td>
+                    <td className="py-1">
+                      <Input
+                        className="h-7 text-xs"
+                        placeholder="e.g. Jersey, Polo"
+                        value={connectDraft[c.id]?.category ?? ""}
+                        onChange={(e) =>
+                          setConnectDraft((prev) => ({
+                            ...prev,
+                            [c.id]: { ...prev[c.id], category: e.target.value },
+                          }))
+                        }
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setConnectingRow(null)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void saveConnectRow()}>
+              Save connections
             </Button>
           </div>
         </div>

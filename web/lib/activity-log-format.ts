@@ -136,6 +136,10 @@ const FIELD_LABELS: Record<string, string> = {
   change_kind: "Change type",
   reorder_level: "Reorder level",
   low_stock_threshold: "Low stock threshold",
+  // Ready-made cell fields
+  value: "Stock",
+  item_name: "Item name",
+  category: "Category",
 };
 
 const HIDDEN_ON_INSERT = new Set([
@@ -146,6 +150,10 @@ const HIDDEN_ON_INSERT = new Set([
   "face_descriptor",
   "jersey_checklist",
   "bigseller_line_items",
+  // ready_made_cells cache fields — shown as context, not as raw change lines
+  "board_name_cache",
+  "row_label_cache",
+  "col_header_cache",
 ]);
 
 const MAX_VALUE_LEN = 120;
@@ -202,6 +210,24 @@ export function formatActivityValue(value: unknown, forPdf = false): string {
 
 function recordContext(entity: string, record: Record<string, unknown> | undefined): string {
   if (!record) return "";
+
+  // Special context for ready_made_cells — use cached labels for human-readable output
+  if (entity === "ready_made_cells") {
+    const breadcrumbs: string[] = [];
+    if (record.board_name_cache) breadcrumbs.push(String(record.board_name_cache));
+    if (record.row_label_cache) breadcrumbs.push(String(record.row_label_cache));
+    if (record.col_header_cache) breadcrumbs.push(String(record.col_header_cache));
+    const crumb = breadcrumbs.join(" › ");
+    const meta: string[] = [];
+    if (record.item_name) meta.push(String(record.item_name));
+    if (record.category) meta.push(String(record.category));
+    const suffix = meta.length ? ` (${meta.join(", ")})` : "";
+    if (crumb) return `${crumb}${suffix}`;
+    if (meta.length) return meta.join(", ");
+    if (record.id) return `ID ${String(record.id).slice(0, 8)}…`;
+    return "";
+  }
+
   const fields = TITLE_FIELDS[entity] || ["name", "title", "description", "order_no"];
   const parts: string[] = [];
   for (const f of fields) {
@@ -250,6 +276,13 @@ function formatLegacySnapshot(record: Record<string, unknown>, forPdf = false): 
   return lines;
 }
 
+/** Fields that are internal cache/metadata — skip them in change diff lines */
+const HIDDEN_IN_CHANGES = new Set([
+  "board_name_cache",
+  "row_label_cache",
+  "col_header_cache",
+]);
+
 export function formatActivityLog(row: ActivityLogRow, forPdf = false): ActivityFormatted {
   const action = String(row.action || "").toUpperCase();
   const entityLabel = entityDisplayName(row.entity);
@@ -269,17 +302,19 @@ export function formatActivityLog(row: ActivityLogRow, forPdf = false): Activity
     const context = recordContext(row.entity, record);
 
     if (action === "UPDATE" && Array.isArray(payload.changes) && payload.changes.length > 0) {
-      const lines = payload.changes.map((c) =>
-        formatChangeLine(
-          { field: String(c.field), from: c.from, to: c.to },
-          forPdf,
-        ),
-      );
+      const lines = payload.changes
+        .filter((c) => !HIDDEN_IN_CHANGES.has(String(c.field)))
+        .map((c) =>
+          formatChangeLine(
+            { field: String(c.field), from: c.from, to: c.to },
+            forPdf,
+          ),
+        );
       return {
         actionLabel: "Edited",
         entityLabel,
         context,
-        lines,
+        lines: lines.length ? lines : ["Updated"],
         searchText: [entityLabel, context, ...lines].join(" "),
       };
     }
