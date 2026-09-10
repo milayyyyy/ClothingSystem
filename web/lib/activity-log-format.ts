@@ -138,8 +138,7 @@ const FIELD_LABELS: Record<string, string> = {
   low_stock_threshold: "Low stock threshold",
   // Ready-made cell fields
   value: "Stock",
-  item_name: "Item name",
-  category: "Category",
+  description: "Description",
 };
 
 const HIDDEN_ON_INSERT = new Set([
@@ -218,12 +217,9 @@ function recordContext(entity: string, record: Record<string, unknown> | undefin
     if (record.row_label_cache) breadcrumbs.push(String(record.row_label_cache));
     if (record.col_header_cache) breadcrumbs.push(String(record.col_header_cache));
     const crumb = breadcrumbs.join(" › ");
-    const meta: string[] = [];
-    if (record.item_name) meta.push(String(record.item_name));
-    if (record.category) meta.push(String(record.category));
-    const suffix = meta.length ? ` (${meta.join(", ")})` : "";
-    if (crumb) return `${crumb}${suffix}`;
-    if (meta.length) return meta.join(", ");
+    const desc = record.description ? ` — ${String(record.description)}` : "";
+    if (crumb) return `${crumb}${desc}`;
+    if (record.description) return String(record.description);
     if (record.id) return `ID ${String(record.id).slice(0, 8)}…`;
     return "";
   }

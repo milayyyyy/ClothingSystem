@@ -33,8 +33,7 @@ type Cell = {
   row_id: string;
   column_id: string;
   value: string;
-  item_name?: string | null;
-  category?: string | null;
+  description?: string | null;
   board_name_cache?: string | null;
   row_label_cache?: string | null;
   col_header_cache?: string | null;
@@ -69,9 +68,9 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   const collapsedInitRef = useRef(false);
   /** Active sheet only: show rows flagged low stock (any column below minimum). */
   const [lowStockOnly, setLowStockOnly] = useState(false);
-  // Connect row dialog: row whose cells are being tagged
+  // Connect row dialog: row whose cells are being described
   const [connectingRow, setConnectingRow] = useState<Row | null>(null);
-  const [connectDraft, setConnectDraft] = useState<Record<string, { item_name: string; category: string }>>({});
+  const [connectDraft, setConnectDraft] = useState<Record<string, string>>({}); // columnId → description
   /** Increment to rescan every sheet’s low stock from the server (not only the open sheet). */
   const [lowStockScanKey, setLowStockScanKey] = useState(0);
   const [allSheetsLowStockTotal, setAllSheetsLowStockTotal] = useState(0);
@@ -85,8 +84,8 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   }, [cells]);
 
   const cellMetaByPair = useMemo(() => {
-    const m = new Map<string, { item_name?: string | null; category?: string | null }>();
-    for (const c of cells) m.set(`${c.row_id}:${c.column_id}`, { item_name: c.item_name, category: c.category });
+    const m = new Map<string, { description?: string | null }>();
+    for (const c of cells) m.set(`${c.row_id}:${c.column_id}`, { description: c.description });
     return m;
   }, [cells]);
 
@@ -121,7 +120,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
     }
     const { data: cellsData } = await supabase
       .from("ready_made_cells")
-      .select("id,row_id,column_id,value,item_name,category,board_name_cache,row_label_cache,col_header_cache")
+      .select("id,row_id,column_id,value,description,board_name_cache,row_label_cache,col_header_cache")
       .in("row_id", rowIds);
     setCells((cellsData as Cell[]) || []);
     setLowStockScanKey((k) => k + 1);
@@ -484,14 +483,14 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
       const { data: inserted } = await supabase
         .from("ready_made_cells")
         .insert({ row_id: rowId, column_id: columnId, value, ...contextPatch })
-        .select("id,row_id,column_id,value,item_name,category,board_name_cache,row_label_cache,col_header_cache")
+        .select("id,row_id,column_id,value,description,board_name_cache,row_label_cache,col_header_cache")
         .single();
       if (inserted) setCells((prev) => [...prev.filter((c) => !(c.row_id === rowId && c.column_id === columnId)), inserted as Cell]);
       setLowStockScanKey((k) => k + 1);
     }
   }
 
-  async function setCellMeta(rowId: string, columnId: string, item_name: string | null, category: string | null) {
+  async function setCellMeta(rowId: string, columnId: string, description: string | null) {
     const { data: existing } = await supabase
       .from("ready_made_cells")
       .select("id")
@@ -505,8 +504,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
       board_name_cache: activeBoard?.name ?? null,
       row_label_cache:  row?.row_label ?? null,
       col_header_cache: col?.header_name ?? null,
-      item_name:        item_name || null,
-      category:         category || null,
+      description:      description || null,
     };
 
     if (existing?.id) {
@@ -525,10 +523,10 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   }
 
   function openConnectRow(row: Row) {
-    const draft: Record<string, { item_name: string; category: string }> = {};
+    const draft: Record<string, string> = {};
     for (const c of colsSorted) {
       const meta = cellMetaByPair.get(`${row.id}:${c.id}`);
-      draft[c.id] = { item_name: meta?.item_name ?? "", category: meta?.category ?? "" };
+      draft[c.id] = meta?.description ?? "";
     }
     setConnectDraft(draft);
     setConnectingRow(row);
@@ -537,8 +535,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   async function saveConnectRow() {
     if (!connectingRow) return;
     for (const c of colsSorted) {
-      const draft = connectDraft[c.id];
-      await setCellMeta(connectingRow.id, c.id, draft?.item_name || null, draft?.category || null);
+      await setCellMeta(connectingRow.id, c.id, connectDraft[c.id] || null);
     }
     setConnectingRow(null);
   }
@@ -1397,52 +1394,35 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
         </div>
       </Dialog>
 
-      {/* Connect row dialog — set item name & category per column */}
+      {/* Cell description dialog — set per-cell description for activity log context */}
       <Dialog
         open={!!connectingRow}
         onClose={() => setConnectingRow(null)}
-        title={`Connect: ${connectingRow?.row_label ?? ""}`}
+        title={`Set cell descriptions: ${connectingRow?.row_label ?? ""}`}
       >
         <div className="space-y-4">
           <p className="text-xs text-muted-foreground">
-            Set an item name and category for each column in this row. These labels appear in the activity log when a cell&apos;s stock value is changed.
+            Add a description to each cell so the activity log shows what changed. Example: &ldquo;Jersey XS Blue&rdquo;.
           </p>
           <div className="max-h-[60vh] overflow-y-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
-                  <th className="pb-1.5 pr-3 font-medium">Column</th>
-                  <th className="pb-1.5 pr-3 font-medium">Item name</th>
-                  <th className="pb-1.5 font-medium">Category</th>
+                  <th className="pb-1.5 pr-4 font-medium">Column</th>
+                  <th className="pb-1.5 font-medium">Description</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {colsSorted.map((c) => (
                   <tr key={c.id}>
-                    <td className="py-1.5 pr-3 font-medium text-foreground">{c.header_name}</td>
-                    <td className="py-1 pr-3">
+                    <td className="py-1.5 pr-4 font-medium text-foreground whitespace-nowrap">{c.header_name}</td>
+                    <td className="py-1 w-full">
                       <Input
                         className="h-7 text-xs"
-                        placeholder="e.g. Kaya Ko To T-Shirt"
-                        value={connectDraft[c.id]?.item_name ?? ""}
+                        placeholder={`e.g. ${activeBoard?.name ?? "Item"} ${connectingRow?.row_label ?? ""} ${c.header_name}`}
+                        value={connectDraft[c.id] ?? ""}
                         onChange={(e) =>
-                          setConnectDraft((prev) => ({
-                            ...prev,
-                            [c.id]: { ...prev[c.id], item_name: e.target.value },
-                          }))
-                        }
-                      />
-                    </td>
-                    <td className="py-1">
-                      <Input
-                        className="h-7 text-xs"
-                        placeholder="e.g. Jersey, Polo"
-                        value={connectDraft[c.id]?.category ?? ""}
-                        onChange={(e) =>
-                          setConnectDraft((prev) => ({
-                            ...prev,
-                            [c.id]: { ...prev[c.id], category: e.target.value },
-                          }))
+                          setConnectDraft((prev) => ({ ...prev, [c.id]: e.target.value }))
                         }
                       />
                     </td>
@@ -1456,7 +1436,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
               Cancel
             </Button>
             <Button type="button" onClick={() => void saveConnectRow()}>
-              Save connections
+              Save descriptions
             </Button>
           </div>
         </div>
