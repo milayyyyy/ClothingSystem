@@ -906,6 +906,7 @@ function OutstandingBalancesSection({
       const stage = String(o.stage || "").toLowerCase();
       if (stage !== "completed") return false;
       if (isBigSellerOnlineOrder(o)) return false;
+      if (getOrderKind(o) === "pos") return false; // POS payment collected at terminal
       const total = Number(o.total || 0);
       const paid = Number(o.down_payment || 0);
       return total > 0 && paid < total;

@@ -283,6 +283,7 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
       const stage = orderStatus === "completed" ? "completed" : "design_layout";
 
       // 1. Create the POS order
+      // For completed orders, set down_payment = total so balance = 0 (payment already collected)
       const { data: order, error: orderErr } = await supabase
         .from("orders")
         .insert({
@@ -290,6 +291,7 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
           order_type: "POS",
           customer_name: customerName.trim() || "Walk-in Customer",
           total: subtotal,
+          down_payment: orderStatus === "completed" ? subtotal : 0,
           quantity: cart.reduce((s, ci) => s + ci.quantity, 0),
           notes: notes.trim() || null,
           stage,
