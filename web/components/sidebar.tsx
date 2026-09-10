@@ -36,6 +36,7 @@ import {
   FileStack,
   BellRing,
   ShoppingCart,
+  CalendarDays,
 } from "lucide-react";
 import {
   canView,
@@ -98,6 +99,7 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/salary", label: "Salary", icon: Wallet },
     { href: "/admin/tasks", label: "Tasks", icon: ListChecks },
     { href: "/admin/reminders", label: "Reminders", icon: BellRing, adminOrManagerOnly: true },
+    { href: "/admin/content-planner", label: "Content Planner", icon: CalendarDays, adminOrManagerOnly: true },
     { href: "/admin/stores", label: "Stores", icon: Warehouse },
   ]},
   { title: "Audit", items: [
