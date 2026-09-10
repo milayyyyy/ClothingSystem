@@ -10,8 +10,10 @@ import { Dialog } from "@/components/ui/dialog";
 import {
   ShieldCheck, Trash2, Download, ChevronDown, ChevronRight,
   Activity, PlusCircle, Pencil, XCircle, Search, SlidersHorizontal,
+  Layers, List, Package, ShoppingBag, Banknote, Users, ClipboardList,
+  Wrench, Store, Truck, BellRing, CheckSquare,
 } from "lucide-react";
-import { formatActivityLog } from "@/lib/activity-log-format";
+import { formatActivityLog, ENTITY_CATEGORY } from "@/lib/activity-log-format";
 import { cn } from "@/lib/utils";
 
 type L = {
@@ -31,6 +33,21 @@ const ACTION_VARIANT: Record<string, any> = {
 };
 const ACTION_LABEL: Record<string, string> = {
   INSERT: "Created", UPDATE: "Updated", DELETE: "Deleted",
+};
+
+// Category icons
+const CATEGORY_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  Orders: ShoppingBag,
+  Inventory: Package,
+  "Ready-made Inventory": Package,
+  Finance: Banknote,
+  "HR & Payroll": Users,
+  Accounts: Users,
+  Tasks: CheckSquare,
+  Reminders: BellRing,
+  Maintenance: Wrench,
+  Stores: Store,
+  Suppliers: Truck,
 };
 
 function pad2(n: number) { return String(n).padStart(2, "0"); }
@@ -96,6 +113,74 @@ function exportToCSV(rows: L[], formatted: Map<string, ReturnType<typeof formatA
 }
 
 // ---------------------------------------------------------------------------
+// Session grouping: consecutive logs from same actor + entity_id within 5 min
+// ---------------------------------------------------------------------------
+const SESSION_GAP_MS = 5 * 60 * 1000; // 5 minutes
+
+type SessionGroup = {
+  key: string;
+  logs: L[];
+  actor: L["actor"];
+  actor_role: string | null;
+  entity: string;
+  entity_id?: string | null;
+  firstAt: string;
+  lastAt: string;
+  actionCounts: { INSERT: number; UPDATE: number; DELETE: number };
+};
+
+function buildSessions(logs: L[]): SessionGroup[] {
+  const sessions: SessionGroup[] = [];
+  for (const log of logs) {
+    const prev = sessions[sessions.length - 1];
+    const sameActor = prev && (prev.actor?.email === log.actor?.email);
+    const sameEntity = prev && prev.entity === log.entity && prev.entity_id === log.entity_id;
+    const withinGap = prev && (new Date(prev.firstAt).getTime() - new Date(log.created_at).getTime()) < SESSION_GAP_MS;
+    if (prev && sameActor && sameEntity && withinGap) {
+      prev.logs.push(log);
+      prev.lastAt = log.created_at;
+      (prev.actionCounts as any)[log.action] = ((prev.actionCounts as any)[log.action] || 0) + 1;
+    } else {
+      sessions.push({
+        key: `${log.id}`,
+        logs: [log],
+        actor: log.actor,
+        actor_role: log.actor_role ?? null,
+        entity: log.entity,
+        entity_id: log.entity_id,
+        firstAt: log.created_at,
+        lastAt: log.created_at,
+        actionCounts: { INSERT: 0, UPDATE: 0, DELETE: 0, [log.action]: 1 } as any,
+      });
+    }
+  }
+  return sessions;
+}
+
+// ---------------------------------------------------------------------------
+// Category grouping: group sessions by ENTITY_CATEGORY
+// ---------------------------------------------------------------------------
+type CategoryGroup = {
+  category: string;
+  sessions: SessionGroup[];
+  totalLogs: number;
+};
+
+function buildCategoryGroups(sessions: SessionGroup[]): CategoryGroup[] {
+  const map = new Map<string, SessionGroup[]>();
+  for (const s of sessions) {
+    const cat = ENTITY_CATEGORY[s.entity] || "Other";
+    if (!map.has(cat)) map.set(cat, []);
+    map.get(cat)!.push(s);
+  }
+  return Array.from(map.entries()).map(([category, sessions]) => ({
+    category,
+    sessions,
+    totalLogs: sessions.reduce((n, s) => n + s.logs.length, 0),
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // 2FA verification dialog
 // ---------------------------------------------------------------------------
 function TwoFaDialog({ open, onClose, onVerified, label }: {
@@ -154,13 +239,14 @@ function TwoFaDialog({ open, onClose, onVerified, label }: {
 // ---------------------------------------------------------------------------
 // Expandable log row
 // ---------------------------------------------------------------------------
-function LogRow({ l, detail, selected, canDelete, onToggleSelect, onDelete }: {
+function LogRow({ l, detail, selected, canDelete, onToggleSelect, onDelete, compact }: {
   l: L;
   detail: ReturnType<typeof formatActivityLog>;
   selected: boolean;
   canDelete: boolean;
   onToggleSelect: () => void;
   onDelete: () => void;
+  compact?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasDetails = detail.lines.length > 0;
@@ -168,35 +254,26 @@ function LogRow({ l, detail, selected, canDelete, onToggleSelect, onDelete }: {
   return (
     <div className={cn(
       "group border-b last:border-b-0 transition-colors",
+      compact ? "border-dashed border-border/50" : "",
       selected ? "bg-primary/5" : "hover:bg-muted/30",
     )}>
-      <div className="flex items-start gap-3 px-4 py-3">
-        {/* Checkbox (admin) */}
+      <div className={cn("flex items-start gap-3 px-4", compact ? "py-2" : "py-3")}>
         {canDelete && (
           <div className="mt-0.5 shrink-0">
-            <input
-              type="checkbox"
-              className="h-4 w-4 cursor-pointer rounded border-input accent-primary"
-              checked={selected}
-              onChange={onToggleSelect}
-              aria-label="Select row"
-            />
+            <input type="checkbox" className="h-4 w-4 cursor-pointer rounded border-input accent-primary"
+              checked={selected} onChange={onToggleSelect} aria-label="Select row" />
           </div>
         )}
-
-        {/* Actor avatar */}
         <div className={cn(
-          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white",
+          "flex shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white",
+          compact ? "h-6 w-6" : "h-8 w-8",
           l.action === "INSERT" ? "bg-emerald-500" : l.action === "DELETE" ? "bg-red-500" : "bg-blue-500",
         )}>
           {initials(l.actor?.full_name, l.actor?.email)}
         </div>
-
-        {/* Main content */}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            {/* Actor name */}
-            <span className="text-sm font-medium text-foreground">
+            <span className={cn("font-medium text-foreground", compact ? "text-xs" : "text-sm")}>
               {l.actor?.full_name || l.actor?.email || "System"}
             </span>
             {l.actor_role && (
@@ -204,32 +281,21 @@ function LogRow({ l, detail, selected, canDelete, onToggleSelect, onDelete }: {
                 {l.actor_role.replace("_", " ")}
               </span>
             )}
-            {/* Action badge */}
             <Badge variant={ACTION_VARIANT[l.action] || "outline"} className="text-[10px] px-1.5 py-0">
               {detail.actionLabel}
             </Badge>
-            {/* Entity */}
-            <span className="text-sm text-muted-foreground">
+            <span className={cn("text-muted-foreground", compact ? "text-xs" : "text-sm")}>
               {detail.entityLabel}
             </span>
-            {/* Time */}
-            <span
-              className="ml-auto text-xs text-muted-foreground"
-              title={new Date(l.created_at).toLocaleString()}
-            >
+            <span className="ml-auto text-xs text-muted-foreground" title={new Date(l.created_at).toLocaleString()}>
               {relativeTime(l.created_at)}
             </span>
           </div>
-
-          {/* Context / summary line */}
           {detail.context && (
-            <p className="mt-0.5 text-xs text-muted-foreground">{detail.context}</p>
+            <p className={cn("mt-0.5 text-muted-foreground", compact ? "text-[11px]" : "text-xs")}>{detail.context}</p>
           )}
-
-          {/* Expandable details */}
           {hasDetails && (
-            <button
-              type="button"
+            <button type="button"
               className="mt-1.5 flex items-center gap-1 text-xs font-medium text-primary hover:underline"
               onClick={() => setExpanded((v) => !v)}
             >
@@ -237,7 +303,6 @@ function LogRow({ l, detail, selected, canDelete, onToggleSelect, onDelete }: {
               {expanded ? "Hide details" : `${detail.lines.length} change${detail.lines.length !== 1 ? "s" : ""}`}
             </button>
           )}
-
           {expanded && (
             <ul className="mt-2 space-y-1 rounded-md border bg-muted/30 px-3 py-2">
               {detail.lines.map((line, i) => (
@@ -249,14 +314,10 @@ function LogRow({ l, detail, selected, canDelete, onToggleSelect, onDelete }: {
             </ul>
           )}
         </div>
-
-        {/* Delete button */}
         {canDelete && (
-          <button
-            onClick={onDelete}
+          <button onClick={onDelete}
             className="mt-0.5 shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
-            title="Delete record"
-          >
+            title="Delete record">
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         )}
@@ -266,9 +327,219 @@ function LogRow({ l, detail, selected, canDelete, onToggleSelect, onDelete }: {
 }
 
 // ---------------------------------------------------------------------------
+// Session row (collapses multiple related logs from same actor/entity)
+// ---------------------------------------------------------------------------
+function SessionRow({ session, formattedById, selected, canDelete, onToggleSelect, onDelete }: {
+  session: SessionGroup;
+  formattedById: Map<string, ReturnType<typeof formatActivityLog>>;
+  selected: Set<string>;
+  canDelete: boolean;
+  onToggleSelect: (id: string) => void;
+  onDelete: (ids: string[]) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const isSingle = session.logs.length === 1;
+  const first = session.logs[0];
+  const firstDetail = formattedById.get(first.id) ?? formatActivityLog(first);
+
+  if (isSingle) {
+    return (
+      <LogRow
+        l={first}
+        detail={firstDetail}
+        selected={selected.has(first.id)}
+        canDelete={canDelete}
+        onToggleSelect={() => onToggleSelect(first.id)}
+        onDelete={() => onDelete([first.id])}
+      />
+    );
+  }
+
+  // Multi-log session
+  const { INSERT, UPDATE, DELETE: DEL } = session.actionCounts;
+  const summaryParts: string[] = [];
+  if (INSERT > 0) summaryParts.push(`${INSERT} created`);
+  if (UPDATE > 0) summaryParts.push(`${UPDATE} updated`);
+  if (DEL > 0) summaryParts.push(`${DEL} deleted`);
+
+  const allSelected = session.logs.every((l) => selected.has(l.id));
+  const anySelected = session.logs.some((l) => selected.has(l.id));
+
+  return (
+    <div className="border-b last:border-b-0">
+      {/* Session header */}
+      <div className={cn(
+        "group flex cursor-pointer items-start gap-3 px-4 py-3 transition-colors",
+        anySelected ? "bg-primary/5" : "hover:bg-muted/30",
+      )} onClick={() => setExpanded((v) => !v)}>
+        {canDelete && (
+          <div className="mt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <input type="checkbox"
+              className="h-4 w-4 cursor-pointer rounded border-input accent-primary"
+              checked={allSelected}
+              ref={(el) => { if (el) el.indeterminate = anySelected && !allSelected; }}
+              onChange={() => {
+                if (allSelected) session.logs.forEach((l) => onToggleSelect(l.id));
+                else session.logs.filter((l) => !selected.has(l.id)).forEach((l) => onToggleSelect(l.id));
+              }}
+              aria-label="Select session"
+            />
+          </div>
+        )}
+        {/* Stacked avatar */}
+        <div className="flex shrink-0 -space-x-1">
+          <div className="z-10 flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-[11px] font-semibold text-white ring-2 ring-background">
+            {initials(session.actor?.full_name, session.actor?.email)}
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span className="text-sm font-medium text-foreground">
+              {session.actor?.full_name || session.actor?.email || "System"}
+            </span>
+            {session.actor_role && (
+              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium capitalize text-muted-foreground">
+                {session.actor_role.replace("_", " ")}
+              </span>
+            )}
+            {/* Count badge */}
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+              {session.logs.length} changes
+            </span>
+            <span className="text-sm text-muted-foreground">{firstDetail.entityLabel}</span>
+            <span className="ml-auto text-xs text-muted-foreground" title={new Date(session.firstAt).toLocaleString()}>
+              {relativeTime(session.firstAt)}
+            </span>
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">{summaryParts.join(" · ")}</p>
+          <div className="mt-1 flex items-center gap-1 text-xs font-medium text-primary">
+            {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            {expanded ? "Collapse" : "Show all changes"}
+          </div>
+        </div>
+        {canDelete && (
+          <button onClick={(e) => { e.stopPropagation(); onDelete(session.logs.map((l) => l.id)); }}
+            className="mt-0.5 shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+            title="Delete session records">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {/* Expanded entries */}
+      {expanded && (
+        <div className="border-l-2 border-primary/20 ml-12 bg-muted/10">
+          {session.logs.map((l) => {
+            const detail = formattedById.get(l.id) ?? formatActivityLog(l);
+            return (
+              <LogRow key={l.id} l={l} detail={detail}
+                selected={selected.has(l.id)}
+                canDelete={canDelete}
+                onToggleSelect={() => onToggleSelect(l.id)}
+                onDelete={() => onDelete([l.id])}
+                compact
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Category group (Inventory, Orders, Finance etc.)
+// ---------------------------------------------------------------------------
+function CategoryGroupBlock({ group, formattedById, selected, canDelete, onToggleSelect, onDelete, defaultOpen }: {
+  group: CategoryGroup;
+  formattedById: Map<string, ReturnType<typeof formatActivityLog>>;
+  selected: Set<string>;
+  canDelete: boolean;
+  onToggleSelect: (id: string) => void;
+  onDelete: (ids: string[]) => void;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const Icon = CATEGORY_ICON[group.category] || ClipboardList;
+  const allIds = group.sessions.flatMap((s) => s.logs.map((l) => l.id));
+  const insertCount = group.sessions.flatMap((s) => s.logs).filter((l) => l.action === "INSERT").length;
+  const updateCount = group.sessions.flatMap((s) => s.logs).filter((l) => l.action === "UPDATE").length;
+  const deleteCount = group.sessions.flatMap((s) => s.logs).filter((l) => l.action === "DELETE").length;
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      {/* Category header */}
+      <button
+        type="button"
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/30"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+          <Icon className="h-4 w-4 text-primary" />
+        </div>
+        <div className="flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold">{group.category}</span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {group.totalLogs} records
+            </span>
+            {insertCount > 0 && (
+              <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                +{insertCount}
+              </span>
+            )}
+            {updateCount > 0 && (
+              <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+                ~{updateCount}
+              </span>
+            )}
+            {deleteCount > 0 && (
+              <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">
+                -{deleteCount}
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Most recent: {relativeTime(group.sessions[0].firstAt)}
+          </p>
+        </div>
+        {canDelete && (
+          <button
+            type="button"
+            className="mr-2 rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            title="Delete all in this group"
+            onClick={(e) => { e.stopPropagation(); onDelete(allIds); }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+               : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+      </button>
+
+      {/* Entries */}
+      {open && (
+        <div className="border-t border-border">
+          {group.sessions.map((session) => (
+            <SessionRow
+              key={session.key}
+              session={session}
+              formattedById={formattedById}
+              selected={selected}
+              canDelete={canDelete}
+              onToggleSelect={onToggleSelect}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Stats bar
 // ---------------------------------------------------------------------------
-function StatsBar({ list, filtered }: { list: L[]; filtered: L[] }) {
+function StatsBar({ filtered }: { filtered: L[] }) {
   const counts = useMemo(() => ({
     total: filtered.length,
     created: filtered.filter((l) => l.action === "INSERT").length,
@@ -299,6 +570,8 @@ function StatsBar({ list, filtered }: { list: L[]; filtered: L[] }) {
 // ---------------------------------------------------------------------------
 // Main activity log client
 // ---------------------------------------------------------------------------
+type ViewMode = "timeline" | "grouped";
+
 export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete: boolean }) {
   const supabase = createClient();
   const [list, setList] = useState<L[]>(initial);
@@ -310,6 +583,7 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
   const [fetching, setFetching] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [showFilters, setShowFilters] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("grouped");
   const headerCheckRef = useRef<HTMLInputElement>(null);
 
   // 2FA gate state
@@ -367,6 +641,12 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
       return true;
     });
   }, [list, filter, entity, actionFilter, formattedById]);
+
+  // Sessions (for timeline view: collapse same actor+entity+id within 5 min)
+  const sessions = useMemo(() => buildSessions(filtered), [filtered]);
+
+  // Category groups (for grouped view)
+  const categoryGroups = useMemo(() => buildCategoryGroups(sessions), [sessions]);
 
   const entities = useMemo(() => Array.from(new Set(list.map((l) => l.entity))).sort(), [list]);
 
@@ -449,7 +729,7 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
       />
 
       {/* Stats */}
-      <StatsBar list={list} filtered={filtered} />
+      <StatsBar filtered={filtered} />
 
       {/* Filter card */}
       <Card className="mb-4">
@@ -458,31 +738,41 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-muted-foreground shrink-0">Date range</span>
             {(["today", "week", "month", "all"] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => applyPreset(p)}
+              <button key={p} type="button" onClick={() => applyPreset(p)}
                 className={cn(
                   "rounded-full px-3 py-1 text-xs font-medium transition-colors border",
                   activePreset === p
                     ? "bg-primary text-primary-foreground border-primary"
                     : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-              >
+                )}>
                 {p === "today" ? "Today" : p === "week" ? "This week" : p === "month" ? "This month" : "All time"}
               </button>
             ))}
 
             <div className="ml-auto flex items-center gap-2">
+              {/* View mode toggle */}
+              <div className="flex items-center rounded-md border border-input overflow-hidden text-xs">
+                <button type="button"
+                  onClick={() => setViewMode("grouped")}
+                  className={cn("flex items-center gap-1.5 px-3 py-1.5 transition-colors",
+                    viewMode === "grouped" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
+                  title="Grouped by area">
+                  <Layers className="h-3.5 w-3.5" /> Grouped
+                </button>
+                <button type="button"
+                  onClick={() => setViewMode("timeline")}
+                  className={cn("flex items-center gap-1.5 px-3 py-1.5 transition-colors",
+                    viewMode === "timeline" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}
+                  title="Flat timeline">
+                  <List className="h-3.5 w-3.5" /> Timeline
+                </button>
+              </div>
+
               {/* Export CSV */}
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
+              <Button type="button" size="sm" variant="outline"
                 onClick={() => exportToCSV(filtered, formattedById, dateFrom, dateTo)}
                 disabled={filtered.length === 0}
-                title={`Export ${filtered.length} row${filtered.length !== 1 ? "s" : ""} to CSV`}
-              >
+                title={`Export ${filtered.length} row${filtered.length !== 1 ? "s" : ""} to CSV`}>
                 <Download className="mr-1.5 h-3.5 w-3.5" />
                 Export CSV
                 {filtered.length > 0 && (
@@ -493,14 +783,11 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
               </Button>
 
               {/* Toggle advanced filters */}
-              <button
-                type="button"
-                onClick={() => setShowFilters((v) => !v)}
+              <button type="button" onClick={() => setShowFilters((v) => !v)}
                 className={cn(
                   "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
                   showFilters ? "border-primary bg-primary/5 text-primary" : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-              >
+                )}>
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 Filters
                 {(entity !== "all" || actionFilter !== "all" || dateFrom || dateTo) && (
@@ -550,10 +837,7 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
               const count = key === "all" ? list.length : list.filter((l) => l.action === key).length;
               const active = actionFilter === key;
               return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setActionFilter(key)}
+                <button key={key} type="button" onClick={() => setActionFilter(key)}
                   className={cn(
                     "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                     active
@@ -562,21 +846,17 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
                         : key === "DELETE" ? "border-red-500 bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300"
                         : "border-primary bg-primary/10 text-primary"
                       : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                >
+                  )}>
                   {key === "INSERT" && <PlusCircle className="h-3 w-3" />}
                   {key === "UPDATE" && <Pencil className="h-3 w-3" />}
                   {key === "DELETE" && <XCircle className="h-3 w-3" />}
                   {label}
-                  <span className={cn(
-                    "rounded-full px-1.5 py-0.5 text-[10px] tabular-nums",
-                    active ? "bg-black/10 dark:bg-white/10" : "bg-muted",
-                  )}>{count}</span>
+                  <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] tabular-nums",
+                    active ? "bg-black/10 dark:bg-white/10" : "bg-muted")}>{count}</span>
                 </button>
               );
             })}
 
-            {/* Search inline (when filters panel closed) */}
             {!showFilters && (
               <div className="relative ml-auto w-52">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -592,13 +872,9 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {canDelete && (
-              <input
-                ref={headerCheckRef}
-                type="checkbox"
+              <input ref={headerCheckRef} type="checkbox"
                 className="h-4 w-4 cursor-pointer rounded border-input accent-primary"
-                aria-label="Select all visible"
-                onChange={toggleSelectAllVisible}
-              />
+                aria-label="Select all visible" onChange={toggleSelectAllVisible} />
             )}
             {fetching ? (
               <span className="text-primary animate-pulse">Loading records…</span>
@@ -619,47 +895,61 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
       )}
 
       {/* Log feed */}
-      <Card>
-        <CardContent className="p-0">
-          {filtered.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-16 text-center">
-              <Activity className="h-10 w-10 text-muted-foreground/30" />
-              <p className="text-sm font-medium text-muted-foreground">No activity found</p>
-              <p className="text-xs text-muted-foreground">
-                {filter || entity !== "all" || actionFilter !== "all"
-                  ? "Try adjusting your filters."
-                  : dateFrom || dateTo
-                  ? "No records in the selected date range."
-                  : "Activity will appear here when records are created or changed."}
-              </p>
-              {(filter || entity !== "all" || actionFilter !== "all" || dateFrom || dateTo) && (
-                <button
-                  type="button"
-                  onClick={() => { setFilter(""); setEntity("all"); setActionFilter("all"); setDateFrom(""); setDateTo(""); }}
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  Clear all filters
-                </button>
-              )}
-            </div>
-          ) : (
-            filtered.map((l) => {
-              const detail = formattedById.get(l.id) ?? formatActivityLog(l);
-              return (
-                <LogRow
-                  key={l.id}
-                  l={l}
-                  detail={detail}
-                  selected={selectedIds.has(l.id)}
-                  canDelete={canDelete}
-                  onToggleSelect={() => toggleSelect(l.id)}
-                  onDelete={() => requestDelete([l.id])}
-                />
-              );
-            })
-          )}
-        </CardContent>
-      </Card>
+      {filtered.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+            <Activity className="h-10 w-10 text-muted-foreground/30" />
+            <p className="text-sm font-medium text-muted-foreground">No activity found</p>
+            <p className="text-xs text-muted-foreground">
+              {filter || entity !== "all" || actionFilter !== "all"
+                ? "Try adjusting your filters."
+                : dateFrom || dateTo
+                ? "No records in the selected date range."
+                : "Activity will appear here when records are created or changed."}
+            </p>
+            {(filter || entity !== "all" || actionFilter !== "all" || dateFrom || dateTo) && (
+              <button type="button"
+                onClick={() => { setFilter(""); setEntity("all"); setActionFilter("all"); setDateFrom(""); setDateTo(""); }}
+                className="text-xs font-medium text-primary hover:underline">
+                Clear all filters
+              </button>
+            )}
+          </CardContent>
+        </Card>
+      ) : viewMode === "grouped" ? (
+        // ── Grouped by area ────────────────────────────────────────────────
+        <div className="space-y-3">
+          {categoryGroups.map((group, i) => (
+            <CategoryGroupBlock
+              key={group.category}
+              group={group}
+              formattedById={formattedById}
+              selected={selectedIds}
+              canDelete={canDelete}
+              onToggleSelect={toggleSelect}
+              onDelete={requestDelete}
+              defaultOpen={i === 0}
+            />
+          ))}
+        </div>
+      ) : (
+        // ── Flat timeline with session collapsing ──────────────────────────
+        <Card>
+          <CardContent className="p-0">
+            {sessions.map((session) => (
+              <SessionRow
+                key={session.key}
+                session={session}
+                formattedById={formattedById}
+                selected={selectedIds}
+                canDelete={canDelete}
+                onToggleSelect={toggleSelect}
+                onDelete={requestDelete}
+              />
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </>
   );
 }

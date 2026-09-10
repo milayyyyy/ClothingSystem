@@ -24,8 +24,9 @@ export type ActivityFormatted = {
 const ENTITY_LABELS: Record<string, string> = {
   orders: "Order",
   inventory: "Inventory",
-  inventory_sub_items: "Inventory item",
+  inventory_sub_items: "Inventory sub-item",
   inventory_assets: "Asset",
+  inventory_quantity_movements: "Stock movement",
   expenses: "Expense",
   suppliers: "Supplier",
   salaries: "Salary",
@@ -46,6 +47,37 @@ const ENTITY_LABELS: Record<string, string> = {
   sublimation_teams: "Jersey sheet",
   returns: "Return",
   attendance: "Attendance",
+  pos_order_items: "POS item",
+};
+
+/** Human-readable grouping category for entity types */
+export const ENTITY_CATEGORY: Record<string, string> = {
+  orders: "Orders",
+  pos_order_items: "Orders",
+  order_assignees: "Orders",
+  sublimation_teams: "Orders",
+  returns: "Orders",
+  inventory: "Inventory",
+  inventory_sub_items: "Inventory",
+  inventory_assets: "Inventory",
+  inventory_quantity_movements: "Inventory",
+  ready_made_boards: "Ready-made Inventory",
+  ready_made_columns: "Ready-made Inventory",
+  ready_made_rows: "Ready-made Inventory",
+  ready_made_cells: "Ready-made Inventory",
+  ready_made_sheet_groups: "Ready-made Inventory",
+  finance_accounts: "Finance",
+  finance_transactions: "Finance",
+  manual_sales: "Finance",
+  expenses: "Finance",
+  salaries: "HR & Payroll",
+  attendance: "HR & Payroll",
+  profiles: "Accounts",
+  tasks: "Tasks",
+  reminders: "Reminders",
+  maintenance_schedules: "Maintenance",
+  stores: "Stores",
+  suppliers: "Suppliers",
 };
 
 const TITLE_FIELDS: Record<string, string[]> = {
@@ -53,6 +85,7 @@ const TITLE_FIELDS: Record<string, string[]> = {
   inventory: ["name"],
   inventory_sub_items: ["name"],
   inventory_assets: ["name"],
+  inventory_quantity_movements: ["item_name", "change_kind"],
   expenses: ["description", "category"],
   suppliers: ["name"],
   salaries: ["amount", "period_start", "period_end"],
@@ -82,6 +115,7 @@ const FIELD_LABELS: Record<string, string> = {
   item_type: "Type",
   min_level: "Min level",
   unit_cost: "Unit cost",
+  unit_price: "Unit price",
   down_payment: "Down payment",
   order_type: "Order type",
   sub_stage: "Sub-stage",
@@ -94,6 +128,14 @@ const FIELD_LABELS: Record<string, string> = {
   row_label: "Row label",
   group_id: "Group",
   board_id: "Sheet",
+  // Inventory stock fields
+  quantity: "Stock qty",
+  previous_quantity: "Previous qty",
+  new_quantity: "New qty",
+  delta: "Change",
+  change_kind: "Change type",
+  reorder_level: "Reorder level",
+  low_stock_threshold: "Low stock threshold",
 };
 
 const HIDDEN_ON_INSERT = new Set([
