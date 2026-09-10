@@ -347,7 +347,7 @@ export function RemindersClient({
         .from("reminders")
         .select("id, title, notes, due_at, priority, status, created_by, created_at, updated_at")
         .order("due_at", { ascending: true, nullsFirst: false });
-      data = retry.data;
+      data = retry.data as typeof data;
     }
     setReminders((data as Reminder[]) || []);
   }, [supabase]);

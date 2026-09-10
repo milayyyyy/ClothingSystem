@@ -23,7 +23,7 @@ export default async function RemindersPage() {
       .from("reminders")
       .select("id, title, notes, due_at, priority, status, created_by, created_at, updated_at")
       .order("due_at", { ascending: true, nullsFirst: false });
-    reminders = retry.data;
+    reminders = retry.data as typeof reminders;
   }
 
   return (
