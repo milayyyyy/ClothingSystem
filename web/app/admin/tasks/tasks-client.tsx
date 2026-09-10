@@ -57,17 +57,13 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
   const [list, setList] = useState<T[]>(initial);
   const [newOpen, setNewOpen] = useState(false);
   const [editTask, setEditTask] = useState<T | null>(null);
-  // Detail view triggered by ?show=<id> (e.g. from Content Planner)
-  const [detailTask, setDetailTask] = useState<T | null>(null);
-
-  useEffect(() => {
-    const showId = searchParams.get("show");
-    if (showId) {
-      const found = initial.find((t: T) => t.id === showId);
-      if (found) setDetailTask(found);
+  // Detail view: auto-opened when navigated from Content Planner with ?show=<id>
+  const [detailTask, setDetailTask] = useState<T | null>(
+    () => {
+      const showId = searchParams?.get("show");
+      return showId ? (initial.find((t: T) => t.id === showId) ?? null) : null;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  );
   const [forwarding, setForwarding] = useState<string | null>(null);
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [machineTypes, setMachineTypes] = useState<MachineType[]>([]);

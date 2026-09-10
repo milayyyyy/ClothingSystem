@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -118,7 +118,6 @@ export function ContentPlannerClient({
   userId: string;
 }) {
   const supabase = createClient();
-  const router   = useRouter();
   const today    = new Date();
   const todayStr = toLocalDateStr(today);
 
@@ -278,30 +277,34 @@ export function ContentPlannerClient({
                       </div>
                     ))}
 
-                    {/* Reminders */}
+                    {/* Reminders — Link to /admin/reminders?show=<id> */}
                     {visReminders.map(r => (
-                      <div key={`rem-${r.id}`}
-                        className={cn("flex cursor-pointer items-center gap-1 rounded border border-violet-400/30 bg-violet-400/10 px-1 py-0.5 text-[10px] transition-all hover:bg-violet-400/20", r.status === "done" && "opacity-50")}
-                        title="Go to Reminders"
-                        onClick={e => { e.stopPropagation(); router.push(`/admin/reminders?show=${r.id}`); }}
+                      <Link
+                        key={`rem-${r.id}`}
+                        href={`/admin/reminders?show=${r.id}`}
+                        onClick={e => e.stopPropagation()}
+                        className={cn("flex items-center gap-1 rounded border border-violet-400/30 bg-violet-400/10 px-1 py-0.5 text-[10px] transition-all hover:bg-violet-400/25 hover:border-violet-400/50", r.status === "done" && "opacity-50")}
+                        title={r.title}
                       >
                         <Bell className={cn("h-2.5 w-2.5 shrink-0", PRIORITY_TEXT[r.priority] ?? "text-violet-400")} />
                         <span className={cn("min-w-0 flex-1 truncate text-foreground/80", r.status === "done" && "line-through")}>{r.title}</span>
                         {r.due_at && <span className="shrink-0 font-mono text-[9px] text-muted-foreground">{formatTime(r.due_at)}</span>}
-                      </div>
+                      </Link>
                     ))}
 
-                    {/* Tasks */}
+                    {/* Tasks — Link to /admin/tasks?show=<id> */}
                     {visTasks.map(t => (
-                      <div key={`task-${t.id}`}
-                        className={cn("flex cursor-pointer items-center gap-1 rounded border border-green-500/30 bg-green-500/10 px-1 py-0.5 text-[10px] transition-all hover:bg-green-500/20", (t.status === "done" || t.status === "cancelled") && "opacity-50")}
-                        title="Go to Tasks"
-                        onClick={e => { e.stopPropagation(); router.push(`/admin/tasks?show=${t.id}`); }}
+                      <Link
+                        key={`task-${t.id}`}
+                        href={`/admin/tasks?show=${t.id}`}
+                        onClick={e => e.stopPropagation()}
+                        className={cn("flex items-center gap-1 rounded border border-green-500/30 bg-green-500/10 px-1 py-0.5 text-[10px] transition-all hover:bg-green-500/20 hover:border-green-500/50", (t.status === "done" || t.status === "cancelled") && "opacity-50")}
+                        title={t.title}
                       >
                         <CheckSquare className={cn("h-2.5 w-2.5 shrink-0", t.status === "done" ? "text-green-500" : "text-green-400")} />
                         <span className={cn("min-w-0 flex-1 truncate text-foreground/80", (t.status === "done" || t.status === "cancelled") && "line-through")}>{t.title}</span>
                         {t.priority && <span className={cn("text-[9px] font-medium", PRIORITY_TEXT[t.priority] ?? "text-muted-foreground")}>{(t.priority ?? "").slice(0,3)}</span>}
-                      </div>
+                      </Link>
                     ))}
 
                     {overflow > 0 && (
