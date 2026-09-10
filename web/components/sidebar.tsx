@@ -165,15 +165,27 @@ function filterStaffGroups(groups: Group[], perms: Permissions, role: Role): Gro
 
 /** Extra admin links for employees (inventory, suppliers, etc.) — not tasks/salary/attendance/orders. */
 function employeeGrantedAdminItems(perms: Permissions): Item[] {
-  const hidden = ["/admin/settings", "/admin/export", "/admin/stores"];
-  return filterStaffGroups(STAFF_GROUPS, perms, "employee")
+  const blocked = ["/admin/settings", "/admin/export", "/admin/stores"];
+  const isBlocked = (href: string) => {
+    const path = href.split("?")[0];
+    return blocked.some((h) => path === h || path.startsWith(`${h}/`));
+  };
+  return filterStaffGroups(
+    STAFF_GROUPS.filter((g) => g.title !== "Account"),
+    perms,
+    "employee",
+  )
     .flatMap((g) => g.items)
     .filter((item) => {
       const path = item.href.split("?")[0];
       if (isEmployeeOwnedAdminPath(path)) return false;
-      if (hidden.some((h) => path === h || path.startsWith(`${h}/`))) return false;
+      if (isBlocked(item.href)) return false;
       return true;
-    });
+    })
+    .map((item) => ({
+      ...item,
+      children: item.children?.filter((c) => !isBlocked(c.href)),
+    }));
 }
 
 export function Sidebar({

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { PwaRegister } from "@/components/pwa-register";
+import { PwaInstallButton } from "@/components/pwa-install-button";
 import { defaultAfterLoginPath } from "@/lib/roles";
 
 const FaceLogin = dynamic(

@@ -55,6 +55,12 @@ export async function middleware(request: NextRequest) {
     }
     // Employees may access specific /admin routes when their role grants view permission.
     if (path.startsWith("/admin") && role === "employee") {
+      const blockedForEmployee = ["/admin/settings", "/admin/export", "/admin/stores"];
+      if (blockedForEmployee.some((p) => path === p || path.startsWith(`${p}/`))) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/employee";
+        return NextResponse.redirect(url);
+      }
       const perms = await getPermissionsForRole(supabase, role);
       if (!canAccessAdminPath(path, perms, role)) {
         const url = request.nextUrl.clone();

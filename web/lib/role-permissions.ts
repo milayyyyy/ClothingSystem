@@ -125,6 +125,8 @@ export function featureForAdminPath(path: string): FeatureKey | null {
   if (path.startsWith("/admin/content-planner")) return "tasks";
   if (path.startsWith("/admin/stores")) return "stores";
   if (path.startsWith("/admin/activity")) return "activity_log";
+  if (path.startsWith("/admin/settings")) return "settings";
+  if (path.startsWith("/admin/export")) return "settings";
   return null;
 }
 

@@ -327,12 +327,16 @@ export function GlobalSearch({ role }: { role?: string }) {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query]);
 
+  const navShortcuts = role === "employee"
+    ? NAV_SHORTCUTS.filter((n) => !["/admin/settings", "/admin/stores", "/admin/export"].some((h) => n.href === h || n.href.startsWith(`${h}/`)))
+    : NAV_SHORTCUTS;
+
   // Items to show: search results or nav shortcuts filtered by query
   const displayItems: ResultItem[] = query.trim().length >= 2
     ? results
     : query.trim().length === 0
-    ? NAV_SHORTCUTS
-    : NAV_SHORTCUTS.filter((n) => n.title.toLowerCase().includes(query.toLowerCase()));
+    ? navShortcuts
+    : navShortcuts.filter((n) => n.title.toLowerCase().includes(query.toLowerCase()));
 
   // Group by section
   const sections = Array.from(new Set(displayItems.map((r) => r.section)));
