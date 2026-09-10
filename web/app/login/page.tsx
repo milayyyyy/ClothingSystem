@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { PwaRegister } from "@/components/pwa-register";
-import { PwaInstallButton } from "@/components/pwa-install-button";
+import { defaultAfterLoginPath } from "@/lib/roles";
 
 const FaceLogin = dynamic(
   () => import("@/components/face-login").then((m) => m.FaceLogin),
@@ -32,7 +32,7 @@ export default function LoginPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
-      router.push(profile?.role === "admin" ? "/admin" : "/employee");
+      router.push(defaultAfterLoginPath(profile?.role));
     }
   }
 

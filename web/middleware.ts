@@ -42,6 +42,17 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
     const role = profile.role;
+    // Managers and admins use the admin workspace, not /employee.
+    if (path.startsWith("/employee") && role !== "employee") {
+      const url = request.nextUrl.clone();
+      if (path.startsWith("/employee/orders")) url.pathname = "/admin/orders";
+      else if (path.startsWith("/employee/tasks")) url.pathname = "/admin/tasks";
+      else if (path.startsWith("/employee/attendance")) url.pathname = "/admin/attendance";
+      else if (path.startsWith("/employee/salary")) url.pathname = "/admin/salary";
+      else if (path.startsWith("/employee/order-records")) url.pathname = "/admin/order-records";
+      else url.pathname = "/admin";
+      return NextResponse.redirect(url);
+    }
     // Employees may access specific /admin routes when their role grants view permission.
     if (path.startsWith("/admin") && role === "employee") {
       const perms = await getPermissionsForRole(supabase, role);

@@ -121,6 +121,8 @@ export function featureForAdminPath(path: string): FeatureKey | null {
   if (path.startsWith("/admin/attendance")) return "attendance";
   if (path.startsWith("/admin/salary")) return "salary";
   if (path.startsWith("/admin/tasks")) return "tasks";
+  if (path.startsWith("/admin/reminders")) return "tasks";
+  if (path.startsWith("/admin/content-planner")) return "tasks";
   if (path.startsWith("/admin/stores")) return "stores";
   if (path.startsWith("/admin/activity")) return "activity_log";
   return null;
@@ -160,10 +162,13 @@ export async function getPermissionsForRole(
   const { data } = await supabase.from("roles").select("permissions").eq("name", role).maybeSingle();
 
   if (role === "manager") {
-    if (data?.permissions && typeof data.permissions === "object") {
-      return { ...defaultManagerPerms(), ...(data.permissions as Permissions) };
-    }
-    return defaultManagerPerms();
+    const merged =
+      data?.permissions && typeof data.permissions === "object"
+        ? { ...defaultManagerPerms(), ...(data.permissions as Permissions) }
+        : defaultManagerPerms();
+    // Planner (tasks, reminders, content planner) is always available to managers.
+    merged.tasks = { view: true, edit: true };
+    return merged;
   }
 
   if (role === "sub_admin") {

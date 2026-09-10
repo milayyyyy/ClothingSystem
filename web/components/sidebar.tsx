@@ -53,6 +53,8 @@ type Item = {
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
   adminOrManagerOnly?: boolean;
+  /** Always visible to admin and manager, even if the linked feature perm is off. */
+  alwaysShowForStaff?: boolean;
   children?: Child[];
 };
 type Group = { title: string; items: Item[] };
@@ -65,6 +67,7 @@ const STAFF_GROUPS: Group[] = [
       href: "/admin/tasks",
       label: "Planner",
       icon: CalendarDays,
+      alwaysShowForStaff: true,
       children: [
         { href: "/admin/tasks", label: "Tasks", icon: ListChecks },
         { href: "/admin/reminders", label: "Reminders", icon: BellRing, adminOrManagerOnly: true },
@@ -116,12 +119,13 @@ const STAFF_GROUPS: Group[] = [
       href: "/admin/settings",
       label: "Settings",
       icon: Settings,
+      adminOrManagerOnly: true,
       children: [
         { href: "/admin/settings", label: "General", icon: Settings, adminOnly: true },
-        { href: "/admin/stores", label: "Stores", icon: Warehouse },
+        { href: "/admin/stores", label: "Stores", icon: Warehouse, adminOrManagerOnly: true },
       ],
     },
-    { href: "/admin/export", label: "Export", icon: Download },
+    { href: "/admin/export", label: "Export", icon: Download, adminOrManagerOnly: true },
   ]},
 ];
 
@@ -150,6 +154,7 @@ function filterStaffGroups(groups: Group[], perms: Permissions, role: Role): Gro
       items: g.items.filter((item) => {
         if (item.adminOnly && role !== "admin") return false;
         if (item.adminOrManagerOnly && role === "employee") return false;
+        if (item.alwaysShowForStaff && role !== "employee") return true;
         const feature = hrefToFeature(item.href);
         if (!feature) return true;
         return canView(perms, feature);
@@ -160,9 +165,15 @@ function filterStaffGroups(groups: Group[], perms: Permissions, role: Role): Gro
 
 /** Extra admin links for employees (inventory, suppliers, etc.) — not tasks/salary/attendance/orders. */
 function employeeGrantedAdminItems(perms: Permissions): Item[] {
+  const hidden = ["/admin/settings", "/admin/export", "/admin/stores"];
   return filterStaffGroups(STAFF_GROUPS, perms, "employee")
     .flatMap((g) => g.items)
-    .filter((item) => !isEmployeeOwnedAdminPath(item.href.split("?")[0]));
+    .filter((item) => {
+      const path = item.href.split("?")[0];
+      if (isEmployeeOwnedAdminPath(path)) return false;
+      if (hidden.some((h) => path === h || path.startsWith(`${h}/`))) return false;
+      return true;
+    });
 }
 
 export function Sidebar({
