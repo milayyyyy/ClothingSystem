@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -84,6 +84,9 @@ function buildGrid(year: number, month: number) {
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit", hour12:false });
 }
+function formatDateOnly(iso: string) {
+  return new Date(iso).toLocaleDateString([], { weekday:"short", year:"numeric", month:"long", day:"numeric" });
+}
 function formatDateFull(iso: string) {
   return new Date(iso).toLocaleString([], { weekday:"short", year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit", hour12:false });
 }
@@ -123,17 +126,28 @@ export function ContentPlannerClient({
 
   const [items,     setItems]     = useState<ContentItem[]>(initial);
   const [reminders]               = useState<ReminderItem[]>(initialReminders);
-  const [tasks]                   = useState<TaskItem[]>(initialTasks);
+  const [tasks,     setTasks]     = useState<TaskItem[]>(initialTasks);
   const [viewYear,  setViewYear]  = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [formOpen,  setFormOpen]  = useState(false);
   const [editing,   setEditing]   = useState<ContentItem | null>(null);
   const [form,      setForm]      = useState<FormState>(blankForm());
   const [saving,    setSaving]    = useState(false);
-  const [detail,    setDetail]    = useState<ContentItem | null>(null);
+  const [detail,         setDetail]         = useState<ContentItem | null>(null);
+  const [reminderDetail, setReminderDetail] = useState<ReminderItem | null>(null);
   const [expandDay, setExpandDay] = useState<string | null>(null);
   const [showReminders, setShowReminders] = useState(true);
   const [showTasks,     setShowTasks]     = useState(true);
+
+  // Always re-fetch tasks on mount so newly-created tasks appear without a full page reload
+  useEffect(() => {
+    supabase
+      .from("tasks")
+      .select("id, title, description, due_date, priority, status, assignees:task_assignees(user_id, profiles:user_id(full_name))")
+      .order("due_date", { ascending: true, nullsFirst: false })
+      .then(({ data }) => { if (data) setTasks(data as TaskItem[]); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Maps ──────────────────────────────────────────────────────────────────
   const grid = useMemo(() => buildGrid(viewYear, viewMonth), [viewYear, viewMonth]);
@@ -220,8 +234,8 @@ export function ContentPlannerClient({
             <Button variant={showReminders ? "secondary" : "outline"} size="sm" className="gap-1.5" onClick={() => setShowReminders(v=>!v)}>
               <Bell className="h-3.5 w-3.5" /> Reminders
             </Button>
-            <Button variant={showTasks ? "secondary" : "outline"} size="sm" className="gap-1.5" onClick={() => setShowTasks(v=>!v)}>
-              <CheckSquare className="h-3.5 w-3.5" /> Tasks
+            <Button variant={showTasks ? "secondary" : "outline"} size="sm" className="gap-1.5" onClick={() => setShowTasks(v=>!v)} title="Only tasks with a due date appear on the calendar">
+              <CheckSquare className="h-3.5 w-3.5" /> Tasks ({tasks.filter(t => !!t.due_date).length})
             </Button>
             <Button size="sm" className="gap-1.5" onClick={() => openAdd()}>
               <Plus className="h-4 w-4" /> Add content
@@ -269,7 +283,7 @@ export function ContentPlannerClient({
                     {visContent.map(item => (
                       <div key={item.id}
                         className={cn("flex cursor-pointer items-center gap-1 rounded border px-1 py-0.5 text-[10px] transition-all", STATUS_CFG[item.status].pill, detail?.id === item.id && "ring-1 ring-primary")}
-                        onClick={e => { e.stopPropagation(); setDetail(item); }}
+                        onClick={e => { e.stopPropagation(); setReminderDetail(null); setDetail(item); }}
                       >
                         <span className="shrink-0 font-mono text-[10px] text-foreground/80">{formatTime(item.scheduled_at)}</span>
                         <span className="min-w-0 flex-1 truncate text-foreground/80">{item.title}</span>
@@ -277,19 +291,23 @@ export function ContentPlannerClient({
                       </div>
                     ))}
 
-                    {/* Reminders — Link to /admin/reminders?show=<id> */}
+                    {/* Reminders — open side panel */}
                     {visReminders.map(r => (
-                      <Link
+                      <button
+                        type="button"
                         key={`rem-${r.id}`}
-                        href={`/admin/reminders?show=${r.id}`}
-                        onClick={e => e.stopPropagation()}
-                        className={cn("flex items-center gap-1 rounded border border-violet-400/30 bg-violet-400/10 px-1 py-0.5 text-[10px] transition-all hover:bg-violet-400/25 hover:border-violet-400/50", r.status === "done" && "opacity-50")}
+                        onClick={e => { e.stopPropagation(); setDetail(null); setReminderDetail(r); }}
+                        className={cn(
+                          "flex w-full items-center gap-1 rounded border border-violet-400/30 bg-violet-400/10 px-1 py-0.5 text-left text-[10px] transition-all hover:bg-violet-400/25 hover:border-violet-400/50",
+                          r.status === "done" && "opacity-50",
+                          reminderDetail?.id === r.id && "ring-1 ring-violet-400",
+                        )}
                         title={r.title}
                       >
                         <Bell className={cn("h-2.5 w-2.5 shrink-0", PRIORITY_TEXT[r.priority] ?? "text-violet-400")} />
                         <span className={cn("min-w-0 flex-1 truncate text-foreground/80", r.status === "done" && "line-through")}>{r.title}</span>
                         {r.due_at && <span className="shrink-0 font-mono text-[9px] text-muted-foreground">{formatTime(r.due_at)}</span>}
-                      </Link>
+                      </button>
                     ))}
 
                     {/* Tasks — Link to /admin/tasks?show=<id> */}
@@ -374,6 +392,61 @@ export function ContentPlannerClient({
             <Button size="sm" variant="outline" className="gap-1 text-destructive hover:bg-destructive/10" onClick={() => void handleDelete(detail.id)}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reminder detail panel ─────────────────────────────────────── */}
+      {reminderDetail && (
+        <div className="w-72 shrink-0 space-y-3 rounded-lg border border-border bg-card p-4 text-sm">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-violet-400">Reminder</p>
+              <h3 className="font-semibold leading-snug">{reminderDetail.title}</h3>
+            </div>
+            <button type="button" className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" onClick={() => setReminderDetail(null)}>
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <span className={cn(
+              "rounded-full border px-2 py-0.5 text-xs capitalize",
+              reminderDetail.priority === "urgent" && "border-red-500/30 bg-red-500/10 text-red-500",
+              reminderDetail.priority === "high" && "border-orange-400/30 bg-orange-400/10 text-orange-400",
+              reminderDetail.priority === "medium" && "border-blue-400/30 bg-blue-400/10 text-blue-400",
+              reminderDetail.priority === "low" && "border-slate-400/30 bg-slate-400/10 text-slate-400",
+            )}>
+              {PRIORITY_LABEL[reminderDetail.priority] ?? reminderDetail.priority} priority
+            </span>
+            <span className={cn(
+              "rounded-full border px-2 py-0.5 text-xs",
+              reminderDetail.status === "done"
+                ? "border-green-500/30 bg-green-500/10 text-green-500"
+                : "border-amber-400/30 bg-amber-400/10 text-amber-500",
+            )}>
+              {reminderDetail.status === "done" ? "Done" : "Pending"}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-md bg-muted/40 px-3 py-2 text-xs">
+              <p className="font-medium text-muted-foreground">Due date</p>
+              <p className="mt-0.5">{reminderDetail.due_at ? formatDateOnly(reminderDetail.due_at) : "—"}</p>
+            </div>
+            <div className="rounded-md bg-muted/40 px-3 py-2 text-xs">
+              <p className="font-medium text-muted-foreground">Due time</p>
+              <p className="mt-0.5 font-mono">{reminderDetail.due_at ? formatTime(reminderDetail.due_at) : "—"}</p>
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-0.5 text-xs font-medium text-muted-foreground">Notes</p>
+            {reminderDetail.notes ? (
+              <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-3 py-2 text-xs">{reminderDetail.notes}</p>
+            ) : (
+              <p className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">No notes</p>
+            )}
           </div>
         </div>
       )}
