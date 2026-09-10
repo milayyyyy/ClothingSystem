@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,8 +24,17 @@ export type ReminderItem = {
 export type TaskItem = {
   id: string; title: string; description?: string | null; due_date?: string | null;
   priority?: string | null; status: string;
-  assignees?: { user_id: string; profiles?: { full_name: string } | null }[];
 };
+
+/** Calendar day key YYYY-MM-DD from a date or timestamp string. */
+function dueDayKey(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return toLocalDateStr(d);
+}
 
 type Platform = "facebook" | "instagram" | "tiktok" | "youtube" | "twitter" | "other";
 type Status   = "draft" | "scheduled" | "posted" | "cancelled";
@@ -135,17 +143,24 @@ export function ContentPlannerClient({
   const [saving,    setSaving]    = useState(false);
   const [detail,         setDetail]         = useState<ContentItem | null>(null);
   const [reminderDetail, setReminderDetail] = useState<ReminderItem | null>(null);
+  const [taskDetail,     setTaskDetail]     = useState<TaskItem | null>(null);
   const [expandDay, setExpandDay] = useState<string | null>(null);
   const [showReminders, setShowReminders] = useState(true);
   const [showTasks,     setShowTasks]     = useState(true);
 
-  // Always re-fetch tasks on mount so newly-created tasks appear without a full page reload
+  // Re-fetch tasks on mount so newly created tasks appear immediately
   useEffect(() => {
-    supabase
+    void supabase
       .from("tasks")
-      .select("id, title, description, due_date, priority, status, assignees:task_assignees(user_id, profiles:user_id(full_name))")
-      .order("due_date", { ascending: true, nullsFirst: false })
-      .then(({ data }) => { if (data) setTasks(data as TaskItem[]); });
+      .select("id, title, description, due_date, priority, status")
+      .order("due_date", { ascending: true })
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("content planner tasks fetch", error);
+          return;
+        }
+        if (data) setTasks(data as TaskItem[]);
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -175,8 +190,10 @@ export function ContentPlannerClient({
   const tasksByDay = useMemo(() => {
     const m = new Map<string, TaskItem[]>();
     for (const t of tasks) {
-      if (!t.due_date) continue;
-      if (!m.has(t.due_date)) m.set(t.due_date, []); m.get(t.due_date)!.push(t);
+      const key = dueDayKey(t.due_date);
+      if (!key) continue;
+      if (!m.has(key)) m.set(key, []);
+      m.get(key)!.push(t);
     }
     return m;
   }, [tasks]);
@@ -259,11 +276,11 @@ export function ContentPlannerClient({
               const allCount     = dayContent.length + dayReminders.length + dayTasks.length;
               const isExpanded   = expandDay === dateStr;
 
-              // Build visible list respecting MAX_VISIBLE
+              // Show reminders & tasks first so they are not hidden behind content overflow
               let budget = isExpanded ? Infinity : MAX_VISIBLE;
-              const visContent   = dayContent.slice(0, budget);   budget -= visContent.length;
               const visReminders = dayReminders.slice(0, budget); budget -= visReminders.length;
-              const visTasks     = dayTasks.slice(0, budget);
+              const visTasks     = dayTasks.slice(0, budget);     budget -= visTasks.length;
+              const visContent   = dayContent.slice(0, budget);
               const overflow     = isExpanded ? 0 : allCount - (visContent.length + visReminders.length + visTasks.length);
 
               return (
@@ -279,24 +296,12 @@ export function ContentPlannerClient({
                   </div>
 
                   <div className="space-y-0.5">
-                    {/* Content items */}
-                    {visContent.map(item => (
-                      <div key={item.id}
-                        className={cn("flex cursor-pointer items-center gap-1 rounded border px-1 py-0.5 text-[10px] transition-all", STATUS_CFG[item.status].pill, detail?.id === item.id && "ring-1 ring-primary")}
-                        onClick={e => { e.stopPropagation(); setReminderDetail(null); setDetail(item); }}
-                      >
-                        <span className="shrink-0 font-mono text-[10px] text-foreground/80">{formatTime(item.scheduled_at)}</span>
-                        <span className="min-w-0 flex-1 truncate text-foreground/80">{item.title}</span>
-                        <PlatformBadge platform={item.platform} />
-                      </div>
-                    ))}
-
                     {/* Reminders — open side panel */}
                     {visReminders.map(r => (
                       <button
                         type="button"
                         key={`rem-${r.id}`}
-                        onClick={e => { e.stopPropagation(); setDetail(null); setReminderDetail(r); }}
+                        onClick={e => { e.stopPropagation(); setDetail(null); setTaskDetail(null); setReminderDetail(r); }}
                         className={cn(
                           "flex w-full items-center gap-1 rounded border border-violet-400/30 bg-violet-400/10 px-1 py-0.5 text-left text-[10px] transition-all hover:bg-violet-400/25 hover:border-violet-400/50",
                           r.status === "done" && "opacity-50",
@@ -310,19 +315,35 @@ export function ContentPlannerClient({
                       </button>
                     ))}
 
-                    {/* Tasks — Link to /admin/tasks?show=<id> */}
+                    {/* Tasks — open side panel */}
                     {visTasks.map(t => (
-                      <Link
+                      <button
+                        type="button"
                         key={`task-${t.id}`}
-                        href={`/admin/tasks?show=${t.id}`}
-                        onClick={e => e.stopPropagation()}
-                        className={cn("flex items-center gap-1 rounded border border-green-500/30 bg-green-500/10 px-1 py-0.5 text-[10px] transition-all hover:bg-green-500/20 hover:border-green-500/50", (t.status === "done" || t.status === "cancelled") && "opacity-50")}
+                        onClick={e => { e.stopPropagation(); setDetail(null); setReminderDetail(null); setTaskDetail(t); }}
+                        className={cn(
+                          "flex w-full items-center gap-1 rounded border border-green-500/30 bg-green-500/10 px-1 py-0.5 text-left text-[10px] transition-all hover:bg-green-500/20 hover:border-green-500/50",
+                          (t.status === "done" || t.status === "cancelled") && "opacity-50",
+                          taskDetail?.id === t.id && "ring-1 ring-green-500",
+                        )}
                         title={t.title}
                       >
                         <CheckSquare className={cn("h-2.5 w-2.5 shrink-0", t.status === "done" ? "text-green-500" : "text-green-400")} />
                         <span className={cn("min-w-0 flex-1 truncate text-foreground/80", (t.status === "done" || t.status === "cancelled") && "line-through")}>{t.title}</span>
                         {t.priority && <span className={cn("text-[9px] font-medium", PRIORITY_TEXT[t.priority] ?? "text-muted-foreground")}>{(t.priority ?? "").slice(0,3)}</span>}
-                      </Link>
+                      </button>
+                    ))}
+
+                    {/* Content items */}
+                    {visContent.map(item => (
+                      <div key={item.id}
+                        className={cn("flex cursor-pointer items-center gap-1 rounded border px-1 py-0.5 text-[10px] transition-all", STATUS_CFG[item.status].pill, detail?.id === item.id && "ring-1 ring-primary")}
+                        onClick={e => { e.stopPropagation(); setReminderDetail(null); setTaskDetail(null); setDetail(item); }}
+                      >
+                        <span className="shrink-0 font-mono text-[10px] text-foreground/80">{formatTime(item.scheduled_at)}</span>
+                        <span className="min-w-0 flex-1 truncate text-foreground/80">{item.title}</span>
+                        <PlatformBadge platform={item.platform} />
+                      </div>
                     ))}
 
                     {overflow > 0 && (
@@ -446,6 +467,52 @@ export function ContentPlannerClient({
               <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-3 py-2 text-xs">{reminderDetail.notes}</p>
             ) : (
               <p className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">No notes</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Task detail panel ─────────────────────────────────────────── */}
+      {taskDetail && (
+        <div className="w-72 shrink-0 space-y-3 rounded-lg border border-border bg-card p-4 text-sm">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-green-400">Task</p>
+              <h3 className="font-semibold leading-snug">{taskDetail.title}</h3>
+            </div>
+            <button type="button" className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" onClick={() => setTaskDetail(null)}>
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-xs">
+              {TASK_STATUS_LABEL[taskDetail.status] ?? taskDetail.status}
+            </span>
+            {taskDetail.priority && (
+              <span className={cn(
+                "rounded-full border px-2 py-0.5 text-xs capitalize",
+                taskDetail.priority === "urgent" && "border-red-500/30 bg-red-500/10 text-red-500",
+                taskDetail.priority === "high" && "border-orange-400/30 bg-orange-400/10 text-orange-400",
+                (taskDetail.priority === "medium" || taskDetail.priority === "normal") && "border-blue-400/30 bg-blue-400/10 text-blue-400",
+                taskDetail.priority === "low" && "border-slate-400/30 bg-slate-400/10 text-slate-400",
+              )}>
+                {PRIORITY_LABEL[taskDetail.priority] ?? taskDetail.priority} priority
+              </span>
+            )}
+          </div>
+
+          <div className="rounded-md bg-muted/40 px-3 py-2 text-xs">
+            <p className="font-medium text-muted-foreground">Due date</p>
+            <p className="mt-0.5">{taskDetail.due_date ? formatDateOnly(taskDetail.due_date.includes("T") ? taskDetail.due_date : `${taskDetail.due_date}T12:00:00`) : "—"}</p>
+          </div>
+
+          <div>
+            <p className="mb-0.5 text-xs font-medium text-muted-foreground">Description</p>
+            {taskDetail.description ? (
+              <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-3 py-2 text-xs">{taskDetail.description}</p>
+            ) : (
+              <p className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">No description</p>
             )}
           </div>
         </div>
