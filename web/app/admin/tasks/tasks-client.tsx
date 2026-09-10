@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { ArrowRight, Cog, Pencil, Plus, Repeat, RotateCcw, Settings2, Trash2, Users } from "lucide-react";
+import { ArrowRight, Cog, Pencil, Plus, Repeat, RotateCcw, Settings2, Trash2, Users, X } from "lucide-react";
 import { repeatLabel, repeatFieldsForInsert, spawnNextRecurringTask, type RepeatMode } from "@/lib/task-recurrence";
 import { TaskDateFilterBar } from "@/components/task-date-filter-bar";
 import {
@@ -51,10 +52,22 @@ function statusVariant(s: string) {
 }
 
 export function TasksClient({ userId, initial, people }: { userId: string; initial: T[]; people: P[] }) {
-  const supabase = createClient();
+  const supabase     = createClient();
+  const searchParams = useSearchParams();
   const [list, setList] = useState<T[]>(initial);
   const [newOpen, setNewOpen] = useState(false);
   const [editTask, setEditTask] = useState<T | null>(null);
+  // Detail view triggered by ?show=<id> (e.g. from Content Planner)
+  const [detailTask, setDetailTask] = useState<T | null>(null);
+
+  useEffect(() => {
+    const showId = searchParams.get("show");
+    if (showId) {
+      const found = initial.find((t: T) => t.id === showId);
+      if (found) setDetailTask(found);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [forwarding, setForwarding] = useState<string | null>(null);
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [machineTypes, setMachineTypes] = useState<MachineType[]>([]);
@@ -383,6 +396,49 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
         onClose={() => setEditTask(null)}
         onSaved={refresh}
       />
+
+      {/* ── Detail view (opened from Content Planner ?show=<id>) ──── */}
+      {detailTask && (
+        <Dialog open={!!detailTask} onClose={() => setDetailTask(null)} title="Task details">
+          <div className="space-y-4">
+            <h3 className="font-semibold text-base leading-snug">{detailTask.title}</h3>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={(statusVariant(detailTask.status) as any)}>{STATUS_LABEL[detailTask.status] || detailTask.status}</Badge>
+              {detailTask.priority && (
+                <Badge variant="outline" className="capitalize">{detailTask.priority}</Badge>
+              )}
+            </div>
+            {detailTask.due_date && (
+              <div className="rounded-md bg-muted/40 px-3 py-2 text-sm">
+                <p className="text-xs font-medium text-muted-foreground">Due date</p>
+                <p className="mt-0.5">{new Date(detailTask.due_date + "T00:00").toLocaleDateString([], { weekday:"short", year:"numeric", month:"long", day:"numeric" })}</p>
+              </div>
+            )}
+            {detailTask.description && (
+              <div>
+                <p className="mb-0.5 text-xs font-medium text-muted-foreground">Description</p>
+                <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-3 py-2 text-sm">{detailTask.description}</p>
+              </div>
+            )}
+            {detailTask.assignees?.length > 0 && (
+              <div>
+                <p className="mb-1 text-xs font-medium text-muted-foreground">Assignees</p>
+                <div className="flex flex-wrap gap-1">
+                  {detailTask.assignees.map((a: any) => (
+                    <span key={a.user_id} className="rounded-full border bg-muted/40 px-2.5 py-0.5 text-xs">{a.profiles?.full_name || a.user_id.slice(0,8)}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="outline" onClick={() => setDetailTask(null)}>Close</Button>
+              <Button type="button" onClick={() => { setDetailTask(null); setEditTask(detailTask); }}>
+                <Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit task
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
     </>
   );
 }

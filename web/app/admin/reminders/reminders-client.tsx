@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
 import { useConfirmAction } from "@/components/confirm-dialog";
 
@@ -295,6 +297,7 @@ export function RemindersClient({
 }) {
   const supabase = createClient();
   const { ask, dialog: confirmDialog } = useConfirmAction();
+  const searchParams = useSearchParams();
 
   const [reminders, setReminders] = useState<Reminder[]>(initial);
   const [saving,    setSaving]    = useState(false);
@@ -304,6 +307,18 @@ export function RemindersClient({
   const [tab,       setTab]       = useState<FilterTab>("all");
   const [priFilter, setPriFilter] = useState<Priority | "">("");
   const [doneOpen,  setDoneOpen]  = useState(false);
+  // Detail view triggered by ?show=<id> (e.g. from Content Planner)
+  const [detailReminder, setDetailReminder] = useState<Reminder | null>(null);
+
+  // Auto-open detail when navigated from another page with ?show=<id>
+  useEffect(() => {
+    const showId = searchParams.get("show");
+    if (showId) {
+      const found = initial.find(r => r.id === showId);
+      if (found) setDetailReminder(found);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const refresh = useCallback(async () => {
     const { data } = await supabase
@@ -683,6 +698,48 @@ export function RemindersClient({
           </div>
         </form>
       </Dialog>
+
+      {/* ── Detail view (opened from Content Planner ?show=<id>) ─────── */}
+      {detailReminder && (
+        <Dialog open={!!detailReminder} onClose={() => setDetailReminder(null)} title="Reminder details">
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="font-semibold text-base leading-snug">{detailReminder.title}</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium", detailReminder.status === "done" ? "border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400" : "border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-400")}>
+                {detailReminder.status === "done" ? "Done" : "Pending"}
+              </span>
+              <span className={cn("rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize", {
+                low:    "border-slate-400/30 bg-slate-400/10 text-slate-600 dark:text-slate-400",
+                medium: "border-blue-400/30  bg-blue-400/10  text-blue-700   dark:text-blue-400",
+                high:   "border-orange-400/30 bg-orange-400/10 text-orange-700 dark:text-orange-400",
+                urgent: "border-red-500/30   bg-red-500/10   text-red-700    dark:text-red-400",
+              }[detailReminder.priority] ?? "")}>
+                {detailReminder.priority} priority
+              </span>
+            </div>
+            {detailReminder.due_at && (
+              <div className="rounded-md bg-muted/40 px-3 py-2 text-sm">
+                <p className="text-xs font-medium text-muted-foreground">Due</p>
+                <p className="mt-0.5">{new Date(detailReminder.due_at).toLocaleString([], { weekday:"short", year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit", hour12:false })}</p>
+              </div>
+            )}
+            {detailReminder.notes && (
+              <div>
+                <p className="mb-0.5 text-xs font-medium text-muted-foreground">Notes</p>
+                <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-3 py-2 text-sm">{detailReminder.notes}</p>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="outline" onClick={() => setDetailReminder(null)}>Close</Button>
+              <Button type="button" onClick={() => { setDetailReminder(null); setEditing(detailReminder); setOpen(true); }}>
+                <Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit reminder
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
     </>
   );
 }
