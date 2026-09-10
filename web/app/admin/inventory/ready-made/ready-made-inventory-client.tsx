@@ -26,7 +26,7 @@ type Board = {
   /** Rows are low stock when any column’s numeric cell is strictly below this value (all columns scanned). */
   low_stock_sheet_minimum?: number | null;
 };
-type Col = { id: string; board_id: string; header_name: string; sort_order: number };
+type Col = { id: string; board_id: string; header_name: string; sort_order: number; description?: string | null };
 type Row = { id: string; board_id: string; row_label: string; sort_order: number };
 type Cell = {
   id: string;
@@ -71,6 +71,9 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   // Per-cell description dialog
   const [connectingCell, setConnectingCell] = useState<{ rowId: string; columnId: string; rowLabel: string; colHeader: string } | null>(null);
   const [connectCellDraft, setConnectCellDraft] = useState("");
+  // Per-column description dialog (column header row)
+  const [connectingCol, setConnectingCol] = useState<Col | null>(null);
+  const [connectColDraft, setConnectColDraft] = useState("");
   /** Increment to rescan every sheet’s low stock from the server (not only the open sheet). */
   const [lowStockScanKey, setLowStockScanKey] = useState(0);
   const [allSheetsLowStockTotal, setAllSheetsLowStockTotal] = useState(0);
@@ -558,6 +561,19 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
     if (!connectingCell) return;
     await setCellMeta(connectingCell.rowId, connectingCell.columnId, connectCellDraft || null);
     setConnectingCell(null);
+  }
+
+  async function saveConnectCol() {
+    if (!connectingCol) return;
+    const { error } = await supabase
+      .from("ready_made_columns")
+      .update({ description: connectColDraft || null })
+      .eq("id", connectingCol.id);
+    if (!error) {
+      setCols((prev) => prev.map((c) => c.id === connectingCol.id ? { ...c, description: connectColDraft || null } : c));
+    }
+    // If error (e.g. migration not applied yet), close dialog gracefully
+    setConnectingCol(null);
   }
 
   async function addColumn() {
@@ -1229,6 +1245,16 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                                 }}
                                 aria-label="Column header"
                               />
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  title={c.description ? `Description: ${c.description}` : "Set description for this column"}
+                                  className={`shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 ${c.description ? "text-primary" : "text-muted-foreground/50 hover:text-primary"}`}
+                                  onClick={() => { setConnectColDraft(c.description ?? ""); setConnectingCol(c); }}
+                                >
+                                  <Tag className="h-2.5 w-2.5" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 className={`shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 ${!canEdit ? "hidden" : ""}`}
@@ -1314,7 +1340,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                                   <button
                                     type="button"
                                     title={cellMetaByPair.get(`${r.id}:${c.id}`)?.description ? `Description: ${cellMetaByPair.get(`${r.id}:${c.id}`)?.description}` : "Set description for this cell"}
-                                    className={`mr-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover/cell:opacity-100 ${cellMetaByPair.get(`${r.id}:${c.id}`)?.description ? "text-primary" : "text-muted-foreground/50 hover:text-primary"}`}
+                                    className={`mr-0.5 shrink-0 rounded p-0.5 transition-opacity group-hover/cell:opacity-100 ${cellMetaByPair.get(`${r.id}:${c.id}`)?.description ? "opacity-100 text-primary" : "opacity-0 text-muted-foreground/50 hover:text-primary"}`}
                                     onClick={() => openConnectCell(r, c)}
                                   >
                                     <Tag className="h-2.5 w-2.5" />
@@ -1441,6 +1467,39 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
               Cancel
             </Button>
             <Button type="button" onClick={() => void saveConnectCell()}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* Per-column description dialog */}
+      <Dialog
+        open={!!connectingCol}
+        onClose={() => setConnectingCol(null)}
+        title={connectingCol ? `${activeBoard?.name ?? ""} › ${connectingCol.header_name}` : ""}
+      >
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            This description will appear in the activity log whenever this column header is changed.
+          </p>
+          <div>
+            <Label htmlFor="col-desc">Description</Label>
+            <Input
+              id="col-desc"
+              className="mt-1"
+              placeholder={`e.g. ${activeBoard?.name ?? "Item"} ${connectingCol?.header_name ?? ""} sizes`}
+              value={connectColDraft}
+              onChange={(e) => setConnectColDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") void saveConnectCol(); }}
+              autoFocus
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setConnectingCol(null)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void saveConnectCol()}>
               Save
             </Button>
           </div>

@@ -224,6 +224,13 @@ function recordContext(entity: string, record: Record<string, unknown> | undefin
     return "";
   }
 
+  // Special context for ready_made_columns — include description if set
+  if (entity === "ready_made_columns") {
+    const header = record.header_name ? String(record.header_name) : "";
+    const desc = record.description ? ` — ${String(record.description)}` : "";
+    return header ? `${header}${desc}` : "";
+  }
+
   const fields = TITLE_FIELDS[entity] || ["name", "title", "description", "order_no"];
   const parts: string[] = [];
   for (const f of fields) {
