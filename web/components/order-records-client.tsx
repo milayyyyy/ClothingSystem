@@ -70,7 +70,6 @@ export function OrderRecordsClient({
   );
   const [records, setRecords] = useState(initialRecords.map(enrichRecord));
   const [filter, setFilter] = useState<"all" | "pending">(mode === "admin" ? "pending" : "all");
-  const [sourceTab, setSourceTab] = useState<"manual" | "pos">("manual");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const isAdmin = viewerRole === "admin";
@@ -89,13 +88,11 @@ export function OrderRecordsClient({
     if (mode === "employee") {
       list = list.filter((r) => r.submitted_by === userId);
     }
-    // Source tab: manual vs POS
-    list = list.filter((r) => (r.source ?? "manual") === sourceTab);
     if (filter === "pending") {
       list = list.filter((r) => r.status === "submitted");
     }
     return list.sort((a, b) => (b.record_date > a.record_date ? 1 : -1));
-  }, [records, filter, sourceTab, mode, userId]);
+  }, [records, filter, mode, userId]);
 
   const canEditRecord = (r: OrderRecordRow) =>
     (r.status === "draft" || r.status === "rejected") && r.submitted_by === userId;
@@ -128,21 +125,6 @@ export function OrderRecordsClient({
 
   return (
     <div className="space-y-4">
-      {/* Source tabs: Manual Records | POS Sales */}
-      <div className="flex gap-1 rounded-lg border border-border bg-muted/30 p-0.5 w-fit">
-        {(["manual", "pos"] as const).map((s) => (
-          <Button
-            key={s}
-            size="sm"
-            variant={sourceTab === s ? "secondary" : "ghost"}
-            className="h-8"
-            onClick={() => setSourceTab(s)}
-          >
-            {s === "manual" ? "Manual Records" : "POS Sales"}
-          </Button>
-        ))}
-      </div>
-
       <div className="flex flex-wrap items-center justify-between gap-2">
         {mode === "admin" ? (
           <div className="flex gap-1 rounded-lg border p-0.5">
@@ -160,12 +142,10 @@ export function OrderRecordsClient({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            {sourceTab === "pos"
-              ? "POS sales automatically submitted here for stock review."
-              : "Submit order PDFs/photos and fill in usage sheets. Admin reviews and deducts stock manually."}
+            Submitted records and POS sales for stock review. Admin reviews and deducts stock.
           </p>
         )}
-        {mode === "employee" && sourceTab === "manual" && (
+        {mode === "employee" && (
           <Link
             href="/employee/order-records/new"
             className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
@@ -179,10 +159,8 @@ export function OrderRecordsClient({
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
             <ClipboardList className="h-10 w-10 opacity-30" />
-            <p className="text-sm">
-              {sourceTab === "pos" ? "No POS sales yet." : "No order records yet."}
-            </p>
-            {mode === "employee" && sourceTab === "manual" && (
+            <p className="text-sm">No order records yet.</p>
+            {mode === "employee" && (
               <Link
                 href="/employee/order-records/new"
                 className="inline-flex h-8 items-center rounded-md border px-3 text-sm font-medium hover:bg-muted"
@@ -200,6 +178,7 @@ export function OrderRecordsClient({
             const href = recordHref(r);
             const isDeleting = deletingId === r.id;
             const canDelete = isAdmin && mode === "admin";
+            const isPos = (r.source ?? "manual") === "pos";
 
             return (
               <div
@@ -210,6 +189,7 @@ export function OrderRecordsClient({
                 <Link href={href} className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{r.title || "Order record"}</span>
+                    <Badge variant={isPos ? "blue" : "outline"}>{isPos ? "POS" : "Manual"}</Badge>
                     <Badge variant={statusVariant(r.status)}>{STATUS_LABEL[r.status]}</Badge>
                   </div>
                   <div className="text-xs text-muted-foreground">
