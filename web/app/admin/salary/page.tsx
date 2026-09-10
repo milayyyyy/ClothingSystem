@@ -21,7 +21,7 @@ export default async function AdminSalaryPage() {
     <div>
       <PageHeader
         title="Salary"
-        description="Set pay types and rates; pick a payroll date range for salary from attendance and matching recorded payouts."
+        description="Set pay types and rates. Recorded payroll includes attendance pays and employee-salary expenses in the selected range."
       />
       <SalaryClient
         employees={employees || []}

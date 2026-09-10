@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Bell, CheckSquare, X, Check, ArrowRight, RotateCcw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Bell, CheckSquare, X, Check, ArrowRight, RotateCcw, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { spawnNextRecurringTask } from "@/lib/task-recurrence";
+import { spawnNextRecurringTask, spawnNextRecurringReminder, repeatLabel } from "@/lib/task-recurrence";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -20,6 +20,9 @@ export type ContentItem = {
 export type ReminderItem = {
   id: string; title: string; notes?: string | null; due_at?: string | null;
   priority: "low" | "medium" | "high" | "urgent"; status: "pending" | "done";
+  created_by?: string | null;
+  repeat_mode?: string | null;
+  repeat_interval_days?: number | null;
 };
 
 export type TaskItem = {
@@ -235,7 +238,13 @@ export function ContentPlannerClient({
       .from("reminders")
       .update({ status: "done", updated_at: new Date().toISOString() })
       .eq("id", reminderDetail.id);
-    if (!error) patchReminder(reminderDetail.id, { status: "done" });
+    if (!error) {
+      patchReminder(reminderDetail.id, { status: "done" });
+      const created = await spawnNextRecurringReminder(supabase, reminderDetail);
+      if (created) {
+        setReminders((prev) => [...prev, created as ReminderItem]);
+      }
+    }
     setActionSaving(false);
   }
 
@@ -536,6 +545,13 @@ export function ContentPlannerClient({
               <p className="mt-0.5 font-mono">{reminderDetail.due_at ? formatTime(reminderDetail.due_at) : "—"}</p>
             </div>
           </div>
+
+          {repeatLabel(reminderDetail) && (
+            <div className="flex items-center gap-1.5 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <Repeat className="h-3.5 w-3.5 shrink-0" />
+              {repeatLabel(reminderDetail)}
+            </div>
+          )}
 
           <div>
             <p className="mb-0.5 text-xs font-medium text-muted-foreground">Notes</p>

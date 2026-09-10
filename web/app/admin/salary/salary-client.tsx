@@ -857,11 +857,13 @@ export function SalaryClient({
 
   const recordedForSelectedPeriod = useMemo(
     () =>
-      list.filter(
-        (s) =>
-          salaryPeriodYMDFromDb(s.period_start) === periodStartStr &&
-          salaryPeriodYMDFromDb(s.period_end) === periodEndStr,
-      ),
+      list.filter((s) => {
+        const start = salaryPeriodYMDFromDb(s.period_start);
+        const end = salaryPeriodYMDFromDb(s.period_end);
+        if (!start || !end) return false;
+        // Include attendance pays and expense-created single-day rows that fall in range.
+        return end >= periodStartStr && start <= periodEndStr;
+      }),
     [list, periodStartStr, periodEndStr],
   );
 
@@ -1095,8 +1097,15 @@ export function SalaryClient({
                 const emp = employees.find((e) => e.id === s.user_id);
                 return (
                   <tr key={s.id} className="border-t">
-                    <td className="p-2 text-sm">{emp?.full_name || emp?.email || "—"}</td>
-                    <td className="p-2 text-xs text-muted-foreground whitespace-nowrap">{periodRangeLabel}</td>
+                    <td className="p-2 text-sm">
+                      {emp?.full_name || emp?.email || "—"}
+                      {s.expense_id ? (
+                        <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">Expense</span>
+                      ) : null}
+                    </td>
+                    <td className="p-2 text-xs text-muted-foreground whitespace-nowrap">
+                      {formatDate(s.period_start)} – {formatDate(s.period_end)}
+                    </td>
                     <td className="p-2 text-right tabular-nums">{s.days_worked}</td>
                     <td className="p-2 text-right tabular-nums">{peso(s.gross_pay)}</td>
                     <td className="p-2 text-right tabular-nums">{peso(s.deductions)}</td>
@@ -1129,8 +1138,8 @@ export function SalaryClient({
               {list.length > 0 && recordedPayrollRows.length === 0 && (
                 <tr>
                   <td colSpan={9} className="p-6 text-center text-muted-foreground">
-                    No recorded payroll for {periodRangeLabel}. Use Pay in Employee salary computation for this range, or
-                    choose another start/end above.
+                    No recorded payroll overlapping {periodRangeLabel}. Pays from attendance and Employee salary
+                    expenses in this range will appear here.
                   </td>
                 </tr>
               )}

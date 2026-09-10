@@ -110,22 +110,15 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/employees", label: "Employees", icon: Users, adminOnly: true },
     { href: "/admin/attendance", label: "Attendance", icon: Clock },
     { href: "/admin/salary", label: "Salary", icon: Wallet },
+    { href: "/admin/my-salary", label: "My Salary", icon: Wallet, adminOrManagerOnly: true },
   ]},
   { title: "Audit", items: [
     { href: "/admin/activity", label: "Activity Log", icon: Activity, adminOnly: true },
   ]},
   { title: "Account", items: [
-    {
-      href: "/admin/settings",
-      label: "Settings",
-      icon: Settings,
-      adminOrManagerOnly: true,
-      children: [
-        { href: "/admin/settings", label: "General", icon: Settings, adminOnly: true },
-        { href: "/admin/stores", label: "Stores", icon: Warehouse, adminOrManagerOnly: true },
-      ],
-    },
-    { href: "/admin/export", label: "Export", icon: Download, adminOrManagerOnly: true },
+    { href: "/admin/settings", label: "Settings", icon: Settings, adminOnly: true },
+    { href: "/admin/stores", label: "Stores", icon: Warehouse, adminOrManagerOnly: true, alwaysShowForStaff: true },
+    { href: "/admin/export", label: "Export", icon: Download, adminOrManagerOnly: true, alwaysShowForStaff: true },
   ]},
 ];
 

@@ -77,7 +77,7 @@ function defaultSubAdminPerms(): Permissions {
   return p;
 }
 
-/** Manager default permissions — full access except employees and settings.
+/** Manager default permissions — full access except employees, settings, and activity log.
  *  Managers can VIEW the activity log but cannot delete entries (enforced in the page). */
 export function defaultManagerPerms(): Permissions {
   const p = blankPerms();
@@ -119,14 +119,14 @@ export function featureForAdminPath(path: string): FeatureKey | null {
   if (path.startsWith("/admin/finance")) return "finance";
   if (path.startsWith("/admin/employees")) return "employees";
   if (path.startsWith("/admin/attendance")) return "attendance";
-  if (path.startsWith("/admin/salary")) return "salary";
+  if (path.startsWith("/admin/salary") || path.startsWith("/admin/my-salary")) return "salary";
   if (path.startsWith("/admin/tasks")) return "tasks";
   if (path.startsWith("/admin/reminders")) return "tasks";
   if (path.startsWith("/admin/content-planner")) return "tasks";
   if (path.startsWith("/admin/stores")) return "stores";
   if (path.startsWith("/admin/activity")) return "activity_log";
   if (path.startsWith("/admin/settings")) return "settings";
-  if (path.startsWith("/admin/export")) return "settings";
+  if (path.startsWith("/admin/export")) return "stores";
   return null;
 }
 
@@ -134,7 +134,7 @@ export function featureForAdminPath(path: string): FeatureKey | null {
 export function isEmployeeOwnedAdminPath(path: string): boolean {
   if (path === "/admin" || path === "/admin/") return true;
   if (path.startsWith("/admin/reports")) return true;
-  const owned = ["/admin/orders", "/admin/tasks", "/admin/attendance", "/admin/salary"];
+  const owned = ["/admin/orders", "/admin/tasks", "/admin/attendance", "/admin/salary", "/admin/my-salary"];
   return owned.some((p) => path === p || path.startsWith(`${p}/`));
 }
 
@@ -144,6 +144,7 @@ export function canAccessAdminPath(path: string, perms: Permissions, profileRole
     const feature = featureForAdminPath(path);
     if (feature !== "inventory" && feature !== "ready_made") return false;
   }
+  if (profileRole === "manager" && path.startsWith("/admin/settings")) return false;
   const feature = featureForAdminPath(path);
   if (!feature) return false;
   return canView(perms, feature);
@@ -168,8 +169,10 @@ export async function getPermissionsForRole(
       data?.permissions && typeof data.permissions === "object"
         ? { ...defaultManagerPerms(), ...(data.permissions as Permissions) }
         : defaultManagerPerms();
-    // Planner (tasks, reminders, content planner) is always available to managers.
+    // Planner, stores, and export stay available to managers. Settings stays admin-only.
     merged.tasks = { view: true, edit: true };
+    merged.stores = { view: true, edit: true };
+    merged.settings = { view: false, edit: false };
     return merged;
   }
 

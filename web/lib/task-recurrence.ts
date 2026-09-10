@@ -13,13 +13,19 @@ export type RecurringTaskFields = {
   due_date?: string | null;
 };
 
-export function isRecurringTask(task: RecurringTaskFields): boolean {
+export function isRecurringTask(task: {
+  repeat_mode?: string | null;
+  repeat_interval_days?: number | null;
+}): boolean {
   if (task.repeat_mode) return true;
   const days = task.repeat_interval_days;
   return days != null && days > 0;
 }
 
-export function repeatModeFromTask(task: RecurringTaskFields): RepeatMode | null {
+export function repeatModeFromTask(task: {
+  repeat_mode?: string | null;
+  repeat_interval_days?: number | null;
+}): RepeatMode | null {
   if (task.repeat_mode === "daily" || task.repeat_mode === "weekly" || task.repeat_mode === "monthly" || task.repeat_mode === "custom") {
     return task.repeat_mode;
   }
@@ -131,4 +137,60 @@ export async function spawnNextRecurringTask(
   }
 
   return created;
+}
+
+export type RecurringReminderFields = {
+  title: string;
+  notes?: string | null;
+  due_at?: string | null;
+  priority?: string | null;
+  created_by?: string | null;
+  repeat_mode?: string | null;
+  repeat_interval_days?: number | null;
+};
+
+/** Next due timestamp, keeping the original clock time. */
+export function computeNextDueAt(
+  dueAtIso: string | null | undefined,
+  fields: { repeat_mode?: string | null; repeat_interval_days?: number | null },
+): string | null {
+  if (!isRecurringTask(fields)) return null;
+  const mode = repeatModeFromTask(fields);
+  const next = dueAtIso ? new Date(dueAtIso) : new Date();
+  if (Number.isNaN(next.getTime())) return null;
+  if (mode === "daily") next.setDate(next.getDate() + 1);
+  else if (mode === "weekly") next.setDate(next.getDate() + 7);
+  else if (mode === "monthly") next.setMonth(next.getMonth() + 1);
+  else next.setDate(next.getDate() + Math.max(1, Number(fields.repeat_interval_days) || 1));
+  return next.toISOString();
+}
+
+/** Create the next pending reminder when a recurring reminder is marked done. */
+export async function spawnNextRecurringReminder(
+  supabase: SupabaseClient,
+  completed: RecurringReminderFields,
+) {
+  if (!isRecurringTask(completed)) return null;
+  const nextDue = computeNextDueAt(completed.due_at, completed);
+  const mode = repeatModeFromTask(completed);
+  const payload = {
+    title: completed.title,
+    notes: completed.notes ?? null,
+    due_at: nextDue,
+    priority: completed.priority ?? "medium",
+    created_by: completed.created_by ?? null,
+    status: "pending" as const,
+    repeat_mode: mode,
+    repeat_interval_days:
+      mode === "custom"
+        ? Math.max(1, Number(completed.repeat_interval_days) || 1)
+        : mode === "daily"
+          ? 1
+          : mode === "weekly"
+            ? 7
+            : null,
+  };
+  const { data, error } = await supabase.from("reminders").insert(payload).select().single();
+  if (error || !data) return null;
+  return data;
 }

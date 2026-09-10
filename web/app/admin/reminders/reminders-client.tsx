@@ -20,10 +20,19 @@ import {
   Clock,
   Pencil,
   Plus,
+  Repeat,
   Trash2,
   X,
 } from "lucide-react";
 import { useConfirmAction } from "@/components/confirm-dialog";
+import {
+  isRecurringTask,
+  repeatFieldsForInsert,
+  repeatLabel,
+  repeatModeFromTask,
+  spawnNextRecurringReminder,
+  type RepeatMode,
+} from "@/lib/task-recurrence";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,6 +50,8 @@ type Reminder = {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  repeat_mode?: string | null;
+  repeat_interval_days?: number | null;
 };
 
 type FormState = {
@@ -196,6 +207,12 @@ function ReminderCard({
               <span>{dueInfo.text}</span>
             </div>
           )}
+          {repeatLabel(r) && (
+            <div className="mt-1.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+              <Repeat className="h-3 w-3 shrink-0" />
+              {repeatLabel(r)}
+            </div>
+          )}
         </div>
 
         {/* Actions */}
@@ -304,6 +321,9 @@ export function RemindersClient({
   const [open,      setOpen]      = useState(false);
   const [editing,   setEditing]   = useState<Reminder | null>(null);
   const [form,      setForm]      = useState<FormState>(EMPTY_FORM);
+  const [repeatEnabled, setRepeatEnabled] = useState(false);
+  const [repeatPreset, setRepeatPreset] = useState<RepeatMode>("weekly");
+  const [repeatCustomDays, setRepeatCustomDays] = useState("7");
   const [tab,       setTab]       = useState<FilterTab>("all");
   const [priFilter, setPriFilter] = useState<Priority | "">("");
   const [doneOpen,  setDoneOpen]  = useState(false);
@@ -316,11 +336,20 @@ export function RemindersClient({
   );
 
   const refresh = useCallback(async () => {
-    const { data } = await supabase
+    const fullSelect =
+      "id, title, notes, due_at, priority, status, created_by, created_at, updated_at, repeat_mode, repeat_interval_days";
+    let { data, error } = await supabase
       .from("reminders")
-      .select("id, title, notes, due_at, priority, status, created_by, created_at, updated_at")
+      .select(fullSelect)
       .order("due_at", { ascending: true, nullsFirst: false });
-    setReminders(data || []);
+    if (error && /repeat_mode|repeat_interval/.test(error.message)) {
+      const retry = await supabase
+        .from("reminders")
+        .select("id, title, notes, due_at, priority, status, created_by, created_at, updated_at")
+        .order("due_at", { ascending: true, nullsFirst: false });
+      data = retry.data;
+    }
+    setReminders((data as Reminder[]) || []);
   }, [supabase]);
 
   // Stats
@@ -363,9 +392,27 @@ export function RemindersClient({
   );
 
   // Open dialog helpers
+  function resetRepeat() {
+    setRepeatEnabled(false);
+    setRepeatPreset("weekly");
+    setRepeatCustomDays("7");
+  }
+
+  function applyRepeatFrom(r: Reminder) {
+    const mode = repeatModeFromTask(r);
+    if (!mode) {
+      resetRepeat();
+      return;
+    }
+    setRepeatEnabled(true);
+    setRepeatPreset(mode);
+    setRepeatCustomDays(String(r.repeat_interval_days && r.repeat_interval_days > 0 ? r.repeat_interval_days : 7));
+  }
+
   function openNew() {
     const today = new Date().toISOString().slice(0, 10);
     setForm({ ...EMPTY_FORM, due_date: today });
+    resetRepeat();
     setEditing(null);
     setOpen(true);
   }
@@ -380,6 +427,7 @@ export function RemindersClient({
         : "",
       priority: r.priority,
     });
+    applyRepeatFrom(r);
     setEditing(r);
     setOpen(true);
   }
@@ -396,18 +444,33 @@ export function RemindersClient({
       due_at = new Date(y!, mo! - 1, d!, h!, mi!).toISOString();
     }
 
-    const payload = {
+    const repeat = repeatFieldsForInsert(repeatEnabled, repeatPreset, Number(repeatCustomDays));
+    const payload: Record<string, unknown> = {
       title:    form.title.trim(),
       notes:    form.notes.trim() || null,
       due_at,
       priority: form.priority,
       updated_at: new Date().toISOString(),
+      ...repeat,
     };
 
-    if (editing) {
-      await supabase.from("reminders").update(payload).eq("id", editing.id);
-    } else {
-      await supabase.from("reminders").insert({ ...payload, status: "pending", created_by: userId });
+    let error = editing
+      ? (await supabase.from("reminders").update(payload).eq("id", editing.id)).error
+      : (await supabase.from("reminders").insert({ ...payload, status: "pending", created_by: userId })).error;
+
+    if (error && /repeat_mode|repeat_interval/.test(error.message.toLowerCase())) {
+      const stripped = { ...payload };
+      delete stripped.repeat_mode;
+      delete stripped.repeat_interval_days;
+      error = editing
+        ? (await supabase.from("reminders").update(stripped).eq("id", editing.id)).error
+        : (await supabase.from("reminders").insert({ ...stripped, status: "pending", created_by: userId })).error;
+    }
+
+    if (error) {
+      alert(error.message);
+      setSaving(false);
+      return;
     }
 
     setOpen(false);
@@ -416,8 +479,12 @@ export function RemindersClient({
   }
 
   async function toggleDone(id: string, next: Status) {
+    const current = reminders.find((r) => r.id === id);
     await supabase.from("reminders").update({ status: next, updated_at: new Date().toISOString() }).eq("id", id);
-    setReminders((prev) => prev.map((r) => r.id === id ? { ...r, status: next } : r));
+    if (next === "done" && current && isRecurringTask(current)) {
+      await spawnNextRecurringReminder(supabase, current);
+    }
+    await refresh();
   }
 
   function deleteReminder(r: Reminder) {
@@ -663,6 +730,51 @@ export function RemindersClient({
             </div>
           </div>
 
+          {/* Repeat */}
+          <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={repeatEnabled}
+                onChange={(e) => setRepeatEnabled(e.target.checked)}
+              />
+              <Repeat className="h-4 w-4 text-muted-foreground" />
+              Repeat this reminder
+            </label>
+            {repeatEnabled && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <Label>Repeat every</Label>
+                  <select
+                    className="mt-1 h-9 w-full rounded-md border bg-transparent px-3 text-sm"
+                    value={repeatPreset}
+                    onChange={(e) => setRepeatPreset(e.target.value as RepeatMode)}
+                  >
+                    <option value="daily">Day</option>
+                    <option value="weekly">Week</option>
+                    <option value="monthly">Month</option>
+                    <option value="custom">Custom (days)</option>
+                  </select>
+                </div>
+                {repeatPreset === "custom" && (
+                  <div>
+                    <Label>Every how many days?</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      className="mt-1"
+                      value={repeatCustomDays}
+                      onChange={(e) => setRepeatCustomDays(e.target.value)}
+                    />
+                  </div>
+                )}
+                <p className="sm:col-span-2 text-xs text-muted-foreground">
+                  When marked done, a new pending reminder is created automatically with the same details and next due date.
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Priority */}
           <div>
             <Label>Priority</Label>
@@ -720,6 +832,12 @@ export function RemindersClient({
                 <p className="mt-0.5">{new Date(detailReminder.due_at).toLocaleString([], { weekday:"short", year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit", hour12:false })}</p>
               </div>
             )}
+            {repeatLabel(detailReminder) && (
+              <div className="flex items-center gap-1.5 rounded-md bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                <Repeat className="h-3.5 w-3.5 shrink-0" />
+                {repeatLabel(detailReminder)}
+              </div>
+            )}
             {detailReminder.notes && (
               <div>
                 <p className="mb-0.5 text-xs font-medium text-muted-foreground">Notes</p>
@@ -728,7 +846,7 @@ export function RemindersClient({
             )}
             <div className="flex justify-end gap-2 pt-1">
               <Button type="button" variant="outline" onClick={() => setDetailReminder(null)}>Close</Button>
-              <Button type="button" onClick={() => { setDetailReminder(null); setEditing(detailReminder); setOpen(true); }}>
+              <Button type="button" onClick={() => { setDetailReminder(null); openEdit(detailReminder); }}>
                 <Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit reminder
               </Button>
             </div>

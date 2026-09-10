@@ -32,6 +32,7 @@ const NAV_SHORTCUTS: ResultItem[] = [
   { id: "nav-employees",    section: "Navigation", icon: <Users className="h-4 w-4" />,            title: "Employees",               href: "/admin/employees" },
   { id: "nav-attendance",   section: "Navigation", icon: <ClipboardList className="h-4 w-4" />,   title: "Attendance",              href: "/admin/attendance" },
   { id: "nav-salary",       section: "Navigation", icon: <FileText className="h-4 w-4" />,        title: "Salary",                  href: "/admin/salary" },
+  { id: "nav-my-salary",    section: "Navigation", icon: <FileText className="h-4 w-4" />,        title: "My Salary",               href: "/admin/my-salary" },
   { id: "nav-tasks",        section: "Navigation", icon: <ClipboardList className="h-4 w-4" />,   title: "Tasks",                   href: "/admin/tasks" },
   { id: "nav-stores",       section: "Navigation", icon: <Store className="h-4 w-4" />,            title: "Stores",                  href: "/admin/stores" },
   { id: "nav-reports",      section: "Navigation", icon: <BarChart2 className="h-4 w-4" />,        title: "Reports",                 href: "/admin/reports" },
@@ -328,7 +329,9 @@ export function GlobalSearch({ role }: { role?: string }) {
   }, [query]);
 
   const navShortcuts = role === "employee"
-    ? NAV_SHORTCUTS.filter((n) => !["/admin/settings", "/admin/stores", "/admin/export"].some((h) => n.href === h || n.href.startsWith(`${h}/`)))
+    ? NAV_SHORTCUTS.filter((n) => !["/admin/settings", "/admin/stores", "/admin/export", "/admin/my-salary"].some((h) => n.href === h || n.href.startsWith(`${h}/`)))
+    : role === "manager"
+    ? NAV_SHORTCUTS.filter((n) => n.href !== "/admin/settings")
     : NAV_SHORTCUTS;
 
   // Items to show: search results or nav shortcuts filtered by query

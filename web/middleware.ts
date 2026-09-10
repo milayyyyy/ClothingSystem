@@ -73,7 +73,7 @@ export async function middleware(request: NextRequest) {
       }
     }
     // some admin sub-paths are admin-only
-    const adminOnly = ["/admin/employees", "/admin/activity/delete", "/admin/activity"];
+    const adminOnly = ["/admin/employees", "/admin/activity/delete", "/admin/activity", "/admin/settings"];
     if (adminOnly.some((p) => path.startsWith(p)) && role !== "admin") {
       const url = request.nextUrl.clone();
       url.pathname = "/admin";
