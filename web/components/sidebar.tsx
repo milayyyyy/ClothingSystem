@@ -61,6 +61,16 @@ const STAFF_GROUPS: Group[] = [
   { title: "Overview", items: [
     { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
     { href: "/admin/reports", label: "Reports", icon: BarChart3 },
+    {
+      href: "/admin/tasks",
+      label: "Planner",
+      icon: CalendarDays,
+      children: [
+        { href: "/admin/tasks", label: "Tasks", icon: ListChecks },
+        { href: "/admin/reminders", label: "Reminders", icon: BellRing, adminOrManagerOnly: true },
+        { href: "/admin/content-planner", label: "Content Planner", icon: CalendarDays, adminOrManagerOnly: true },
+      ],
+    },
   ]},
   { title: "Orders & sales", items: [
     { href: "/admin/pos", label: "POS Terminal", icon: ShoppingCart, adminOrManagerOnly: true },
@@ -97,16 +107,6 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/employees", label: "Employees", icon: Users, adminOnly: true },
     { href: "/admin/attendance", label: "Attendance", icon: Clock },
     { href: "/admin/salary", label: "Salary", icon: Wallet },
-    {
-      href: "/admin/tasks",
-      label: "Planner",
-      icon: CalendarDays,
-      children: [
-        { href: "/admin/tasks", label: "Tasks", icon: ListChecks },
-        { href: "/admin/reminders", label: "Reminders", icon: BellRing, adminOrManagerOnly: true },
-        { href: "/admin/content-planner", label: "Content Planner", icon: CalendarDays, adminOrManagerOnly: true },
-      ],
-    },
   ]},
   { title: "Audit", items: [
     { href: "/admin/activity", label: "Activity Log", icon: Activity, adminOnly: true },
