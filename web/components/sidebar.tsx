@@ -97,16 +97,30 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/employees", label: "Employees", icon: Users, adminOnly: true },
     { href: "/admin/attendance", label: "Attendance", icon: Clock },
     { href: "/admin/salary", label: "Salary", icon: Wallet },
-    { href: "/admin/tasks", label: "Tasks", icon: ListChecks },
-    { href: "/admin/reminders", label: "Reminders", icon: BellRing, adminOrManagerOnly: true },
-    { href: "/admin/content-planner", label: "Content Planner", icon: CalendarDays, adminOrManagerOnly: true },
-    { href: "/admin/stores", label: "Stores", icon: Warehouse },
+    {
+      href: "/admin/tasks",
+      label: "Planner",
+      icon: CalendarDays,
+      children: [
+        { href: "/admin/tasks", label: "Tasks", icon: ListChecks },
+        { href: "/admin/reminders", label: "Reminders", icon: BellRing, adminOrManagerOnly: true },
+        { href: "/admin/content-planner", label: "Content Planner", icon: CalendarDays, adminOrManagerOnly: true },
+      ],
+    },
   ]},
   { title: "Audit", items: [
     { href: "/admin/activity", label: "Activity Log", icon: Activity, adminOnly: true },
   ]},
   { title: "Account", items: [
-    { href: "/admin/settings", label: "Settings", icon: Settings, adminOnly: true },
+    {
+      href: "/admin/settings",
+      label: "Settings",
+      icon: Settings,
+      children: [
+        { href: "/admin/settings", label: "General", icon: Settings, adminOnly: true },
+        { href: "/admin/stores", label: "Stores", icon: Warehouse },
+      ],
+    },
     { href: "/admin/export", label: "Export", icon: Download },
   ]},
 ];
@@ -184,6 +198,18 @@ export function Sidebar({
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
 
   function isItemActive(item: Item) {
+    if (item.children?.length) {
+      const childActive = item.children.some((c) => {
+        const path = c.href.split("?")[0];
+        if (c.query) {
+          if (pathname !== path) return false;
+          const queryKey = Object.keys(c.query)[0];
+          return params.get(queryKey) === c.query![queryKey];
+        }
+        return pathname === path || (path !== homeBase && pathname.startsWith(path + "/"));
+      });
+      if (childActive) return true;
+    }
     if (pathname === item.href) return true;
     // /admin/inventory must not stay highlighted on sibling inventory sub-pages.
     if (item.href === "/admin/inventory" && pathname.startsWith("/admin/inventory/ready-made")) return false;
