@@ -235,6 +235,10 @@ function computeOrderForwardUpdate(order: Order): OrderForwardPatch | null {
   const currentStage = normalizeOrderServiceStage(order.stage);
   if (currentStage === "completed") return null;
   const kind = getOrderKind(order);
+  // POS orders only have two states: pending (design_layout) → completed
+  if (kind === "pos") {
+    return { stage: "completed", updated_at: nowIso() };
+  }
   if (kind === "sublimation") {
     const curSub = String(order.sub_stage || "design_layout");
     let idx = (SUB_STAGE_FORWARD_ORDER as readonly string[]).indexOf(curSub);
@@ -672,6 +676,187 @@ type JobType = { id: string; name: string; sort_order: number };
 // Payment Collection Dialog — shown when an order reaches "Completed" stage
 // ---------------------------------------------------------------------------
 type FinanceAccount = { id: string; name: string; kind: string; balance?: number | null; account_name?: string | null; account_number?: string | null };
+
+// ---------------------------------------------------------------------------
+// POS Completion Dialog — forward pending POS order → completed, collect or skip
+// ---------------------------------------------------------------------------
+function PosCompleteDialog({
+  open,
+  order,
+  financeAccounts,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  order: Order | null;
+  financeAccounts: FinanceAccount[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const supabase = createClient();
+  const orderTotal = Number(order?.total || 0);
+  const [accountId, setAccountId] = useState(financeAccounts[0]?.id ?? "");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setAccountId(financeAccounts[0]?.id ?? "");
+      setMsg(null);
+    }
+  }, [open, financeAccounts]);
+
+  async function complete(collectPayment: boolean) {
+    if (!order) return;
+    if (collectPayment && !accountId) { setMsg("Please select a finance account."); return; }
+    setSaving(true);
+    setMsg(null);
+    try {
+      // 1. Advance stage to completed + set down_payment if collecting
+      const patch: Record<string, unknown> = { stage: "completed", updated_at: new Date().toISOString() };
+      if (collectPayment) patch.down_payment = orderTotal;
+
+      const { error: oe } = await supabase.from("orders").update(patch).eq("id", order.id);
+      if (oe) throw oe;
+
+      // 2. Record finance transaction if collecting
+      if (collectPayment) {
+        const today = new Date().toISOString().slice(0, 10);
+        const { error: te } = await supabase.from("finance_transactions").insert({
+          occurred_at: today,
+          account_id: accountId,
+          direction: "in",
+          amount: orderTotal,
+          description: `POS Sale #${order.order_no}${order.customer_name ? ` — ${order.customer_name}` : ""}`,
+          notes: `order:${order.id}`,
+          order_id: order.id,
+        });
+        if (te) throw te;
+
+        // 3. Auto-submit Daily Order Record
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user?.id) {
+          const { data: posItems } = await supabase
+            .from("pos_order_items")
+            .select("product_name, quantity, unit_price")
+            .eq("order_id", order.id)
+            .order("sort_order");
+
+          if (posItems && posItems.length > 0) {
+            const colProduct = "col-product", colQty = "col-qty", colPrice = "col-price", colTotal = "col-total";
+            await supabase.from("order_records").insert({
+              submitted_by: user.id,
+              record_date: today,
+              title: `POS Sale #${order.order_no}${order.customer_name ? ` — ${order.customer_name}` : ""}`,
+              notes: `POS sale total: ${peso(orderTotal)}`,
+              status: "submitted",
+              source: "pos",
+              stock_lines: [{
+                id: "sheet-pos",
+                name: `POS Sale #${order.order_no} — Items`,
+                columns: [
+                  { id: colProduct, label: "Product" },
+                  { id: colQty,     label: "Qty" },
+                  { id: colPrice,   label: "Unit Price" },
+                  { id: colTotal,   label: "Total" },
+                ],
+                rows: posItems.map((item, i) => ({
+                  id: `row-${i}`,
+                  cells: {
+                    [colProduct]: item.product_name,
+                    [colQty]:     String(item.quantity),
+                    [colPrice]:   peso(Number(item.unit_price)),
+                    [colTotal]:   peso(Number(item.quantity) * Number(item.unit_price)),
+                  },
+                })),
+              }],
+            });
+          }
+        }
+      }
+
+      onDone();
+    } catch (err: unknown) {
+      setMsg("Error: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!order) return null;
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Complete POS Order" size="md">
+      <div className="space-y-4">
+        {/* Order summary */}
+        <div className="rounded-md bg-muted/40 p-3 text-sm">
+          <div className="font-semibold">Order #{order.order_no} — {order.customer_name}</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            Total: <span className="font-medium text-foreground">{peso(orderTotal)}</span>
+          </div>
+        </div>
+
+        {/* Finance account selector */}
+        <div>
+          <label className="mb-1 block text-sm font-medium">
+            Record payment to (optional — skip to collect later)
+          </label>
+          <select
+            className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
+          >
+            <option value="">— skip, collect later —</option>
+            {financeAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} ({a.kind}){a.balance != null ? ` — ₱${Number(a.balance).toLocaleString()}` : ""}
+              </option>
+            ))}
+          </select>
+          {accountId && (() => {
+            const sel = financeAccounts.find((a) => a.id === accountId);
+            if (!sel) return null;
+            return (
+              <div className="mt-1.5 rounded-md bg-primary/8 px-3 py-2 text-xs">
+                <span className="font-medium text-foreground">{sel.name}</span>
+                <span className="ml-1.5 text-muted-foreground">({sel.kind})</span>
+                {sel.balance != null && (
+                  <span className="ml-auto float-right font-mono text-muted-foreground">
+                    bal {peso(Number(sel.balance))}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+        {msg && <p className="text-sm text-destructive">{msg}</p>}
+
+        <div className="flex gap-2">
+          {/* Collect payment + complete */}
+          <button
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground shadow transition-colors hover:bg-primary/90 disabled:opacity-50"
+            disabled={saving || !accountId}
+            onClick={() => void complete(true)}
+          >
+            {saving ? "Saving…" : `Complete & Collect ${peso(orderTotal)}`}
+          </button>
+          {/* Skip — complete without payment */}
+          <button
+            className="flex-none rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
+            disabled={saving}
+            onClick={() => void complete(false)}
+          >
+            Skip (collect later)
+          </button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Skipping will mark the order as <strong>Completed</strong> and keep the balance outstanding in &ldquo;Collect payment&rdquo;.
+        </p>
+      </div>
+    </Dialog>
+  );
+}
 
 function PaymentCollectDialog({
   open,
@@ -1146,6 +1331,8 @@ export function OrdersClient({
   const [jobTypesMgrOpen, setJobTypesMgrOpen] = useState(false);
   const [financeAccounts, setFinanceAccounts] = useState<FinanceAccount[]>([]);
   const [paymentOrder, setPaymentOrder] = useState<Order | null>(null);
+  // POS completion: pending order being marked complete via the forward button
+  const [posCompleteOrder, setPosCompleteOrder] = useState<Order | null>(null);
 
   async function ensureFinanceAccounts() {
     if (financeAccounts.length > 0) return;
@@ -1529,6 +1716,14 @@ export function OrdersClient({
   async function forwardOrderRow(o: Order) {
     const patch = computeOrderForwardUpdate(o);
     if (!patch) return;
+
+    // POS pending → completed: ask where to put money (with Skip option)
+    if (getOrderKind(o) === "pos" && patch.stage === "completed") {
+      await ensureFinanceAccounts();
+      setPosCompleteOrder(o);
+      return;
+    }
+
     const { error } = await supabase.from("orders").update(patch).eq("id", o.id);
     if (error) {
       alert(formatSupabaseError(error));
@@ -2335,6 +2530,13 @@ export function OrdersClient({
 
       <OrderForm open={open} onClose={() => setOpen(false)} order={editing} employees={employees} jobTypes={jobTypes} onSaved={refresh} />
       <JobTypesManagerDialog open={jobTypesMgrOpen} onClose={() => setJobTypesMgrOpen(false)} onChanged={fetchJobTypes} />
+      <PosCompleteDialog
+        open={!!posCompleteOrder}
+        order={posCompleteOrder}
+        financeAccounts={financeAccounts}
+        onClose={() => setPosCompleteOrder(null)}
+        onDone={() => { setPosCompleteOrder(null); void refresh(); }}
+      />
       <PaymentCollectDialog
         open={!!paymentOrder}
         order={paymentOrder}
