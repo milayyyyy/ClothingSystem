@@ -53,6 +53,7 @@ type Item = {
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
   adminOrManagerOnly?: boolean;
+  managerOnly?: boolean;
   /** Always visible to admin and manager, even if the linked feature perm is off. */
   alwaysShowForStaff?: boolean;
   children?: Child[];
@@ -110,7 +111,7 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/employees", label: "Employees", icon: Users, adminOnly: true },
     { href: "/admin/attendance", label: "Attendance", icon: Clock },
     { href: "/admin/salary", label: "Salary", icon: Wallet },
-    { href: "/admin/my-salary", label: "My Salary", icon: Wallet, adminOrManagerOnly: true },
+    { href: "/admin/my-salary", label: "My Salary", icon: Wallet, managerOnly: true },
   ]},
   { title: "Audit", items: [
     { href: "/admin/activity", label: "Activity Log", icon: Activity, adminOnly: true },
@@ -146,6 +147,7 @@ function filterStaffGroups(groups: Group[], perms: Permissions, role: Role): Gro
       ...g,
       items: g.items.filter((item) => {
         if (item.adminOnly && role !== "admin") return false;
+        if (item.managerOnly && role !== "manager") return false;
         if (item.adminOrManagerOnly && role === "employee") return false;
         if (item.alwaysShowForStaff && role !== "employee") return true;
         const feature = hrefToFeature(item.href);

@@ -8,6 +8,7 @@ export default async function AdminMySalaryPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   if (user.profile.role === "employee") redirect("/employee/salary");
+  if (user.profile.role !== "manager") redirect("/admin/salary");
 
   const supabase = createClient();
   const { data } = await supabase.from("salaries").select("*").eq("user_id", user.id).order("created_at", { ascending: false });

@@ -79,6 +79,11 @@ export async function middleware(request: NextRequest) {
       url.pathname = "/admin";
       return NextResponse.redirect(url);
     }
+    if (path.startsWith("/admin/my-salary") && role === "admin") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/admin/salary";
+      return NextResponse.redirect(url);
+    }
     // employees cannot access reminders or POS
     if ((path.startsWith("/admin/reminders") || path.startsWith("/admin/pos")) && role === "employee") {
       const url = request.nextUrl.clone();

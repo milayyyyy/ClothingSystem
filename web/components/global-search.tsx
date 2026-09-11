@@ -332,7 +332,7 @@ export function GlobalSearch({ role }: { role?: string }) {
     ? NAV_SHORTCUTS.filter((n) => !["/admin/settings", "/admin/stores", "/admin/export", "/admin/my-salary"].some((h) => n.href === h || n.href.startsWith(`${h}/`)))
     : role === "manager"
     ? NAV_SHORTCUTS.filter((n) => n.href !== "/admin/settings")
-    : NAV_SHORTCUTS;
+    : NAV_SHORTCUTS.filter((n) => n.href !== "/admin/my-salary");
 
   // Items to show: search results or nav shortcuts filtered by query
   const displayItems: ResultItem[] = query.trim().length >= 2
