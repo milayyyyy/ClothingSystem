@@ -34,6 +34,9 @@ export function orderDisplayStatusLabel(order: OrderStatusFields): string {
     order_type: order.order_type ?? undefined,
   });
   if (kind === "sublimation") {
+    const svc = normalizeOrderServiceStage(order.stage);
+    if (svc === "completed") return ORDER_SERVICE_LABEL.completed;
+    if (svc === "for_pickup") return ORDER_SERVICE_LABEL.for_pickup;
     const sub = String(order.sub_stage || "").trim().toLowerCase();
     if (sub && SUBLIMATION_SUB_STAGE_LABELS[sub]) return SUBLIMATION_SUB_STAGE_LABELS[sub];
   }
@@ -57,8 +60,11 @@ export function orderDisplayStatusVariant(order: OrderStatusFields): OrderStatus
     order_type: order.order_type ?? undefined,
   });
   if (kind === "sublimation") {
+    const svc = normalizeOrderServiceStage(order.stage);
+    if (svc === "completed") return "green";
+    if (svc === "for_pickup") return "teal";
     const sub = String(order.sub_stage || "").toLowerCase().trim();
-    if (sub === "for_pickup") return "green";
+    if (sub === "for_pickup") return "teal";
     if (sub === "quality_control") return "teal";
     if (sub === "reprint_error") return "red";
     if (sub === "printing" || sub === "heatpress" || sub === "cut_sew") return "blue";

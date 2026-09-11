@@ -27,6 +27,7 @@ import {
   formatBigSellerDuplicateReasons,
 } from "@/lib/bigseller-duplicate-detection";
 import { ORDERS_SORT_OPTIONS, sortOrders, type OrdersSortKey } from "@/lib/orders-sort";
+import { orderDisplayStatusLabel } from "@/lib/order-display";
 import {
   ORDER_SERVICE_LABEL,
   ORDER_SERVICE_STAGES,
@@ -154,6 +155,7 @@ const SUB_STAGE_FORWARD_ORDER = [
 const SUBLIMATION_BULK_TARGET_OPTIONS: { v: string; label: string }[] = [
   ...SUB_STAGES.map((s) => ({ v: s.v, label: s.label })),
   { v: "for_pickup", label: "For pick up" },
+  { v: "completed", label: "Completed" },
 ];
 
 const LOCAL_STAGES = ORDER_SERVICE_STAGES;
@@ -201,8 +203,11 @@ function orderStatusHighlightVariant(order: any): "outline" | "amber" | "blue" |
     return st === "completed" ? "green" : "amber";
   }
   if (kind === "sublimation") {
+    const svcStage = normalizeOrderServiceStage(order?.stage);
+    if (svcStage === "completed") return "green";
+    if (svcStage === "for_pickup") return "teal";
     const sub = String(order?.sub_stage || "").toLowerCase().trim();
-    if (sub === "for_pickup") return "green";
+    if (sub === "for_pickup") return "teal";
     if (sub === "quality_control") return "teal";
     if (sub === "reprint_error") return "red";
     if (sub === "printing" || sub === "heatpress" || sub === "cut_sew") return "blue";
@@ -249,7 +254,7 @@ function computeOrderForwardUpdate(order: Order): OrderForwardPatch | null {
     }
     const nextStage = nextOrderServiceStage(order.stage);
     if (!nextStage) return null;
-    return { stage: nextStage, sub_stage: SUB_STAGE_FORWARD_ORDER[0], updated_at: nowIso() };
+    return { stage: nextStage, sub_stage: curSub, updated_at: nowIso() };
   }
   const nextStage = nextOrderServiceStage(order.stage);
   if (!nextStage) return null;
@@ -263,9 +268,13 @@ function computeOrderTargetUpdate(order: Order, target: string): OrderForwardPat
   if (!t) return null;
   const kind = getOrderKind(order);
   if (kind === "sublimation") {
+    const currentStage = normalizeOrderServiceStage(order.stage);
+    if (t === "completed") {
+      if (currentStage === "completed") return null;
+      return { stage: "completed", sub_stage: String(order.sub_stage || "for_pickup"), updated_at: nowIso() };
+    }
     if (!(SUB_STAGE_FORWARD_ORDER as readonly string[]).includes(t)) return null;
     // Block forwarding if the order is completed — only allow going backward
-    const currentStage = normalizeOrderServiceStage(order.stage);
     if (currentStage === "completed") {
       const targetStage = mergedServiceStageForSub(null, t);
       const currentIdx = (ORDER_SERVICE_STAGES as readonly string[]).indexOf(currentStage);
@@ -1400,12 +1409,24 @@ export function OrdersClient({
           if (stageFilter === "pending_pos" && posStage === "completed") return false;
         } else if (kindFilter === "all_orders") {
           // map sublimation sub_stage to service stage for unified filtering
+          const svcStage = normalizeOrderServiceStage(o.stage);
           const effectiveStage = k === "sublimation"
-            ? defaultServiceStageFromSubStage(o.sub_stage)
-            : normalizeOrderServiceStage(o.stage);
+            ? (svcStage === "completed" || svcStage === "for_pickup"
+              ? svcStage
+              : defaultServiceStageFromSubStage(o.sub_stage))
+            : svcStage;
           if (effectiveStage !== stageFilter) return false;
         } else if (k === "sublimation") {
-          if (String(o.sub_stage || "") !== stageFilter) return false;
+          const svcStage = normalizeOrderServiceStage(o.stage);
+          if (stageFilter === "completed") {
+            if (svcStage !== "completed") return false;
+          } else if (stageFilter === "for_pickup") {
+            if (svcStage !== "for_pickup" && String(o.sub_stage || "") !== "for_pickup") return false;
+            if (svcStage === "completed") return false;
+          } else {
+            if (svcStage === "completed" || svcStage === "for_pickup") return false;
+            if (String(o.sub_stage || "") !== stageFilter) return false;
+          }
         } else {
           if (normalizeOrderServiceStage(o.stage) !== stageFilter) return false;
         }
@@ -1415,7 +1436,9 @@ export function OrdersClient({
         if (k === "pos") {
           // Never hide POS orders — always show both pending and completed
         } else if (k === "sublimation") {
-          if (String(o.sub_stage || "") === "for_pickup") return false;
+          const svcStage = normalizeOrderServiceStage(o.stage);
+          if (svcStage === "completed") return false;
+          if (svcStage === "for_pickup" || String(o.sub_stage || "") === "for_pickup") return false;
         } else {
           if (normalizeOrderServiceStage(o.stage) === "completed") return false;
         }
@@ -1830,6 +1853,8 @@ export function OrdersClient({
             const pills: Array<{ v: string; label: string }> = [{ v: "all", label: "All" }];
             if (k === "sublimation") {
               SUB_STAGES.forEach((s) => pills.push({ v: s.v, label: s.label }));
+              pills.push({ v: "for_pickup", label: "For pick up" });
+              pills.push({ v: "completed", label: "Completed" });
             } else if (k === "pos") {
               stageOptions(k).forEach((s) => pills.push({ v: (s as {v:string;label:string}).v, label: (s as {v:string;label:string}).label }));
             } else {
@@ -1837,11 +1862,9 @@ export function OrdersClient({
             }
             return (
               <>
-                {k !== "sublimation" && (
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {k === "all_orders" ? "Status" : "Status"}
-                  </span>
-                )}
+                <span className="text-xs font-medium text-muted-foreground">
+                  Status
+                </span>
                 {pills.map((p) => (
                   <button
                     key={p.v}
@@ -2379,19 +2402,10 @@ export function OrdersClient({
                 {filtered.map((o) => {
                   const balance = Number(o.total) - Number(o.down_payment || 0);
                   const k = KINDS.find((x) => x.v === getOrderKind(o)) || KINDS[0];
-                  const isSub = getOrderKind(o) === "sublimation";
                   const isPOS = getOrderKind(o) === "pos";
-                  const stage = isSub ? SUB_STAGES.find((s) => s.v === o.sub_stage) : null;
-                  const svc =
-                    o.stage != null && String(o.stage).trim() !== ""
-                      ? ORDER_SERVICE_LABEL[normalizeOrderServiceStage(o.stage)]
-                      : null;
                   const stageLabel = isPOS
                     ? (String(o.stage || "").toLowerCase() === "completed" ? "POS Sale" : "Pending")
-                    : isSub
-                    ? [svc, stage?.label].filter(Boolean).join(" · ") || stage?.label || "—"
-                    : ORDER_SERVICE_LABEL[normalizeOrderServiceStage(o.stage)] ||
-                      normalizeOrderServiceStage(o.stage);
+                    : orderDisplayStatusLabel(o);
                   return (
                     <tr key={o.id} className="border-t row-hover hover:bg-muted/30">
                       <td className="w-10 px-2 py-3 text-center align-top">
@@ -2456,7 +2470,7 @@ export function OrdersClient({
                         >
                           <FileText className="h-3.5 w-3.5" />
                         </Link>
-                        {(isSub || k.v === "local" || k.v === "online" || k.v === "services") && (
+                        {(getOrderKind(o) === "sublimation" || k.v === "local" || k.v === "online" || k.v === "services") && (
                           <Link
                             href={`/admin/orders/${o.id}/teams`}
                             className="mr-1 inline-flex rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -3154,6 +3168,7 @@ function OrderForm({
                   {s.label}
                 </option>
               ))}
+              <option value="for_pickup">For pick up</option>
             </select>
           </div>
         )}
