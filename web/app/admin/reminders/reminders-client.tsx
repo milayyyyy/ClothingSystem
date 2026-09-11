@@ -302,6 +302,40 @@ function Section({
   );
 }
 
+function RepeatSections({
+  items,
+  onToggle,
+  onEdit,
+  onDelete,
+}: {
+  items: Record<RepeatMode, Reminder[]>;
+  onToggle: (id: string, next: Status) => void;
+  onEdit: (r: Reminder) => void;
+  onDelete: (r: Reminder) => void;
+}) {
+  const sections: { key: RepeatMode; title: string }[] = [
+    { key: "daily", title: "Daily" },
+    { key: "weekly", title: "Weekly" },
+    { key: "monthly", title: "Monthly" },
+    { key: "custom", title: "Custom days" },
+  ];
+  return (
+    <>
+      {sections.map(({ key, title }) => (
+        <Section
+          key={key}
+          title={title}
+          icon={<Repeat className="h-3.5 w-3.5" />}
+          items={items[key]}
+          onToggle={onToggle}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      ))}
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -374,15 +408,34 @@ export function RemindersClient({
     return list;
   }, [reminders, tab, priFilter]);
 
+  const oneTime = useMemo(
+    () => filtered.filter((r) => !repeatModeFromTask(r)),
+    [filtered],
+  );
+  const repeating = useMemo(() => {
+    const buckets: Record<RepeatMode, Reminder[]> = {
+      daily: [],
+      weekly: [],
+      monthly: [],
+      custom: [],
+    };
+    for (const r of filtered) {
+      const mode = repeatModeFromTask(r);
+      if (mode) buckets[mode].push(r);
+    }
+    return buckets;
+  }, [filtered]);
+  const hasRepeating = repeating.daily.length + repeating.weekly.length + repeating.monthly.length + repeating.custom.length > 0;
+
   const grouped = useMemo(() => {
     if (tab !== "all") return { overdue: [], today: [], upcoming: [], done: [] };
     return {
-      overdue:  filtered.filter(isOverdue),
-      today:    filtered.filter(isDueToday),
-      upcoming: filtered.filter(isUpcoming),
+      overdue:  oneTime.filter(isOverdue),
+      today:    oneTime.filter(isDueToday),
+      upcoming: oneTime.filter(isUpcoming),
       done:     [],
     };
-  }, [filtered, tab]);
+  }, [oneTime, tab]);
 
   const doneSorted = useMemo(
     () => reminders
@@ -624,6 +677,20 @@ export function RemindersClient({
             onToggle={toggleDone} onEdit={openEdit} onDelete={deleteReminder}
           />
 
+          {hasRepeating && (
+            <div className="space-y-4">
+              <p className="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                Repeating
+              </p>
+              <RepeatSections
+                items={repeating}
+                onToggle={toggleDone}
+                onEdit={openEdit}
+                onDelete={deleteReminder}
+              />
+            </div>
+          )}
+
           {/* Done section at bottom */}
           {doneSorted.length > 0 && (
             <div>
@@ -648,7 +715,7 @@ export function RemindersClient({
           )}
 
           {/* Empty state */}
-          {grouped.overdue.length === 0 && grouped.today.length === 0 && grouped.upcoming.length === 0 && doneSorted.length === 0 && (
+          {grouped.overdue.length === 0 && grouped.today.length === 0 && grouped.upcoming.length === 0 && !hasRepeating && doneSorted.length === 0 && (
             <div className="flex flex-col items-center gap-3 py-20 text-center">
               <BellRing className="h-10 w-10 text-muted-foreground/40" />
               <p className="text-sm font-medium text-muted-foreground">No reminders yet</p>
@@ -664,9 +731,26 @@ export function RemindersClient({
               <p className="text-sm text-muted-foreground">No reminders in this view.</p>
             </div>
           ) : (
-            filtered.map((r) => (
-              <ReminderCard key={r.id} r={r} onToggle={toggleDone} onEdit={openEdit} onDelete={deleteReminder} />
-            ))
+            <>
+              {oneTime.map((r) => (
+                <ReminderCard key={r.id} r={r} onToggle={toggleDone} onEdit={openEdit} onDelete={deleteReminder} />
+              ))}
+              {hasRepeating && (
+                <div className={cn("space-y-4", oneTime.length > 0 && "pt-4")}>
+                  {oneTime.length > 0 && (
+                    <p className="px-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                      Repeating
+                    </p>
+                  )}
+                  <RepeatSections
+                    items={repeating}
+                    onToggle={toggleDone}
+                    onEdit={openEdit}
+                    onDelete={deleteReminder}
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
