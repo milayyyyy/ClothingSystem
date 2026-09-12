@@ -55,7 +55,7 @@ export async function middleware(request: NextRequest) {
     }
     // Employees may access specific /admin routes when their role grants view permission.
     if (path.startsWith("/admin") && role === "employee") {
-      const blockedForEmployee = ["/admin/settings", "/admin/export", "/admin/stores"];
+      const blockedForEmployee = ["/admin/settings", "/admin/export", "/admin/stores", "/admin/inventory/ordering"];
       if (blockedForEmployee.some((p) => path === p || path.startsWith(`${p}/`))) {
         const url = request.nextUrl.clone();
         url.pathname = "/employee";
@@ -84,8 +84,8 @@ export async function middleware(request: NextRequest) {
       url.pathname = "/admin/salary";
       return NextResponse.redirect(url);
     }
-    // employees cannot access reminders or POS
-    if ((path.startsWith("/admin/reminders") || path.startsWith("/admin/pos")) && role === "employee") {
+    // employees cannot access reminders, POS, or ordering / restocking
+    if ((path.startsWith("/admin/reminders") || path.startsWith("/admin/pos") || path.startsWith("/admin/inventory/ordering")) && role === "employee") {
       const url = request.nextUrl.clone();
       url.pathname = "/employee";
       return NextResponse.redirect(url);

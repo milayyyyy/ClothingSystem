@@ -112,6 +112,7 @@ export function featureForAdminPath(path: string): FeatureKey | null {
   if (path.startsWith("/admin/order-records")) return "orders";
   if (path.startsWith("/admin/pos")) return "orders";
   if (path.startsWith("/admin/inventory/ready-made")) return "ready_made";
+  if (path.startsWith("/admin/inventory/ordering")) return "inventory";
   if (path.startsWith("/admin/inventory")) return "inventory";
   if (path.startsWith("/admin/suppliers")) return "suppliers";
   if (path.startsWith("/admin/returns")) return "returns";
@@ -140,6 +141,7 @@ export function isEmployeeOwnedAdminPath(path: string): boolean {
 
 export function canAccessAdminPath(path: string, perms: Permissions, profileRole?: string): boolean {
   if (profileRole === "employee") {
+    if (path.startsWith("/admin/inventory/ordering")) return false;
     if (isEmployeeOwnedAdminPath(path)) return false;
     const feature = featureForAdminPath(path);
     if (feature !== "inventory" && feature !== "ready_made") return false;

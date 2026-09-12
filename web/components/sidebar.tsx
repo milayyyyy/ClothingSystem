@@ -37,6 +37,7 @@ import {
   BellRing,
   ShoppingCart,
   CalendarDays,
+  PackagePlus,
 } from "lucide-react";
 import {
   canView,
@@ -105,6 +106,7 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/inventory", label: "Inventory", icon: Package },
     { href: "/admin/inventory/assets", label: "Assets", icon: Wrench },
     { href: "/admin/inventory/ready-made", label: "Ready made inventory", icon: LayoutGrid },
+    { href: "/admin/inventory/ordering", label: "Ordering / Restocking", icon: PackagePlus, adminOrManagerOnly: true, alwaysShowForStaff: true },
     { href: "/admin/suppliers", label: "Suppliers", icon: Truck },
   ]},
   { title: "People", items: [
@@ -160,7 +162,7 @@ function filterStaffGroups(groups: Group[], perms: Permissions, role: Role): Gro
 
 /** Extra admin links for employees (inventory, suppliers, etc.) — not tasks/salary/attendance/orders. */
 function employeeGrantedAdminItems(perms: Permissions): Item[] {
-  const blocked = ["/admin/settings", "/admin/export", "/admin/stores"];
+  const blocked = ["/admin/settings", "/admin/export", "/admin/stores", "/admin/inventory/ordering"];
   const isBlocked = (href: string) => {
     const path = href.split("?")[0];
     return blocked.some((h) => path === h || path.startsWith(`${h}/`));
@@ -233,6 +235,7 @@ export function Sidebar({
     if (item.href === "/admin/inventory" && pathname.startsWith("/admin/inventory/ready-made")) return false;
     if (item.href === "/admin/inventory" && pathname.startsWith("/admin/inventory/assets")) return false;
     if (item.href === "/admin/inventory" && pathname.startsWith("/admin/inventory/settings")) return false;
+    if (item.href === "/admin/inventory" && pathname.startsWith("/admin/inventory/ordering")) return false;
     if (item.href !== homeBase && pathname.startsWith(item.href)) return true;
     return false;
   }

@@ -25,6 +25,7 @@ const NAV_SHORTCUTS: ResultItem[] = [
   { id: "nav-inventory",    section: "Navigation", icon: <Package className="h-4 w-4" />,         title: "Inventory",               href: "/admin/inventory" },
   { id: "nav-assets",       section: "Navigation", icon: <Tag className="h-4 w-4" />,             title: "Assets",                  href: "/admin/inventory/assets" },
   { id: "nav-readymade",    section: "Navigation", icon: <Warehouse className="h-4 w-4" />,       title: "Ready-made Inventory",    href: "/admin/inventory/ready-made" },
+  { id: "nav-ordering",     section: "Navigation", icon: <Package className="h-4 w-4" />,         title: "Ordering / Restocking",   href: "/admin/inventory/ordering" },
   { id: "nav-suppliers",    section: "Navigation", icon: <Building2 className="h-4 w-4" />,       title: "Suppliers",               href: "/admin/suppliers" },
   { id: "nav-returns",      section: "Navigation", icon: <PackageX className="h-4 w-4" />,        title: "Returns",                 href: "/admin/returns" },
   { id: "nav-sales",        section: "Navigation", icon: <Receipt className="h-4 w-4" />,         title: "Sales & Expenses",        href: "/admin/sales-expenses/sales/list" },
@@ -329,7 +330,7 @@ export function GlobalSearch({ role }: { role?: string }) {
   }, [query]);
 
   const navShortcuts = role === "employee"
-    ? NAV_SHORTCUTS.filter((n) => !["/admin/settings", "/admin/stores", "/admin/export", "/admin/my-salary"].some((h) => n.href === h || n.href.startsWith(`${h}/`)))
+    ? NAV_SHORTCUTS.filter((n) => !["/admin/settings", "/admin/stores", "/admin/export", "/admin/my-salary", "/admin/inventory/ordering"].some((h) => n.href === h || n.href.startsWith(`${h}/`)))
     : role === "manager"
     ? NAV_SHORTCUTS.filter((n) => n.href !== "/admin/settings")
     : NAV_SHORTCUTS.filter((n) => n.href !== "/admin/my-salary");

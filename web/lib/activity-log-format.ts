@@ -43,6 +43,7 @@ const ENTITY_LABELS: Record<string, string> = {
   ready_made_sheet_groups: "Sheet group",
   profiles: "Account",
   reminders: "Reminder",
+  restock_orders: "Restock order",
   order_assignees: "Order assignment",
   sublimation_teams: "Jersey sheet",
   returns: "Return",
@@ -75,6 +76,7 @@ export const ENTITY_CATEGORY: Record<string, string> = {
   profiles: "Accounts",
   tasks: "Tasks",
   reminders: "Reminders",
+  restock_orders: "Inventory",
   maintenance_schedules: "Maintenance",
   stores: "Stores",
   suppliers: "Suppliers",
@@ -99,6 +101,7 @@ const TITLE_FIELDS: Record<string, string[]> = {
   ready_made_sheet_groups: ["name"],
   profiles: ["full_name", "email", "role"],
   reminders: ["title", "priority"],
+  restock_orders: ["item_label", "qty", "status"],
   sublimation_teams: ["name"],
 };
 
@@ -113,6 +116,8 @@ const FIELD_LABELS: Record<string, string> = {
   user_id: "Employee",
   on_call_staff_id: "On-call staff",
   item_type: "Type",
+  item_label: "Item",
+  qty: "Quantity",
   min_level: "Min level",
   unit_cost: "Unit cost",
   unit_price: "Unit price",
