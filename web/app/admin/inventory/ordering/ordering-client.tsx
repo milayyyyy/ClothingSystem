@@ -68,6 +68,7 @@ export function OrderingClient({
   const [rows, setRows] = useState<RestockOrder[]>(initial);
   const [tab, setTab] = useState<"pending" | "completed">("pending");
   const [open, setOpen] = useState(false);
+  const [completing, setCompleting] = useState<RestockOrder | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -88,22 +89,20 @@ export function OrderingClient({
     setErr(null);
   }, [supabase]);
 
-  async function completeOrder(row: RestockOrder) {
+  async function completeOrder(row: RestockOrder, qtyToAdd: number) {
     setBusyId(row.id);
     setErr(null);
     const now = new Date().toISOString();
-    const qty = Number(row.qty);
+    const qty = Number(qtyToAdd);
     if (!qty || qty <= 0) {
-      setErr("This row has an invalid quantity.");
       setBusyId(null);
-      return;
+      return "Enter a quantity greater than 0.";
     }
 
     if (row.kind === "inventory") {
       if (!row.inventory_id) {
-        setErr("This inventory item is no longer available.");
         setBusyId(null);
-        return;
+        return "This inventory item is no longer available.";
       }
       const { data: inv, error: ie } = await supabase
         .from("inventory")
@@ -111,9 +110,8 @@ export function OrderingClient({
         .eq("id", row.inventory_id)
         .maybeSingle();
       if (ie || !inv) {
-        setErr(ie?.message || "Inventory item was not found.");
         setBusyId(null);
-        return;
+        return ie?.message || "Inventory item was not found.";
       }
       const newQty = (Number(inv.quantity) || 0) + qty;
       const { error: ue } = await supabase
@@ -121,24 +119,21 @@ export function OrderingClient({
         .update({ quantity: newQty, updated_at: now })
         .eq("id", inv.id);
       if (ue) {
-        setErr(ue.message);
         setBusyId(null);
-        return;
+        return ue.message;
       }
     } else {
       if (!row.ready_made_row_id || !row.ready_made_column_id) {
-        setErr("This ready-made cell is no longer available.");
         setBusyId(null);
-        return;
+        return "This ready-made cell is no longer available.";
       }
       const [{ data: rmRow }, { data: rmCol }] = await Promise.all([
         supabase.from("ready_made_rows").select("id,row_label,board_id").eq("id", row.ready_made_row_id).maybeSingle(),
         supabase.from("ready_made_columns").select("id,header_name").eq("id", row.ready_made_column_id).maybeSingle(),
       ]);
       if (!rmRow || !rmCol) {
-        setErr("Ready-made row or column was not found.");
         setBusyId(null);
-        return;
+        return "Ready-made row or column was not found.";
       }
       const { data: board } = rmRow.board_id
         ? await supabase.from("ready_made_boards").select("id,name").eq("id", rmRow.board_id).maybeSingle()
@@ -164,9 +159,8 @@ export function OrderingClient({
         if (ce) {
           const fallback = await supabase.from("ready_made_cells").update({ value: newVal }).eq("id", cell.id);
           if (fallback.error) {
-            setErr(fallback.error.message);
             setBusyId(null);
-            return;
+            return fallback.error.message;
           }
         }
       } else {
@@ -185,9 +179,8 @@ export function OrderingClient({
             value: newVal,
           });
           if (fallback.error) {
-            setErr(fallback.error.message);
             setBusyId(null);
-            return;
+            return fallback.error.message;
           }
         }
       }
@@ -195,26 +188,17 @@ export function OrderingClient({
 
     const { error: oe } = await supabase
       .from("restock_orders")
-      .update({ status: "completed", completed_at: now, updated_at: now })
+      .update({ status: "completed", qty, completed_at: now, updated_at: now })
       .eq("id", row.id)
       .eq("status", "pending");
     if (oe) {
-      setErr(oe.message);
       setBusyId(null);
-      return;
+      return oe.message;
     }
     setBusyId(null);
+    setCompleting(null);
     await refresh();
-  }
-
-  function askComplete(row: RestockOrder) {
-    ask({
-      title: "Complete restock?",
-      description: `Add ${formatQty(row.qty)} to “${row.item_label}” and mark this order complete.`,
-      confirmLabel: "Complete",
-      destructive: false,
-      onConfirm: () => completeOrder(row),
-    });
+    return null;
   }
 
   function askDelete(row: RestockOrder) {
@@ -303,7 +287,7 @@ export function OrderingClient({
                     size="sm"
                     className="h-8 gap-1"
                     disabled={busyId === row.id}
-                    onClick={() => askComplete(row)}
+                    onClick={() => setCompleting(row)}
                   >
                     <Check className="h-3.5 w-3.5" />
                     {busyId === row.id ? "Restocking…" : "Complete"}
@@ -336,8 +320,83 @@ export function OrderingClient({
         userId={userId}
         onSaved={refresh}
       />
+      <CompleteRestockDialog
+        row={completing}
+        busy={busyId === completing?.id}
+        onClose={() => { if (!busyId) setCompleting(null); }}
+        onConfirm={(qty) => completeOrder(completing!, qty)}
+      />
       {confirmDialog}
     </>
+  );
+}
+
+function CompleteRestockDialog({
+  row,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  row: RestockOrder | null;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: (qty: number) => Promise<string | null>;
+}) {
+  const [qty, setQty] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!row) return;
+    setQty(formatQty(row.qty));
+    setErr(null);
+  }, [row]);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const amount = Number(qty);
+    if (!amount || amount <= 0) {
+      setErr("Enter a quantity greater than 0.");
+      return;
+    }
+    setErr(null);
+    const message = await onConfirm(amount);
+    if (message) setErr(message);
+  }
+
+  return (
+    <Dialog
+      open={Boolean(row)}
+      onClose={busy ? () => {} : onClose}
+      title="Complete restock"
+      description={row ? `Enter how much to add to “${row.item_label}”.` : undefined}
+      size="md"
+    >
+      <form onSubmit={submit} className="space-y-4">
+        {row && (
+          <p className="text-sm text-muted-foreground">
+            Originally on order: <span className="font-medium text-foreground">{formatQty(row.qty)}</span>
+          </p>
+        )}
+        <div>
+          <Label htmlFor="restock-qty">Quantity to add</Label>
+          <Input
+            id="restock-qty"
+            type="number"
+            min={0.01}
+            step="0.01"
+            className="mt-1 w-36"
+            value={qty}
+            autoFocus
+            onChange={(e) => { setQty(e.target.value); setErr(null); }}
+          />
+        </div>
+        {err && <p className="text-sm text-destructive">{err}</p>}
+        <div className="flex justify-end gap-2 border-t pt-4">
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button type="submit" disabled={busy}>{busy ? "Restocking…" : "Complete"}</Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 

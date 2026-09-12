@@ -10,14 +10,17 @@ export default async function ContentPlannerPage() {
   if (!user) redirect("/login");
 
   const supabase = createClient();
-  const [{ data: items }, { data: reminders }, { data: tasks }] = await Promise.all([
+  const [{ data: items }, { data: reminders }, { data: tasks }, typesRes] = await Promise.all([
     supabase.from("content_schedules").select("*").order("scheduled_at"),
     supabase.from("reminders").select("*").order("due_at"),
     supabase
       .from("tasks")
       .select("id, title, description, due_date, priority, status, task_type, machine_type_id, repeat_mode, repeat_interval_days")
       .order("due_date", { ascending: true }),
+    supabase.from("content_types").select("id,name,color,sort_order").order("sort_order").order("name"),
   ]);
+
+  const typesMissing = Boolean(typesRes.error && /content_types|does not exist|schema cache/i.test(typesRes.error.message));
 
   return (
     <div>
@@ -26,6 +29,8 @@ export default async function ContentPlannerPage() {
         initial={items ?? []}
         initialReminders={reminders ?? []}
         initialTasks={tasks ?? []}
+        initialTypes={typesMissing ? [] : (typesRes.data ?? [])}
+        typesMissing={typesMissing}
         userId={user.id}
       />
     </div>

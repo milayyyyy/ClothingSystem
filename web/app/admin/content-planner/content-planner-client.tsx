@@ -6,15 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Bell, CheckSquare, X, Check, ArrowRight, RotateCcw, Repeat } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Bell, CheckSquare, X, Check, ArrowRight, RotateCcw, Repeat, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { spawnNextRecurringTask, spawnNextRecurringReminder, repeatLabel } from "@/lib/task-recurrence";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+export type ContentType = { id: string; name: string; color: string; sort_order?: number };
+
 export type ContentItem = {
   id: string; title: string; platform: Platform; scheduled_at: string;
   status: Status; caption?: string | null; notes?: string | null; created_by?: string | null;
+  content_type_id?: string | null;
 };
 
 export type ReminderItem = {
@@ -125,23 +128,53 @@ function PlatformBadge({ platform }: { platform: Platform }) {
   return <span className={cn("inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px] font-bold text-white leading-none", p.bg)}>{p.icon}</span>;
 }
 
+function normalizeHex(c: string | null | undefined): string {
+  const t = String(c ?? "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(t)) return t.toUpperCase();
+  if (/^[0-9a-fA-F]{6}$/.test(t)) return `#${t.toUpperCase()}`;
+  return "#64748B";
+}
+
+function hexAlpha(hex: string, alphaHex: string) {
+  return `${normalizeHex(hex)}${alphaHex}`;
+}
+
+function TypeBadge({ type, size = "sm" }: { type: ContentType | null | undefined; size?: "sm" | "md" }) {
+  if (!type) return null;
+  const color = normalizeHex(type.color);
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border font-medium",
+        size === "sm" ? "px-1.5 py-0 text-[9px]" : "px-2 py-0.5 text-xs",
+      )}
+      style={{ backgroundColor: hexAlpha(color, "26"), borderColor: hexAlpha(color, "66"), color }}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+      {type.name}
+    </span>
+  );
+}
+
 // ─── Form state ───────────────────────────────────────────────────────────────
 
-type FormState = { title: string; platform: Platform; scheduled_at: string; status: Status; caption: string; notes: string; };
-function blankForm(dateStr?: string): FormState {
+type FormState = { title: string; platform: Platform; scheduled_at: string; status: Status; caption: string; notes: string; content_type_id: string; };
+function blankForm(dateStr?: string, typeId = ""): FormState {
   const d = new Date(); const pad = (n: number) => String(n).padStart(2,"0");
   const dt = dateStr ? `${dateStr}T09:00` : `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T09:00`;
-  return { title:"", platform:"facebook", scheduled_at:dt, status:"scheduled", caption:"", notes:"" };
+  return { title:"", platform:"facebook", scheduled_at:dt, status:"scheduled", caption:"", notes:"", content_type_id: typeId };
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function ContentPlannerClient({
-  initial, initialReminders, initialTasks, userId,
+  initial, initialReminders, initialTasks, initialTypes = [], typesMissing, userId,
 }: {
   initial: ContentItem[];
   initialReminders: ReminderItem[];
   initialTasks: TaskItem[];
+  initialTypes?: ContentType[];
+  typesMissing?: boolean;
   userId: string;
 }) {
   const supabase = createClient();
@@ -155,8 +188,10 @@ export function ContentPlannerClient({
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [formOpen,  setFormOpen]  = useState(false);
   const [editing,   setEditing]   = useState<ContentItem | null>(null);
-  const [form,      setForm]      = useState<FormState>(blankForm());
+  const [form,      setForm]      = useState<FormState>(blankForm(undefined, initialTypes[0]?.id ?? ""));
   const [saving,    setSaving]    = useState(false);
+  const [types,     setTypes]     = useState<ContentType[]>(initialTypes);
+  const [manageTypesOpen, setManageTypesOpen] = useState(false);
   const [detail,         setDetail]         = useState<ContentItem | null>(null);
   const [reminderDetail, setReminderDetail] = useState<ReminderItem | null>(null);
   const [taskDetail,     setTaskDetail]     = useState<TaskItem | null>(null);
@@ -166,6 +201,16 @@ export function ContentPlannerClient({
   const [actionSaving,  setActionSaving]  = useState(false);
 
   const TASK_SELECT = "id, title, description, due_date, priority, status, task_type, machine_type_id, repeat_mode, repeat_interval_days";
+
+  function typeById(id: string | null | undefined) {
+    if (!id) return null;
+    return types.find((t) => t.id === id) ?? null;
+  }
+
+  async function refreshTypes() {
+    const { data, error } = await supabase.from("content_types").select("id,name,color,sort_order").order("sort_order").order("name");
+    if (!error) setTypes((data as ContentType[]) || []);
+  }
 
   // Re-fetch tasks on mount so newly created tasks appear immediately
   useEffect(() => {
@@ -288,11 +333,11 @@ export function ContentPlannerClient({
   }
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
-  function openAdd(dateStr?: string) { setEditing(null); setForm(blankForm(dateStr)); setFormOpen(true); }
+  function openAdd(dateStr?: string) { setEditing(null); setForm(blankForm(dateStr, types[0]?.id ?? "")); setFormOpen(true); }
   function openEdit(item: ContentItem, e?: React.MouseEvent) {
     e?.stopPropagation();
     setEditing(item);
-    setForm({ title:item.title, platform:item.platform, scheduled_at:toDatetimeLocal(item.scheduled_at), status:item.status, caption:item.caption??"", notes:item.notes??"" });
+    setForm({ title:item.title, platform:item.platform, scheduled_at:toDatetimeLocal(item.scheduled_at), status:item.status, caption:item.caption??"", notes:item.notes??"", content_type_id:item.content_type_id ?? types[0]?.id ?? "" });
     setDetail(null); setFormOpen(true);
   }
   async function handleDelete(id: string, e?: React.MouseEvent) {
@@ -305,13 +350,35 @@ export function ContentPlannerClient({
   async function handleSave() {
     if (!form.title.trim()) return;
     setSaving(true);
-    const payload = { title:form.title.trim(), platform:form.platform, scheduled_at:new Date(form.scheduled_at).toISOString(), status:form.status, caption:form.caption||null, notes:form.notes||null, created_by:userId };
-    if (editing) {
-      const { data } = await supabase.from("content_schedules").update(payload).eq("id", editing.id).select().single();
-      if (data) { setItems(prev => prev.map(i => i.id === editing.id ? (data as ContentItem) : i)); setDetail(data as ContentItem); }
-    } else {
-      const { data } = await supabase.from("content_schedules").insert(payload).select().single();
-      if (data) setItems(prev => [...prev, data as ContentItem]);
+    const payload = {
+      title: form.title.trim(),
+      platform: form.platform,
+      scheduled_at: new Date(form.scheduled_at).toISOString(),
+      status: form.status,
+      caption: form.caption || null,
+      notes: form.notes || null,
+      created_by: userId,
+      content_type_id: form.content_type_id || null,
+    };
+    const save = async (body: typeof payload | Omit<typeof payload, "content_type_id">) => {
+      if (editing) return supabase.from("content_schedules").update(body).eq("id", editing.id).select().single();
+      return supabase.from("content_schedules").insert(body).select().single();
+    };
+    let { data, error } = await save(payload);
+    if (error && /content_type_id|schema cache/i.test(error.message)) {
+      const { content_type_id: _omit, ...withoutType } = payload;
+      const retry = await save(withoutType);
+      data = retry.data;
+      error = retry.error;
+    }
+    if (data) {
+      const row = data as ContentItem;
+      if (editing) {
+        setItems(prev => prev.map(i => i.id === editing.id ? row : i));
+        setDetail(row);
+      } else {
+        setItems(prev => [...prev, row]);
+      }
     }
     setSaving(false); setFormOpen(false);
   }
@@ -420,16 +487,22 @@ export function ContentPlannerClient({
                     ))}
 
                     {/* Content items */}
-                    {visContent.map(item => (
+                    {visContent.map(item => {
+                      const ctype = typeById(item.content_type_id);
+                      const color = ctype ? normalizeHex(ctype.color) : null;
+                      return (
                       <div key={item.id}
-                        className={cn("flex cursor-pointer items-center gap-1 rounded border px-1 py-0.5 text-[10px] transition-all", STATUS_CFG[item.status].pill, detail?.id === item.id && "ring-1 ring-primary")}
+                        className={cn("flex cursor-pointer items-center gap-1 rounded border px-1 py-0.5 text-[10px] transition-all", !color && STATUS_CFG[item.status].pill, detail?.id === item.id && "ring-1 ring-primary")}
+                        style={color ? { borderColor: hexAlpha(color, "66"), backgroundColor: hexAlpha(color, "22"), borderLeftWidth: 3, borderLeftColor: color } : undefined}
                         onClick={e => { e.stopPropagation(); setReminderDetail(null); setTaskDetail(null); setDetail(item); }}
+                        title={ctype ? `${ctype.name} · ${item.title}` : item.title}
                       >
                         <span className="shrink-0 font-mono text-[10px] text-foreground/80">{formatTime(item.scheduled_at)}</span>
                         <span className="min-w-0 flex-1 truncate text-foreground/80">{item.title}</span>
                         <PlatformBadge platform={item.platform} />
                       </div>
-                    ))}
+                      );
+                    })}
 
                     {overflow > 0 && (
                       <button type="button" className="w-full rounded px-1 py-0.5 text-left text-[10px] text-primary hover:underline" onClick={e => { e.stopPropagation(); setExpandDay(dateStr); }}>
@@ -453,6 +526,12 @@ export function ContentPlannerClient({
           {Object.entries(STATUS_CFG).map(([k,v]) => (
             <span key={k} className="flex items-center gap-1"><span className={cn("h-2 w-2 rounded-full",v.dot)} />{v.label}</span>
           ))}
+          {types.map((t) => (
+            <span key={t.id} className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: normalizeHex(t.color) }} />
+              {t.name}
+            </span>
+          ))}
           <span className="flex items-center gap-1"><Bell className="h-2.5 w-2.5 text-violet-400" />Reminder</span>
           <span className="flex items-center gap-1"><CheckSquare className="h-2.5 w-2.5 text-green-400" />Task</span>
         </div>
@@ -474,6 +553,7 @@ export function ContentPlannerClient({
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <PlatformBadge platform={detail.platform} />{getPlatform(detail.platform).label}
             </span>
+            <TypeBadge type={typeById(detail.content_type_id)} size="md" />
           </div>
           <div className="rounded-md bg-muted/40 px-3 py-2 text-xs">
             <p className="font-medium text-muted-foreground">Scheduled</p>
@@ -638,6 +718,46 @@ export function ContentPlannerClient({
             <Label htmlFor="cp-title">Title / post name</Label>
             <Input id="cp-title" className="mt-1" placeholder="e.g. Summer sale promo" value={form.title} onChange={e => setF("title", e.target.value)} autoFocus />
           </div>
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="cp-type">Type</Label>
+              {!typesMissing && (
+                <button type="button" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" onClick={() => setManageTypesOpen(true)}>
+                  <Settings2 className="h-3 w-3" /> Manage types
+                </button>
+              )}
+            </div>
+            {typesMissing ? (
+              <p className="mt-1 text-xs text-muted-foreground">Run migration <code className="font-mono text-foreground">107_content_types.sql</code> to enable types.</p>
+            ) : (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {types.map((t) => {
+                  const color = normalizeHex(t.color);
+                  const selected = form.content_type_id === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setF("content_type_id", t.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                        selected ? "ring-1 ring-foreground/30" : "opacity-80 hover:opacity-100",
+                      )}
+                      style={{ backgroundColor: hexAlpha(color, selected ? "33" : "1A"), borderColor: hexAlpha(color, selected ? "99" : "55"), color }}
+                    >
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+                      {t.name}
+                    </button>
+                  );
+                })}
+                {types.length === 0 && (
+                  <button type="button" className="text-xs text-primary underline-offset-2 hover:underline" onClick={() => setManageTypesOpen(true)}>
+                    Add a type
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor="cp-platform">Platform</Label>
@@ -664,7 +784,8 @@ export function ContentPlannerClient({
             <Label htmlFor="cp-notes">Notes <span className="text-muted-foreground">(optional)</span></Label>
             <Input id="cp-notes" className="mt-1" placeholder="Internal notes…" value={form.notes} onChange={e => setF("notes", e.target.value)} />
           </div>
-          <div className="flex items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs">
+            <TypeBadge type={typeById(form.content_type_id)} size="md" />
             <PlatformBadge platform={form.platform} />
             <span className="font-medium">{getPlatform(form.platform).label}</span>
             <span className="text-muted-foreground">·</span>
@@ -680,6 +801,147 @@ export function ContentPlannerClient({
           </div>
         </div>
       </Dialog>
+
+      <ManageTypesDialog
+        open={manageTypesOpen}
+        types={types}
+        onClose={() => setManageTypesOpen(false)}
+        onChanged={async (nextId) => {
+          await refreshTypes();
+          if (nextId) setF("content_type_id", nextId);
+        }}
+      />
     </div>
+  );
+}
+
+const NEW_TYPE_COLORS = ["#8B5CF6", "#3B82F6", "#64748B", "#F59E0B", "#10B981", "#EF4444", "#EC4899", "#06B6D4"];
+
+function ManageTypesDialog({
+  open,
+  types,
+  onClose,
+  onChanged,
+}: {
+  open: boolean;
+  types: ContentType[];
+  onClose: () => void;
+  onChanged: (selectId?: string) => Promise<void>;
+}) {
+  const supabase = createClient();
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("#8B5CF6");
+  const [drafts, setDrafts] = useState<Record<string, { name: string; color: string }>>({});
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setColor(NEW_TYPE_COLORS[types.length % NEW_TYPE_COLORS.length]);
+    setErr(null);
+    const next: Record<string, { name: string; color: string }> = {};
+    for (const t of types) next[t.id] = { name: t.name, color: normalizeHex(t.color) };
+    setDrafts(next);
+  }, [open, types]);
+
+  async function addType(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) { setErr("Enter a type name."); return; }
+    setBusy(true); setErr(null);
+    const { data, error } = await supabase
+      .from("content_types")
+      .insert({ name: trimmed, color: normalizeHex(color), sort_order: types.length + 1 })
+      .select("id")
+      .single();
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    setName("");
+    await onChanged(data?.id);
+  }
+
+  async function saveType(id: string) {
+    const draft = drafts[id];
+    if (!draft) return;
+    const trimmed = draft.name.trim();
+    if (!trimmed) { setErr("Type name cannot be empty."); return; }
+    setBusy(true); setErr(null);
+    const { error } = await supabase
+      .from("content_types")
+      .update({ name: trimmed, color: normalizeHex(draft.color) })
+      .eq("id", id);
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    await onChanged();
+  }
+
+  async function removeType(t: ContentType) {
+    if (!confirm(`Remove type “${t.name}”? Existing posts keep their title; the type is cleared.`)) return;
+    setBusy(true); setErr(null);
+    const { error } = await supabase.from("content_types").delete().eq("id", t.id);
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    await onChanged();
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Manage content types" description="Add your own types and pick a color for each." size="md">
+      <div className="space-y-4">
+        <div className="space-y-2">
+          {types.map((t) => {
+            const draft = drafts[t.id] ?? { name: t.name, color: normalizeHex(t.color) };
+            const dirty = draft.name.trim() !== t.name || normalizeHex(draft.color) !== normalizeHex(t.color);
+            return (
+              <div key={t.id} className="flex items-center gap-2">
+                <input
+                  type="color"
+                  className="h-8 w-8 shrink-0 cursor-pointer rounded border border-input bg-background p-0.5"
+                  value={draft.color}
+                  onChange={(e) => setDrafts((prev) => ({ ...prev, [t.id]: { ...draft, color: e.target.value } }))}
+                  aria-label={`${t.name} color`}
+                />
+                <Input
+                  value={draft.name}
+                  onChange={(e) => setDrafts((prev) => ({ ...prev, [t.id]: { ...draft, name: e.target.value } }))}
+                />
+                <Button type="button" size="sm" variant="outline" disabled={!dirty || busy} onClick={() => void saveType(t.id)}>
+                  Save
+                </Button>
+                <button
+                  type="button"
+                  className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => void removeType(t)}
+                  aria-label={`Remove ${t.name}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            );
+          })}
+          {types.length === 0 && <p className="text-sm text-muted-foreground">No types yet. Add Video, Photo, or any custom name.</p>}
+        </div>
+
+        <form onSubmit={addType} className="flex items-end gap-2 border-t pt-3">
+          <div className="shrink-0">
+            <Label>Color</Label>
+            <input
+              type="color"
+              className="mt-1 block h-9 w-9 cursor-pointer rounded border border-input bg-background p-0.5"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <Label htmlFor="new-content-type">New type</Label>
+            <Input id="new-content-type" className="mt-1" placeholder="e.g. Reel, Story…" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <Button type="submit" disabled={busy || !name.trim()} className="gap-1">
+            <Plus className="h-3.5 w-3.5" /> Add
+          </Button>
+        </form>
+        {err && <p className="text-sm text-destructive">{err}</p>}
+      </div>
+    </Dialog>
   );
 }
