@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { PROFILE_LIST_SELECT } from "@/lib/profile-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +26,10 @@ const selectClass = cn(
 
 type P = any;
 type PositionsMgrProps = { open: boolean; onClose: () => void; onChanged: () => void };
+
+function isFaceEnrolled(p: P) {
+  return Boolean(p?.face_enrolled || (Array.isArray(p?.face_descriptor) && p.face_descriptor.length));
+}
 
 function initials(name?: string | null) {
   if (!name) return "?";
@@ -69,14 +74,18 @@ export function EmployeesClient({
   useEffect(() => { void fetchPositions(); }, []);
 
   async function refresh() {
-    const [{ data: profiles }, { data: onCall }] = await Promise.all([
-      supabase.from("profiles").select("*").order("created_at", { ascending: false }),
+    const [{ data: profiles }, { data: onCall }, { data: enrolledRows }] = await Promise.all([
+      supabase.from("profiles").select(PROFILE_LIST_SELECT).order("created_at", { ascending: false }),
       supabase.from("on_call_staff").select("*").order("full_name", { ascending: true }),
+      supabase.from("profiles").select("id").not("face_descriptor", "is", null),
     ]);
+    const enrolled = new Set((enrolledRows || []).map((r) => r.id));
     setPermanentList(
-      (profiles || []).filter(
-        (row) => normalizeEmploymentCategory((row as P).employment_category) !== "on_call",
-      ),
+      (profiles || [])
+        .filter(
+          (row) => normalizeEmploymentCategory((row as P).employment_category) !== "on_call",
+        )
+        .map((row) => ({ ...row, face_enrolled: enrolled.has((row as P).id) })),
     );
     setOnCallList((onCall as OnCallStaff[]) || []);
   }
@@ -268,7 +277,7 @@ export function EmployeesClient({
                 <div className="flex items-center gap-2 text-xs">
                   <ScanFace className="h-3.5 w-3.5 text-muted-foreground" />
                   <span className="text-muted-foreground">Face ID</span>
-                  {p.face_descriptor?.length ? (
+                  {isFaceEnrolled(p) ? (
                     <Badge variant="green" className="text-[10px] px-1.5 py-0">Enrolled</Badge>
                   ) : (
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0">Not enrolled</Badge>
@@ -278,7 +287,7 @@ export function EmployeesClient({
                   onClick={() => setEnrollTarget(p)}
                   className="text-xs font-medium text-primary hover:underline"
                 >
-                  {p.face_descriptor?.length ? "Re-enrol" : "Enrol"}
+                  {isFaceEnrolled(p) ? "Re-enrol" : "Enrol"}
                 </button>
               </div>
 

@@ -1,5 +1,7 @@
+import { cache } from "react";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { PROFILE_LIST_SELECT } from "@/lib/profile-select";
 
 export type Role = "admin" | "manager" | "employee";
 
@@ -32,13 +34,21 @@ export function createClient() {
   );
 }
 
-export async function getSessionUser() {
+/**
+ * Auth + profile for the current request. Memoized so layout and the page
+ * share one Auth call and one profiles read instead of doing both twice.
+ */
+export const getSessionUser = cache(async () => {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select(PROFILE_LIST_SELECT)
+    .eq("id", user.id)
+    .single();
   return profile ? { ...user, profile } : null;
-}
+});
 
 export function isStaff(role: Role | string | undefined) {
   return role === "admin" || role === "manager";

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { PROFILE_LIST_SELECT } from "@/lib/profile-select";
 import { PageHeader } from "@/components/page-header";
 import { EmployeesClient } from "./employees-client";
 
@@ -12,15 +13,19 @@ export default async function AdminEmployeesPage() {
     : { data: null };
   const viewerRole = (viewerProfile as { role?: string } | null)?.role ?? "employee";
 
-  const [{ data: profiles }, onCallRes] = await Promise.all([
-    supabase.from("profiles").select("*").order("created_at", { ascending: false }),
+  const [{ data: profiles }, onCallRes, enrolledRes] = await Promise.all([
+    supabase.from("profiles").select(PROFILE_LIST_SELECT).order("created_at", { ascending: false }),
     supabase.from("on_call_staff").select("*").order("full_name", { ascending: true }),
+    supabase.from("profiles").select("id").not("face_descriptor", "is", null),
   ]);
   const onCall = onCallRes.error ? [] : onCallRes.data || [];
+  const enrolled = new Set((enrolledRes.data || []).map((r) => r.id));
 
-  const permanent = (profiles || []).filter(
-    (p) => String((p as { employment_category?: string }).employment_category || "permanent") !== "on_call",
-  );
+  const permanent = (profiles || [])
+    .filter(
+      (p) => String((p as { employment_category?: string }).employment_category || "permanent") !== "on_call",
+    )
+    .map((p) => ({ ...p, face_enrolled: enrolled.has((p as { id: string }).id) }));
 
   return (
     <div>
