@@ -10,7 +10,7 @@ export default async function ContentPlannerPage() {
   if (!user) redirect("/login");
 
   const supabase = createClient();
-  const [{ data: items }, { data: reminders }, { data: tasks }, typesRes] = await Promise.all([
+  const [{ data: items }, { data: reminders }, { data: tasks }, typesRes, storesRes] = await Promise.all([
     supabase.from("content_schedules").select("*").order("scheduled_at"),
     supabase.from("reminders").select("*").order("due_at"),
     supabase
@@ -18,9 +18,11 @@ export default async function ContentPlannerPage() {
       .select("id, title, description, due_date, priority, status, task_type, machine_type_id, repeat_mode, repeat_interval_days")
       .order("due_date", { ascending: true }),
     supabase.from("content_types").select("id,name,color,sort_order").order("sort_order").order("name"),
+    supabase.from("content_stores").select("id,name,sort_order").order("sort_order").order("name"),
   ]);
 
   const typesMissing = Boolean(typesRes.error && /content_types|does not exist|schema cache/i.test(typesRes.error.message));
+  const storesMissing = Boolean(storesRes.error && /content_stores|does not exist|schema cache/i.test(storesRes.error.message));
 
   return (
     <div>
@@ -31,6 +33,8 @@ export default async function ContentPlannerPage() {
         initialTasks={tasks ?? []}
         initialTypes={typesMissing ? [] : (typesRes.data ?? [])}
         typesMissing={typesMissing}
+        initialStores={storesMissing ? [] : (storesRes.data ?? [])}
+        storesMissing={storesMissing}
         userId={user.id}
       />
     </div>

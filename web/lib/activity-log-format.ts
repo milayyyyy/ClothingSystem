@@ -46,6 +46,7 @@ const ENTITY_LABELS: Record<string, string> = {
   restock_orders: "Restock order",
   content_schedules: "Content",
   content_types: "Content type",
+  content_stores: "Content store",
   order_assignees: "Order assignment",
   sublimation_teams: "Jersey sheet",
   returns: "Return",
@@ -81,6 +82,7 @@ export const ENTITY_CATEGORY: Record<string, string> = {
   restock_orders: "Inventory",
   content_schedules: "Content Planner",
   content_types: "Content Planner",
+  content_stores: "Content Planner",
   maintenance_schedules: "Maintenance",
   stores: "Stores",
   suppliers: "Suppliers",
@@ -108,6 +110,7 @@ const TITLE_FIELDS: Record<string, string[]> = {
   restock_orders: ["item_label", "qty", "status"],
   content_schedules: ["title", "platform", "status"],
   content_types: ["name", "color"],
+  content_stores: ["name"],
   sublimation_teams: ["name"],
 };
 

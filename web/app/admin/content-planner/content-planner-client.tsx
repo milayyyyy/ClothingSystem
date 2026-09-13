@@ -13,11 +13,13 @@ import { spawnNextRecurringTask, spawnNextRecurringReminder, repeatLabel } from 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type ContentType = { id: string; name: string; color: string; sort_order?: number };
+export type ContentStore = { id: string; name: string; sort_order?: number };
 
 export type ContentItem = {
   id: string; title: string; platform: Platform; scheduled_at: string;
   status: Status; caption?: string | null; notes?: string | null; created_by?: string | null;
   content_type_id?: string | null;
+  content_store_id?: string | null;
 };
 
 export type ReminderItem = {
@@ -94,6 +96,7 @@ const TASK_FORWARD_LABEL: Record<string, string> = {
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS   = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const MAX_VISIBLE = 3;
+const FALLBACK_STORE_NAMES = ["Likha. Apparel", "Mensahe. Apparel", "Padayon. Apparel", "Drips. Apparel"];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -127,6 +130,21 @@ function toDatetimeLocal(iso: string) {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 function getPlatform(v: Platform) { return PLATFORMS.find(p => p.value === v) ?? PLATFORMS[PLATFORMS.length-1]; }
+function formatTitleWhen(dtLocal: string) {
+  if (!dtLocal) return "";
+  const d = new Date(dtLocal);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+}
+function inferStoreId(title: string, stores: ContentStore[], existingId?: string | null) {
+  if (existingId && stores.some((s) => s.id === existingId)) return existingId;
+  const t = title.toLowerCase();
+  const found = stores.find((s) => t.startsWith(s.name.toLowerCase()) || t.includes(s.name.split(".")[0].toLowerCase()));
+  return found?.id ?? stores[0]?.id ?? "";
+}
+function autoTitle(store: string, platform: Platform, typeName: string | null | undefined, scheduledAt: string) {
+  return [store, getPlatform(platform).label, typeName || null, formatTitleWhen(scheduledAt)].filter(Boolean).join(" · ");
+}
 
 function PlatformBadge({ platform }: { platform: Platform }) {
   const p = getPlatform(platform);
@@ -163,23 +181,25 @@ function TypeBadge({ type, size = "sm" }: { type: ContentType | null | undefined
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 
-type FormState = { title: string; platform: Platform; scheduled_at: string; status: Status; caption: string; notes: string; content_type_id: string; };
-function blankForm(dateStr?: string, typeId = ""): FormState {
+type FormState = { content_store_id: string; platform: Platform; scheduled_at: string; status: Status; caption: string; notes: string; content_type_id: string; };
+function blankForm(dateStr?: string, typeId = "", storeId = ""): FormState {
   const d = new Date(); const pad = (n: number) => String(n).padStart(2,"0");
   const dt = dateStr ? `${dateStr}T09:00` : `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T09:00`;
-  return { title:"", platform:"facebook", scheduled_at:dt, status:"scheduled", caption:"", notes:"", content_type_id: typeId };
+  return { content_store_id: storeId, platform:"facebook", scheduled_at:dt, status:"scheduled", caption:"", notes:"", content_type_id: typeId };
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function ContentPlannerClient({
-  initial, initialReminders, initialTasks, initialTypes = [], typesMissing, userId,
+  initial, initialReminders, initialTasks, initialTypes = [], typesMissing, initialStores = [], storesMissing, userId,
 }: {
   initial: ContentItem[];
   initialReminders: ReminderItem[];
   initialTasks: TaskItem[];
   initialTypes?: ContentType[];
   typesMissing?: boolean;
+  initialStores?: ContentStore[];
+  storesMissing?: boolean;
   userId: string;
 }) {
   const supabase = createClient();
@@ -193,10 +213,12 @@ export function ContentPlannerClient({
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [formOpen,  setFormOpen]  = useState(false);
   const [editing,   setEditing]   = useState<ContentItem | null>(null);
-  const [form,      setForm]      = useState<FormState>(blankForm(undefined, initialTypes[0]?.id ?? ""));
+  const [form,      setForm]      = useState<FormState>(blankForm(undefined, initialTypes[0]?.id ?? "", initialStores[0]?.id ?? ""));
   const [saving,    setSaving]    = useState(false);
   const [types,     setTypes]     = useState<ContentType[]>(initialTypes);
+  const [stores,    setStores]    = useState<ContentStore[]>(initialStores);
   const [manageTypesOpen, setManageTypesOpen] = useState(false);
+  const [manageStoresOpen, setManageStoresOpen] = useState(false);
   const [detailDay,      setDetailDay]      = useState<string | null>(null);
   const [focusedId,      setFocusedId]      = useState<string | null>(null);
   const [expandDay, setExpandDay] = useState<string | null>(null);
@@ -210,10 +232,19 @@ export function ContentPlannerClient({
     if (!id) return null;
     return types.find((t) => t.id === id) ?? null;
   }
+  function storeById(id: string | null | undefined) {
+    if (!id) return null;
+    return stores.find((s) => s.id === id) ?? null;
+  }
+  const storeChoices = stores.length > 0 ? stores : FALLBACK_STORE_NAMES.map((name) => ({ id: name, name }));
 
   async function refreshTypes() {
     const { data, error } = await supabase.from("content_types").select("id,name,color,sort_order").order("sort_order").order("name");
     if (!error) setTypes((data as ContentType[]) || []);
+  }
+  async function refreshStores() {
+    const { data, error } = await supabase.from("content_stores").select("id,name,sort_order").order("sort_order").order("name");
+    if (!error) setStores((data as ContentStore[]) || []);
   }
 
   // Re-fetch tasks on mount so newly created tasks appear immediately
@@ -338,11 +369,11 @@ export function ContentPlannerClient({
   }
 
   // ── CRUD ──────────────────────────────────────────────────────────────────
-  function openAdd(dateStr?: string) { setEditing(null); setForm(blankForm(dateStr, types[0]?.id ?? "")); setFormOpen(true); }
+  function openAdd(dateStr?: string) { setEditing(null); setForm(blankForm(dateStr, types[0]?.id ?? "", storeChoices[0]?.id ?? "")); setFormOpen(true); }
   function openEdit(item: ContentItem, e?: React.MouseEvent) {
     e?.stopPropagation();
     setEditing(item);
-    setForm({ title:item.title, platform:item.platform, scheduled_at:toDatetimeLocal(item.scheduled_at), status:item.status, caption:item.caption??"", notes:item.notes??"", content_type_id:item.content_type_id ?? types[0]?.id ?? "" });
+    setForm({ content_store_id: inferStoreId(item.title, storeChoices, item.content_store_id), platform:item.platform, scheduled_at:toDatetimeLocal(item.scheduled_at), status:item.status, caption:item.caption??"", notes:item.notes??"", content_type_id:item.content_type_id ?? types[0]?.id ?? "" });
     setFormOpen(true);
   }
   async function handleDelete(id: string, e?: React.MouseEvent) {
@@ -359,11 +390,15 @@ export function ContentPlannerClient({
       if (!next) setDetailDay(null);
     }
   }
+  const selectedStoreName = storeById(form.content_store_id)?.name ?? storeChoices.find((s) => s.id === form.content_store_id)?.name ?? "";
+  const generatedTitle = autoTitle(selectedStoreName, form.platform, typeById(form.content_type_id)?.name, form.scheduled_at);
+
   async function handleSave() {
-    if (!form.title.trim()) return;
+    const title = generatedTitle.trim();
+    if (!title) return;
     setSaving(true);
     const payload = {
-      title: form.title.trim(),
+      title,
       platform: form.platform,
       scheduled_at: new Date(form.scheduled_at).toISOString(),
       status: form.status,
@@ -371,15 +406,16 @@ export function ContentPlannerClient({
       notes: form.notes || null,
       created_by: userId,
       content_type_id: form.content_type_id || null,
+      content_store_id: storesMissing ? null : (form.content_store_id || null),
     };
-    const save = async (body: typeof payload | Omit<typeof payload, "content_type_id">) => {
+    const save = async (body: Record<string, unknown>) => {
       if (editing) return supabase.from("content_schedules").update(body).eq("id", editing.id).select().single();
       return supabase.from("content_schedules").insert(body).select().single();
     };
     let { data, error } = await save(payload);
-    if (error && /content_type_id|schema cache/i.test(error.message)) {
-      const { content_type_id: _omit, ...withoutType } = payload;
-      const retry = await save(withoutType);
+    if (error && /content_store_id|content_type_id|schema cache/i.test(error.message)) {
+      const { content_store_id: _s, content_type_id: _t, ...without } = payload;
+      const retry = await save(without);
       data = retry.data;
       error = retry.error;
     }
@@ -836,8 +872,38 @@ export function ContentPlannerClient({
       <Dialog open={formOpen} onClose={() => setFormOpen(false)} title={editing ? "Edit content" : "Add content"}>
         <div className="space-y-4">
           <div>
-            <Label htmlFor="cp-title">Title / post name</Label>
-            <Input id="cp-title" className="mt-1" placeholder="e.g. Summer sale promo" value={form.title} onChange={e => setF("title", e.target.value)} autoFocus />
+            <div className="flex items-center justify-between gap-2">
+              <Label>Store</Label>
+              <button type="button" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground" onClick={() => setManageStoresOpen(true)}>
+                <Settings2 className="h-3 w-3" /> Manage stores
+              </button>
+            </div>
+            {storesMissing && (
+              <p className="mt-1 text-xs text-muted-foreground">Run migration <code className="font-mono text-foreground">108_content_stores.sql</code> in Supabase to save custom stores.</p>
+            )}
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {storeChoices.map((store) => {
+                const selected = form.content_store_id === store.id;
+                return (
+                  <button
+                    key={store.id}
+                    type="button"
+                    onClick={() => setF("content_store_id", store.id)}
+                    className={cn(
+                      "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                      selected ? "border-primary bg-primary/15 text-foreground ring-1 ring-primary/40" : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    {store.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <Label>Title / post name</Label>
+            <p className="mt-1 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm">{generatedTitle || "Select store, type, platform, and date"}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">Filled automatically from store, platform, type, and date &amp; time.</p>
           </div>
           <div>
             <div className="flex items-center justify-between gap-2">
@@ -906,17 +972,19 @@ export function ContentPlannerClient({
             <Input id="cp-notes" className="mt-1" placeholder="Internal notes…" value={form.notes} onChange={e => setF("notes", e.target.value)} />
           </div>
           <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs">
+            <span className="font-medium">{selectedStoreName || "Store"}</span>
+            <span className="text-muted-foreground">·</span>
             <TypeBadge type={typeById(form.content_type_id)} size="md" />
             <PlatformBadge platform={form.platform} />
             <span className="font-medium">{getPlatform(form.platform).label}</span>
             <span className="text-muted-foreground">·</span>
             <span className={cn("h-2 w-2 rounded-full", STATUS_CFG[form.status].dot)} />
             <span>{STATUS_CFG[form.status].label}</span>
-            {form.scheduled_at && <><span className="text-muted-foreground">·</span><span>{new Date(form.scheduled_at).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</span></>}
+            {form.scheduled_at && <><span className="text-muted-foreground">·</span><span>{formatTitleWhen(form.scheduled_at)}</span></>}
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>Cancel</Button>
-            <Button type="button" disabled={saving || !form.title.trim()} onClick={() => void handleSave()}>
+            <Button type="button" disabled={saving || !generatedTitle.trim()} onClick={() => void handleSave()}>
               {saving ? "Saving…" : editing ? "Save changes" : "Add to calendar"}
             </Button>
           </div>
@@ -930,6 +998,15 @@ export function ContentPlannerClient({
         onChanged={async (nextId) => {
           await refreshTypes();
           if (nextId) setF("content_type_id", nextId);
+        }}
+      />
+      <ManageStoresDialog
+        open={manageStoresOpen}
+        stores={stores}
+        onClose={() => setManageStoresOpen(false)}
+        onChanged={async (nextId) => {
+          await refreshStores();
+          if (nextId) setF("content_store_id", nextId);
         }}
       />
     </div>
@@ -1056,6 +1133,114 @@ function ManageTypesDialog({
           <div className="min-w-0 flex-1">
             <Label htmlFor="new-content-type">New type</Label>
             <Input id="new-content-type" className="mt-1" placeholder="e.g. Reel, Story…" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <Button type="submit" disabled={busy || !name.trim()} className="gap-1">
+            <Plus className="h-3.5 w-3.5" /> Add
+          </Button>
+        </form>
+        {err && <p className="text-sm text-destructive">{err}</p>}
+      </div>
+    </Dialog>
+  );
+}
+
+function ManageStoresDialog({
+  open,
+  stores,
+  onClose,
+  onChanged,
+}: {
+  open: boolean;
+  stores: ContentStore[];
+  onClose: () => void;
+  onChanged: (selectId?: string) => Promise<void>;
+}) {
+  const supabase = createClient();
+  const [name, setName] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setErr(null);
+    const next: Record<string, string> = {};
+    for (const s of stores) next[s.id] = s.name;
+    setDrafts(next);
+  }, [open, stores]);
+
+  async function addStore(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) { setErr("Enter a store name."); return; }
+    setBusy(true); setErr(null);
+    const { data, error } = await supabase
+      .from("content_stores")
+      .insert({ name: trimmed, sort_order: stores.length + 1 })
+      .select("id")
+      .single();
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    setName("");
+    await onChanged(data?.id);
+  }
+
+  async function saveStore(id: string) {
+    const draft = drafts[id];
+    if (draft == null) return;
+    const trimmed = draft.trim();
+    if (!trimmed) { setErr("Store name cannot be empty."); return; }
+    setBusy(true); setErr(null);
+    const { error } = await supabase.from("content_stores").update({ name: trimmed }).eq("id", id);
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    await onChanged();
+  }
+
+  async function removeStore(s: ContentStore) {
+    if (!confirm(`Remove store “${s.name}”? Existing posts keep their title; the store is cleared.`)) return;
+    setBusy(true); setErr(null);
+    const { error } = await supabase.from("content_stores").delete().eq("id", s.id);
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    await onChanged();
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Manage stores" description="Add or rename the stores you schedule content for." size="md">
+      <div className="space-y-4">
+        <div className="space-y-2">
+          {stores.map((s) => {
+            const draft = drafts[s.id] ?? s.name;
+            const dirty = draft.trim() !== s.name;
+            return (
+              <div key={s.id} className="flex items-center gap-2">
+                <Input
+                  value={draft}
+                  onChange={(e) => setDrafts((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                />
+                <Button type="button" size="sm" variant="outline" disabled={!dirty || busy} onClick={() => void saveStore(s.id)}>
+                  Save
+                </Button>
+                <button
+                  type="button"
+                  className="rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  onClick={() => void removeStore(s)}
+                  aria-label={`Remove ${s.name}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            );
+          })}
+          {stores.length === 0 && <p className="text-sm text-muted-foreground">No stores yet. Add Likha. Apparel or any custom name.</p>}
+        </div>
+
+        <form onSubmit={addStore} className="flex items-end gap-2 border-t pt-3">
+          <div className="min-w-0 flex-1">
+            <Label htmlFor="new-content-store">New store</Label>
+            <Input id="new-content-store" className="mt-1" placeholder="e.g. Likha. Apparel" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <Button type="submit" disabled={busy || !name.trim()} className="gap-1">
             <Plus className="h-3.5 w-3.5" /> Add
