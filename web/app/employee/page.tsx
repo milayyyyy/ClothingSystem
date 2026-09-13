@@ -14,6 +14,7 @@ export default async function EmployeeDashboard() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const uid = user.profile.id;
+  const isMedia = user.profile.role === "media";
   const supabase = createClient();
   const [
     { data: orders },
@@ -32,8 +33,8 @@ export default async function EmployeeDashboard() {
       .select("id,title,status,priority,due_date, assignees:task_assignees!inner(user_id)")
       .eq("assignees.user_id", uid)
       .order("due_date", { ascending: true }),
-    supabase.from("inventory").select("*"),
-    fetchReadyMadeDashboardLowStockItems(supabase),
+    isMedia ? Promise.resolve({ data: [] as { quantity?: unknown; min_level?: unknown }[] }) : supabase.from("inventory").select("*"),
+    isMedia ? Promise.resolve([]) : fetchReadyMadeDashboardLowStockItems(supabase),
     supabase.from("app_settings").select("value").eq("key", "clock_mode").maybeSingle(),
   ]);
 
@@ -76,7 +77,7 @@ export default async function EmployeeDashboard() {
       </div>
 
       <div className="mt-6">
-        <DashboardReminderCards tasks={tasksReminders} lowStock={lowStock} variant="employee" />
+        <DashboardReminderCards tasks={tasksReminders} lowStock={lowStock} variant="employee" showLowStock={!isMedia} />
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">

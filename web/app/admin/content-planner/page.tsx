@@ -1,13 +1,15 @@
 import { redirect } from "next/navigation";
-import { createClient, requireStaff } from "@/lib/supabase/server";
+import { createClient, getSessionUser } from "@/lib/supabase/server";
+import { canUseContentPlanner, defaultAfterLoginPath } from "@/lib/roles";
 import { PageHeader } from "@/components/page-header";
 import { ContentPlannerClient } from "./content-planner-client";
 
 export const dynamic = "force-dynamic";
 
 export default async function ContentPlannerPage() {
-  const user = await requireStaff();
+  const user = await getSessionUser();
   if (!user) redirect("/login");
+  if (!canUseContentPlanner(user.profile.role)) redirect(defaultAfterLoginPath(user.profile.role));
 
   const supabase = createClient();
   const [{ data: items }, { data: reminders }, { data: tasks }, typesRes, storesRes] = await Promise.all([
@@ -18,11 +20,16 @@ export default async function ContentPlannerPage() {
       .select("id, title, description, due_date, priority, status, task_type, machine_type_id, repeat_mode, repeat_interval_days")
       .order("due_date", { ascending: true }),
     supabase.from("content_types").select("id,name,color,sort_order").order("sort_order").order("name"),
-    supabase.from("content_stores").select("id,name,sort_order").order("sort_order").order("name"),
+    supabase.from("content_stores").select("id,name,color,sort_order").order("sort_order").order("name"),
   ]);
 
+  let stores = storesRes;
+  if (stores.error && /content_stores\.color|column.*color/i.test(stores.error.message)) {
+    stores = await supabase.from("content_stores").select("id,name,sort_order").order("sort_order").order("name");
+  }
+
   const typesMissing = Boolean(typesRes.error && /content_types|does not exist|schema cache/i.test(typesRes.error.message));
-  const storesMissing = Boolean(storesRes.error && /content_stores|does not exist|schema cache/i.test(storesRes.error.message));
+  const storesMissing = Boolean(stores.error && /content_stores|does not exist|schema cache/i.test(stores.error.message));
 
   return (
     <div>
@@ -33,7 +40,7 @@ export default async function ContentPlannerPage() {
         initialTasks={tasks ?? []}
         initialTypes={typesMissing ? [] : (typesRes.data ?? [])}
         typesMissing={typesMissing}
-        initialStores={storesMissing ? [] : (storesRes.data ?? [])}
+        initialStores={storesMissing ? [] : (stores.data ?? [])}
         storesMissing={storesMissing}
         userId={user.id}
       />

@@ -171,7 +171,7 @@ export function FaceLogin() {
       setStatus("success");
       const name = data.fullName ? String(data.fullName) : "there";
       const clockNote =
-        data.clockedIn && data.role === "employee" ? " You are clocked in." : "";
+        data.clockedIn && (data.role === "employee" || data.role === "media") ? " You are clocked in." : "";
       setMsg(`Welcome, ${name}!${clockNote}`);
 
       clearClientAuthCache();

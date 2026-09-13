@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient, requireStaff } from "@/lib/supabase/server";
+import { OPERATOR_PAYROLL_ROLES } from "@/lib/roles";
 import { PageHeader } from "@/components/page-header";
 import { MaintenanceClient } from "./maintenance-client";
 import { MAINTENANCE_SCHEDULE_SELECT, normalizeMaintenanceScheduleRow } from "@/lib/maintenance";
@@ -12,7 +13,7 @@ export default async function AdminMaintenancePage() {
   const supabase = createClient();
   const [{ data, error }, { data: staff }] = await Promise.all([
     supabase.from("maintenance_schedules").select(MAINTENANCE_SCHEDULE_SELECT).order("starts_at", { ascending: false }),
-    supabase.from("profiles").select("id, full_name, email, role").in("role", ["employee", "manager"]).order("full_name"),
+    supabase.from("profiles").select("id, full_name, email, role").in("role", [...OPERATOR_PAYROLL_ROLES]).order("full_name"),
   ]);
   if (error) {
     return (

@@ -6,8 +6,7 @@ import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { PwaRegister } from "@/components/pwa-register";
 import type { Permissions } from "@/lib/role-permissions";
-
-type Role = "admin" | "manager" | "employee";
+import type { Role } from "@/lib/roles";
 
 export function AppShell({
   role,

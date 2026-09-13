@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { GlobalSearch, QuickSearchTrigger } from "@/components/global-search";
+import { roleLabel } from "@/lib/roles";
 import { PwaInstallButton } from "@/components/pwa-install-button";
 import { Button } from "@/components/ui/button";
 
@@ -19,7 +20,7 @@ const NAMES: Record<string, string> = {
   admin: "Dashboard", orders: "Orders", stores: "Stores", inventory: "Inventory", assets: "Assets", "ready-made": "Ready made", employees: "Employees",
   attendance: "Attendance", salary: "Salary", expenses: "Expenses", reports: "Reports", maintenance: "Machine maintenance",
   "sales-expenses": "Sales & expenses", sales: "Sales", list: "Sales list",
-  employee: "Dashboard", profile: "Profile",
+  employee: "Dashboard", profile: "Profile", "content-planner": "Content Planner",
 };
 
 export function Topbar({
@@ -74,7 +75,7 @@ export function Topbar({
           <QuickSearchTrigger />
           <div className="hidden text-right text-xs md:block">
             <div className="max-w-[8rem] truncate font-medium">{name}</div>
-            <div className="capitalize text-muted-foreground">{role.replace("_", " ")}</div>
+            <div className="text-muted-foreground">{roleLabel(role)}</div>
           </div>
         </div>
       </header>

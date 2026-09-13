@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSrv } from "@supabase/supabase-js";
 import { getSessionUser } from "@/lib/supabase/server";
+import { ASSIGNABLE_ROLES, type Role } from "@/lib/roles";
 
 export async function POST(req: NextRequest) {
   const me = await getSessionUser();
@@ -16,6 +17,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { email, password, full_name, role, position, phone, date_of_birth, employment_start } = body || {};
   if (!email || !password) return NextResponse.json({ error: "email and password required" }, { status: 400 });
+  const allowed = new Set<string>(ASSIGNABLE_ROLES.map((r) => r.value));
+  const nextRole: Role = allowed.has(role) ? (role as Role) : "employee";
 
   const admin = createSrv(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
@@ -26,7 +29,7 @@ export async function POST(req: NextRequest) {
 
   const { error: pErr } = await admin.from("profiles").update({
     full_name,
-    role: role || "employee",
+    role: nextRole,
     position: position?.trim() || null,
     phone: phone || null,
     active: true,

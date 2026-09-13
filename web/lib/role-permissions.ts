@@ -44,6 +44,29 @@ function blankPerms(): Permissions {
   return Object.fromEntries(FEATURE_KEYS.map((k) => [k, { view: false, edit: false }])) as Permissions;
 }
 
+/** Media Management — Content Planner only on /admin; /employee/* is separate. */
+export function defaultMediaPerms(): Permissions {
+  const off = { view: false, edit: false } as const;
+  return {
+    dashboard: off,
+    orders: off,
+    inventory: off,
+    ready_made: off,
+    reports: off,
+    suppliers: off,
+    returns: off,
+    sales_expenses: off,
+    finance: off,
+    employees: off,
+    attendance: off,
+    salary: off,
+    tasks: { view: true, edit: true },
+    stores: off,
+    activity_log: off,
+    settings: off,
+  };
+}
+
 /** Fixed employee permissions — browse-only inventory + ready-made; /employee/* is separate. */
 export function defaultEmployeePerms(): Permissions {
   const off = { view: false, edit: false } as const;
@@ -140,6 +163,9 @@ export function isEmployeeOwnedAdminPath(path: string): boolean {
 }
 
 export function canAccessAdminPath(path: string, perms: Permissions, profileRole?: string): boolean {
+  if (profileRole === "media") {
+    return path === "/admin/content-planner" || path.startsWith("/admin/content-planner/");
+  }
   if (profileRole === "employee") {
     if (path.startsWith("/admin/inventory/ordering")) return false;
     if (isEmployeeOwnedAdminPath(path)) return false;
@@ -163,6 +189,7 @@ export async function getPermissionsForRole(
 ): Promise<Permissions> {
   if (role === "admin") return { all: true };
   if (role === "employee") return defaultEmployeePerms();
+  if (role === "media") return defaultMediaPerms();
 
   const { data } = await supabase.from("roles").select("permissions").eq("name", role).maybeSingle();
 

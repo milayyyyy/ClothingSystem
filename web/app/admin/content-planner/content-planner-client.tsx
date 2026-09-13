@@ -12,8 +12,8 @@ import { spawnNextRecurringTask, spawnNextRecurringReminder, repeatLabel } from 
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type ContentType = { id: string; name: string; color: string; sort_order?: number };
-export type ContentStore = { id: string; name: string; sort_order?: number };
+export type ContentType = { id: string; name: string; color?: string; sort_order?: number };
+export type ContentStore = { id: string; name: string; color?: string | null; sort_order?: number };
 
 export type ContentItem = {
   id: string; title: string; platform: Platform; scheduled_at: string;
@@ -96,7 +96,13 @@ const TASK_FORWARD_LABEL: Record<string, string> = {
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS   = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 const MAX_VISIBLE = 3;
-const FALLBACK_STORE_NAMES = ["Likha. Apparel", "Mensahe. Apparel", "Padayon. Apparel", "Drips. Apparel"];
+const FALLBACK_STORES: ContentStore[] = [
+  { id: "Likha. Apparel", name: "Likha. Apparel", color: "#8B5CF6" },
+  { id: "Mensahe. Apparel", name: "Mensahe. Apparel", color: "#3B82F6" },
+  { id: "Padayon. Apparel", name: "Padayon. Apparel", color: "#F59E0B" },
+  { id: "Drips. Apparel", name: "Drips. Apparel", color: "#10B981" },
+];
+const NEW_STORE_COLORS = ["#8B5CF6", "#3B82F6", "#F59E0B", "#10B981", "#EF4444", "#EC4899", "#06B6D4", "#64748B"];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -162,9 +168,31 @@ function hexAlpha(hex: string, alphaHex: string) {
   return `${normalizeHex(hex)}${alphaHex}`;
 }
 
+function colorForStore(store: ContentStore | null | undefined): string {
+  if (!store) return "#64748B";
+  const raw = String(store.color ?? "").trim();
+  if (/^#?[0-9a-fA-F]{6}$/.test(raw)) return normalizeHex(raw);
+  const keyed = FALLBACK_STORES.find((s) => s.name.toLowerCase() === store.name.toLowerCase());
+  return keyed?.color ?? "#64748B";
+}
+
 function TypeBadge({ type, size = "sm" }: { type: ContentType | null | undefined; size?: "sm" | "md" }) {
   if (!type) return null;
-  const color = normalizeHex(type.color);
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border border-border bg-muted/50 font-medium text-muted-foreground",
+        size === "sm" ? "px-1.5 py-0 text-[9px]" : "px-2 py-0.5 text-xs",
+      )}
+    >
+      {type.name}
+    </span>
+  );
+}
+
+function StoreBadge({ store, size = "sm" }: { store: ContentStore | null | undefined; size?: "sm" | "md" }) {
+  if (!store) return null;
+  const color = colorForStore(store);
   return (
     <span
       className={cn(
@@ -174,7 +202,7 @@ function TypeBadge({ type, size = "sm" }: { type: ContentType | null | undefined
       style={{ backgroundColor: hexAlpha(color, "26"), borderColor: hexAlpha(color, "66"), color }}
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-      {type.name}
+      {store.name}
     </span>
   );
 }
@@ -236,15 +264,27 @@ export function ContentPlannerClient({
     if (!id) return null;
     return stores.find((s) => s.id === id) ?? null;
   }
-  const storeChoices = stores.length > 0 ? stores : FALLBACK_STORE_NAMES.map((name) => ({ id: name, name }));
+  const storeChoices = stores.length > 0 ? stores : FALLBACK_STORES;
+
+  function itemStore(item: ContentItem) {
+    const id = inferStoreId(item.title, storeChoices, item.content_store_id);
+    return storeById(id) ?? storeChoices.find((s) => s.id === id) ?? null;
+  }
 
   async function refreshTypes() {
-    const { data, error } = await supabase.from("content_types").select("id,name,color,sort_order").order("sort_order").order("name");
+    const { data, error } = await supabase.from("content_types").select("id,name,sort_order").order("sort_order").order("name");
     if (!error) setTypes((data as ContentType[]) || []);
   }
   async function refreshStores() {
-    const { data, error } = await supabase.from("content_stores").select("id,name,sort_order").order("sort_order").order("name");
-    if (!error) setStores((data as ContentStore[]) || []);
+    const withColor = await supabase.from("content_stores").select("id,name,color,sort_order").order("sort_order").order("name");
+    if (!withColor.error) {
+      setStores((withColor.data as ContentStore[]) || []);
+      return;
+    }
+    if (/column.*color|content_stores\.color/i.test(withColor.error.message)) {
+      const { data, error } = await supabase.from("content_stores").select("id,name,sort_order").order("sort_order").order("name");
+      if (!error) setStores((data as ContentStore[]) || []);
+    }
   }
 
   // Re-fetch tasks on mount so newly created tasks appear immediately
@@ -539,8 +579,8 @@ export function ContentPlannerClient({
 
                     {/* Content items */}
                     {visContent.map(item => {
-                      const ctype = typeById(item.content_type_id);
-                      const color = ctype ? normalizeHex(ctype.color) : null;
+                      const store = itemStore(item);
+                      const color = store ? colorForStore(store) : null;
                       return (
                       <div key={item.id}
                         className={cn("flex cursor-pointer items-center gap-1 rounded border px-1 py-0.5 text-[10px] transition-all", !color && STATUS_CFG[item.status].pill, focusedId === item.id && "ring-1 ring-primary")}
@@ -549,7 +589,7 @@ export function ContentPlannerClient({
                           e.stopPropagation();
                           openDay(dateStr, item.id);
                         }}
-                        title={ctype ? `${ctype.name} · ${item.title}` : item.title}
+                        title={store ? `${store.name} · ${item.title}` : item.title}
                       >
                         <span className="shrink-0 font-mono text-[10px] text-foreground/80">{formatTime(item.scheduled_at)}</span>
                         <span className="min-w-0 flex-1 truncate text-foreground/80">{item.title}</span>
@@ -580,10 +620,10 @@ export function ContentPlannerClient({
           {Object.entries(STATUS_CFG).map(([k,v]) => (
             <span key={k} className="flex items-center gap-1"><span className={cn("h-2 w-2 rounded-full",v.dot)} />{v.label}</span>
           ))}
-          {types.map((t) => (
-            <span key={t.id} className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: normalizeHex(t.color) }} />
-              {t.name}
+          {storeChoices.map((s) => (
+            <span key={s.id} className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colorForStore(s) }} />
+              {s.name}
             </span>
           ))}
           <span className="flex items-center gap-1"><Bell className="h-2.5 w-2.5 text-violet-400" />Reminder</span>
@@ -777,7 +817,8 @@ export function ContentPlannerClient({
               {dayItems.map((item) => {
                 const focused = focusedId === item.id;
                 const ctype = typeById(item.content_type_id);
-                const color = ctype ? normalizeHex(ctype.color) : null;
+                const store = itemStore(item);
+                const color = store ? colorForStore(store) : null;
                 return (
                   <div
                     key={item.id}
@@ -879,21 +920,24 @@ export function ContentPlannerClient({
               </button>
             </div>
             {storesMissing && (
-              <p className="mt-1 text-xs text-muted-foreground">Run migration <code className="font-mono text-foreground">108_content_stores.sql</code> in Supabase to save custom stores.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Run migrations <code className="font-mono text-foreground">108_content_stores.sql</code> and <code className="font-mono text-foreground">110_content_store_colors.sql</code> in Supabase to save custom stores and colors.</p>
             )}
             <div className="mt-1.5 flex flex-wrap gap-1.5">
               {storeChoices.map((store) => {
                 const selected = form.content_store_id === store.id;
+                const color = colorForStore(store);
                 return (
                   <button
                     key={store.id}
                     type="button"
                     onClick={() => setF("content_store_id", store.id)}
                     className={cn(
-                      "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                      selected ? "border-primary bg-primary/15 text-foreground ring-1 ring-primary/40" : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                      "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                      selected ? "ring-1 ring-foreground/30" : "opacity-80 hover:opacity-100",
                     )}
+                    style={{ backgroundColor: hexAlpha(color, selected ? "33" : "1A"), borderColor: hexAlpha(color, selected ? "99" : "55"), color }}
                   >
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
                     {store.name}
                   </button>
                 );
@@ -919,7 +963,6 @@ export function ContentPlannerClient({
             ) : (
               <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {types.map((t) => {
-                  const color = normalizeHex(t.color);
                   const selected = form.content_type_id === t.id;
                   return (
                     <button
@@ -927,12 +970,10 @@ export function ContentPlannerClient({
                       type="button"
                       onClick={() => setF("content_type_id", t.id)}
                       className={cn(
-                        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                        selected ? "ring-1 ring-foreground/30" : "opacity-80 hover:opacity-100",
+                        "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                        selected ? "border-primary bg-primary/15 text-foreground ring-1 ring-primary/40" : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                       )}
-                      style={{ backgroundColor: hexAlpha(color, selected ? "33" : "1A"), borderColor: hexAlpha(color, selected ? "99" : "55"), color }}
                     >
-                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
                       {t.name}
                     </button>
                   );
@@ -972,7 +1013,8 @@ export function ContentPlannerClient({
             <Input id="cp-notes" className="mt-1" placeholder="Internal notes…" value={form.notes} onChange={e => setF("notes", e.target.value)} />
           </div>
           <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs">
-            <span className="font-medium">{selectedStoreName || "Store"}</span>
+            <StoreBadge store={storeById(form.content_store_id) ?? storeChoices.find((s) => s.id === form.content_store_id)} size="md" />
+            {!selectedStoreName && <span className="font-medium">Store</span>}
             <span className="text-muted-foreground">·</span>
             <TypeBadge type={typeById(form.content_type_id)} size="md" />
             <PlatformBadge platform={form.platform} />
@@ -1013,8 +1055,6 @@ export function ContentPlannerClient({
   );
 }
 
-const NEW_TYPE_COLORS = ["#8B5CF6", "#3B82F6", "#64748B", "#F59E0B", "#10B981", "#EF4444", "#EC4899", "#06B6D4"];
-
 function ManageTypesDialog({
   open,
   types,
@@ -1028,18 +1068,16 @@ function ManageTypesDialog({
 }) {
   const supabase = createClient();
   const [name, setName] = useState("");
-  const [color, setColor] = useState("#8B5CF6");
-  const [drafts, setDrafts] = useState<Record<string, { name: string; color: string }>>({});
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setName("");
-    setColor(NEW_TYPE_COLORS[types.length % NEW_TYPE_COLORS.length]);
     setErr(null);
-    const next: Record<string, { name: string; color: string }> = {};
-    for (const t of types) next[t.id] = { name: t.name, color: normalizeHex(t.color) };
+    const next: Record<string, string> = {};
+    for (const t of types) next[t.id] = t.name;
     setDrafts(next);
   }, [open, types]);
 
@@ -1050,7 +1088,7 @@ function ManageTypesDialog({
     setBusy(true); setErr(null);
     const { data, error } = await supabase
       .from("content_types")
-      .insert({ name: trimmed, color: normalizeHex(color), sort_order: types.length + 1 })
+      .insert({ name: trimmed, color: "#64748B", sort_order: types.length + 1 })
       .select("id")
       .single();
     setBusy(false);
@@ -1061,13 +1099,13 @@ function ManageTypesDialog({
 
   async function saveType(id: string) {
     const draft = drafts[id];
-    if (!draft) return;
-    const trimmed = draft.name.trim();
+    if (draft == null) return;
+    const trimmed = draft.trim();
     if (!trimmed) { setErr("Type name cannot be empty."); return; }
     setBusy(true); setErr(null);
     const { error } = await supabase
       .from("content_types")
-      .update({ name: trimmed, color: normalizeHex(draft.color) })
+      .update({ name: trimmed })
       .eq("id", id);
     setBusy(false);
     if (error) { setErr(error.message); return; }
@@ -1084,24 +1122,17 @@ function ManageTypesDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Manage content types" description="Add your own types and pick a color for each." size="md">
+    <Dialog open={open} onClose={onClose} title="Manage content types" description="Add or rename types. Calendar color comes from the store." size="md">
       <div className="space-y-4">
         <div className="space-y-2">
           {types.map((t) => {
-            const draft = drafts[t.id] ?? { name: t.name, color: normalizeHex(t.color) };
-            const dirty = draft.name.trim() !== t.name || normalizeHex(draft.color) !== normalizeHex(t.color);
+            const draft = drafts[t.id] ?? t.name;
+            const dirty = draft.trim() !== t.name;
             return (
               <div key={t.id} className="flex items-center gap-2">
-                <input
-                  type="color"
-                  className="h-8 w-8 shrink-0 cursor-pointer rounded border border-input bg-background p-0.5"
-                  value={draft.color}
-                  onChange={(e) => setDrafts((prev) => ({ ...prev, [t.id]: { ...draft, color: e.target.value } }))}
-                  aria-label={`${t.name} color`}
-                />
                 <Input
-                  value={draft.name}
-                  onChange={(e) => setDrafts((prev) => ({ ...prev, [t.id]: { ...draft, name: e.target.value } }))}
+                  value={draft}
+                  onChange={(e) => setDrafts((prev) => ({ ...prev, [t.id]: e.target.value }))}
                 />
                 <Button type="button" size="sm" variant="outline" disabled={!dirty || busy} onClick={() => void saveType(t.id)}>
                   Save
@@ -1121,15 +1152,6 @@ function ManageTypesDialog({
         </div>
 
         <form onSubmit={addType} className="flex items-end gap-2 border-t pt-3">
-          <div className="shrink-0">
-            <Label>Color</Label>
-            <input
-              type="color"
-              className="mt-1 block h-9 w-9 cursor-pointer rounded border border-input bg-background p-0.5"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-            />
-          </div>
           <div className="min-w-0 flex-1">
             <Label htmlFor="new-content-type">New type</Label>
             <Input id="new-content-type" className="mt-1" placeholder="e.g. Reel, Story…" value={name} onChange={(e) => setName(e.target.value)} />
@@ -1157,16 +1179,18 @@ function ManageStoresDialog({
 }) {
   const supabase = createClient();
   const [name, setName] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [color, setColor] = useState("#8B5CF6");
+  const [drafts, setDrafts] = useState<Record<string, { name: string; color: string }>>({});
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setName("");
+    setColor(NEW_STORE_COLORS[stores.length % NEW_STORE_COLORS.length]);
     setErr(null);
-    const next: Record<string, string> = {};
-    for (const s of stores) next[s.id] = s.name;
+    const next: Record<string, { name: string; color: string }> = {};
+    for (const s of stores) next[s.id] = { name: s.name, color: colorForStore(s) };
     setDrafts(next);
   }, [open, stores]);
 
@@ -1175,11 +1199,14 @@ function ManageStoresDialog({
     const trimmed = name.trim();
     if (!trimmed) { setErr("Enter a store name."); return; }
     setBusy(true); setErr(null);
-    const { data, error } = await supabase
-      .from("content_stores")
-      .insert({ name: trimmed, sort_order: stores.length + 1 })
-      .select("id")
-      .single();
+    const payload = { name: trimmed, color: normalizeHex(color), sort_order: stores.length + 1 };
+    let { data, error } = await supabase.from("content_stores").insert(payload).select("id").single();
+    if (error && /column.*color|content_stores\.color/i.test(error.message)) {
+      const retry = await supabase.from("content_stores").insert({ name: trimmed, sort_order: stores.length + 1 }).select("id").single();
+      data = retry.data;
+      error = retry.error;
+      if (!error) setErr("Run migration 110_content_store_colors.sql so store colors can be saved.");
+    }
     setBusy(false);
     if (error) { setErr(error.message); return; }
     setName("");
@@ -1188,11 +1215,16 @@ function ManageStoresDialog({
 
   async function saveStore(id: string) {
     const draft = drafts[id];
-    if (draft == null) return;
-    const trimmed = draft.trim();
+    if (!draft) return;
+    const trimmed = draft.name.trim();
     if (!trimmed) { setErr("Store name cannot be empty."); return; }
     setBusy(true); setErr(null);
-    const { error } = await supabase.from("content_stores").update({ name: trimmed }).eq("id", id);
+    let { error } = await supabase.from("content_stores").update({ name: trimmed, color: normalizeHex(draft.color) }).eq("id", id);
+    if (error && /column.*color|content_stores\.color/i.test(error.message)) {
+      const retry = await supabase.from("content_stores").update({ name: trimmed }).eq("id", id);
+      error = retry.error;
+      if (!error) setErr("Run migration 110_content_store_colors.sql so store colors can be saved.");
+    }
     setBusy(false);
     if (error) { setErr(error.message); return; }
     await onChanged();
@@ -1208,17 +1240,24 @@ function ManageStoresDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Manage stores" description="Add or rename the stores you schedule content for." size="md">
+    <Dialog open={open} onClose={onClose} title="Manage stores" description="Pick a color for each store. That color is what shows on the calendar." size="md">
       <div className="space-y-4">
         <div className="space-y-2">
           {stores.map((s) => {
-            const draft = drafts[s.id] ?? s.name;
-            const dirty = draft.trim() !== s.name;
+            const draft = drafts[s.id] ?? { name: s.name, color: colorForStore(s) };
+            const dirty = draft.name.trim() !== s.name || normalizeHex(draft.color) !== colorForStore(s);
             return (
               <div key={s.id} className="flex items-center gap-2">
+                <input
+                  type="color"
+                  className="h-8 w-8 shrink-0 cursor-pointer rounded border border-input bg-background p-0.5"
+                  value={draft.color}
+                  onChange={(e) => setDrafts((prev) => ({ ...prev, [s.id]: { ...draft, color: e.target.value } }))}
+                  aria-label={`${s.name} color`}
+                />
                 <Input
-                  value={draft}
-                  onChange={(e) => setDrafts((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                  value={draft.name}
+                  onChange={(e) => setDrafts((prev) => ({ ...prev, [s.id]: { ...draft, name: e.target.value } }))}
                 />
                 <Button type="button" size="sm" variant="outline" disabled={!dirty || busy} onClick={() => void saveStore(s.id)}>
                   Save
@@ -1238,6 +1277,15 @@ function ManageStoresDialog({
         </div>
 
         <form onSubmit={addStore} className="flex items-end gap-2 border-t pt-3">
+          <div className="shrink-0">
+            <Label>Color</Label>
+            <input
+              type="color"
+              className="mt-1 block h-9 w-9 cursor-pointer rounded border border-input bg-background p-0.5"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+            />
+          </div>
           <div className="min-w-0 flex-1">
             <Label htmlFor="new-content-store">New store</Label>
             <Input id="new-content-store" className="mt-1" placeholder="e.g. Likha. Apparel" value={name} onChange={(e) => setName(e.target.value)} />

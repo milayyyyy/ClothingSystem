@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
   }
 
   let clockedIn = false;
-  if (profile.role === "employee") {
+  if (profile.role === "employee" || profile.role === "media") {
     const { data: open } = await admin
       .from("attendance")
       .select("id")

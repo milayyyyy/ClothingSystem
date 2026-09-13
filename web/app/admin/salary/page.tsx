@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { PROFILE_LIST_SELECT } from "@/lib/profile-select";
+import { OPERATOR_PAYROLL_ROLES } from "@/lib/roles";
 import { PageHeader } from "@/components/page-header";
 import { SalaryClient } from "./salary-client";
 
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminSalaryPage() {
   const supabase = createClient();
   const [{ data: employees }, { data: salaries }, { data: attendance }, { data: financeAccounts }] = await Promise.all([
-    supabase.from("profiles").select(PROFILE_LIST_SELECT).in("role", ["employee", "manager"]),
+    supabase.from("profiles").select(PROFILE_LIST_SELECT).in("role", [...OPERATOR_PAYROLL_ROLES]),
     supabase
       .from("salaries")
       .select("*")

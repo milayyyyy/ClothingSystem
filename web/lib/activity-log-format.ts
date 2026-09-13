@@ -110,7 +110,7 @@ const TITLE_FIELDS: Record<string, string[]> = {
   restock_orders: ["item_label", "qty", "status"],
   content_schedules: ["title", "platform", "status"],
   content_types: ["name", "color"],
-  content_stores: ["name"],
+  content_stores: ["name", "color"],
   sublimation_teams: ["name"],
 };
 

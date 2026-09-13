@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminMySalaryPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  if (user.profile.role === "employee") redirect("/employee/salary");
+  if (user.profile.role === "employee" || user.profile.role === "media") redirect("/employee/salary");
   if (user.profile.role !== "manager") redirect("/admin/salary");
 
   const supabase = createClient();

@@ -11,7 +11,7 @@ const SELECT =
 export default async function OrderingPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
-  if (user.profile.role === "employee") redirect("/employee");
+  if (user.profile.role === "employee" || user.profile.role === "media") redirect("/employee");
   if (user.profile.role !== "admin" && user.profile.role !== "manager") redirect("/admin");
 
   const supabase = createClient();

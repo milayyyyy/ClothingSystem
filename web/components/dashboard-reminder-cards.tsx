@@ -85,6 +85,7 @@ export function DashboardReminderCards({
   lowStock,
   lowStockReadyMade,
   variant,
+  showLowStock = true,
 }: {
   tasks: DashboardTaskReminder[];
   /** Regular inventory low-stock items. */
@@ -92,6 +93,7 @@ export function DashboardReminderCards({
   /** Ready-made inventory low-stock items (shown in a separate card). */
   lowStockReadyMade?: DashboardLowStockItem[];
   variant: "admin" | "employee";
+  showLowStock?: boolean;
 }) {
   const tasksHref = variant === "admin" ? "/admin/tasks" : "/employee/tasks";
   const invHref = variant === "admin" ? "/admin/inventory" : null;
@@ -146,7 +148,7 @@ export function DashboardReminderCards({
       </Card>
 
       {/* Inventory low stock */}
-      <Card className="flex flex-col anim-in">
+      {showLowStock && <Card className="flex flex-col anim-in">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -175,7 +177,7 @@ export function DashboardReminderCards({
       </Card>
 
       {/* Ready-made low stock */}
-      <Card className="flex flex-col anim-in">
+      {showLowStock && <Card className="flex flex-col anim-in">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2">
             <CardTitle className="flex items-center gap-2 text-base">

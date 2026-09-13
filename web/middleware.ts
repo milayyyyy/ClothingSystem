@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { canAccessAdminPath, getPermissionsForRole } from "@/lib/role-permissions";
+import { defaultAfterLoginPath, isPortalRole } from "@/lib/roles";
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } });
@@ -28,7 +29,7 @@ export async function middleware(request: NextRequest) {
   const isProtected = path.startsWith("/admin") || path.startsWith("/employee");
 
   const ROLE_COOKIE = "cs_role";
-  const allowedRoles = new Set(["admin", "manager", "employee"]);
+  const allowedRoles = new Set(["admin", "manager", "employee", "media"]);
   let profile: { role: string } | null = null;
   if (user) {
     const cached = request.cookies.get(ROLE_COOKIE)?.value ?? "";
@@ -69,8 +70,14 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
     const role = profile.role;
+    // Media accounts stay in the employee workspace except Content Planner.
+    if (role === "media" && path.startsWith("/employee/order-records")) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/employee";
+      return NextResponse.redirect(url);
+    }
     // Managers and admins use the admin workspace, not /employee.
-    if (path.startsWith("/employee") && role !== "employee") {
+    if (path.startsWith("/employee") && !isPortalRole(role)) {
       const url = request.nextUrl.clone();
       if (path.startsWith("/employee/orders")) url.pathname = "/admin/orders";
       else if (path.startsWith("/employee/tasks")) url.pathname = "/admin/tasks";
@@ -81,7 +88,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
     // Employees may access specific /admin routes when their role grants view permission.
-    if (path.startsWith("/admin") && role === "employee") {
+    if (path.startsWith("/admin") && isPortalRole(role)) {
       const blockedForEmployee = ["/admin/settings", "/admin/export", "/admin/stores", "/admin/inventory/ordering"];
       if (blockedForEmployee.some((p) => path === p || path.startsWith(`${p}/`))) {
         const url = request.nextUrl.clone();
@@ -112,7 +119,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
     // employees cannot access reminders, POS, or ordering / restocking
-    if ((path.startsWith("/admin/reminders") || path.startsWith("/admin/pos") || path.startsWith("/admin/inventory/ordering")) && role === "employee") {
+    if ((path.startsWith("/admin/reminders") || path.startsWith("/admin/pos") || path.startsWith("/admin/inventory/ordering")) && isPortalRole(role)) {
       const url = request.nextUrl.clone();
       url.pathname = "/employee";
       return NextResponse.redirect(url);
@@ -125,7 +132,7 @@ export async function middleware(request: NextRequest) {
       return response;
     }
     const url = request.nextUrl.clone();
-    url.pathname = profile.role === "employee" ? "/employee" : "/admin";
+    url.pathname = defaultAfterLoginPath(profile.role);
     return NextResponse.redirect(url);
   }
 

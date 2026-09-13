@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient, requireStaff } from "@/lib/supabase/server";
+import { OPERATOR_PAYROLL_ROLES } from "@/lib/roles";
 import { PageHeader } from "@/components/page-header";
 import { TasksClient } from "./tasks-client";
 
@@ -11,7 +12,7 @@ export default async function TasksPage() {
   const supabase = createClient();
   const [{ data: tasks }, { data: people }] = await Promise.all([
     supabase.from("tasks").select("*, assignees:task_assignees(user_id, profiles:user_id(full_name, email, role))").order("created_at", { ascending: false }),
-    supabase.from("profiles").select("id, full_name, email, role").in("role", ["employee", "manager"]),
+    supabase.from("profiles").select("id, full_name, email, role").in("role", [...OPERATOR_PAYROLL_ROLES]),
   ]);
   return (
     <div>

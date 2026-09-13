@@ -2,8 +2,9 @@ import { cache } from "react";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { PROFILE_LIST_SELECT } from "@/lib/profile-select";
+import { isStaffRole, type Role } from "@/lib/roles";
 
-export type Role = "admin" | "manager" | "employee";
+export type { Role };
 
 function requirePublicEnv(name: "NEXT_PUBLIC_SUPABASE_URL" | "NEXT_PUBLIC_SUPABASE_ANON_KEY", v: string | undefined) {
   const t = (v ?? "").trim();
@@ -57,7 +58,7 @@ export const getSessionUser = cache(async () => {
 });
 
 export function isStaff(role: Role | string | undefined) {
-  return role === "admin" || role === "manager";
+  return isStaffRole(role);
 }
 
 export async function requireStaff() {

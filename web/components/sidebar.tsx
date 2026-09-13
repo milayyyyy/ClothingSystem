@@ -46,8 +46,7 @@ import {
   isEmployeeOwnedAdminPath,
   type Permissions,
 } from "@/lib/role-permissions";
-
-type Role = "admin" | "manager" | "employee";
+import { isPortalRole, roleLabel, type Role } from "@/lib/roles";
 type Child = { href: string; label: string; icon: React.ComponentType<{ className?: string }>; query?: Record<string, string>; adminOrManagerOnly?: boolean; adminOnly?: boolean };
 type Item = {
   href: string;
@@ -140,6 +139,20 @@ const EMPLOYEE_GROUPS: Group[] = [
   ]},
 ];
 
+const MEDIA_GROUPS: Group[] = [
+  { title: "Workspace", items: [
+    { href: "/employee", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/employee/orders", label: "My Orders", icon: ShoppingBag },
+    { href: "/employee/tasks", label: "My Tasks", icon: ListChecks },
+    { href: "/admin/content-planner", label: "Content Planner", icon: CalendarDays },
+  ]},
+  { title: "Personal", items: [
+    { href: "/employee/attendance", label: "Attendance", icon: Clock },
+    { href: "/employee/salary", label: "My Salary", icon: Wallet },
+    { href: "/employee/profile", label: "Profile", icon: Users },
+  ]},
+];
+
 function initials(name: string) {
   return name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase() || "U";
 }
@@ -205,7 +218,9 @@ export function Sidebar({
   const router = useRouter();
   const perms = permissions ?? ({ all: role === "admin" } as Permissions);
   const groups =
-    role === "employee"
+    role === "media"
+      ? MEDIA_GROUPS
+      : role === "employee"
       ? (() => {
           const extra = employeeGrantedAdminItems(perms);
           return extra.length > 0
@@ -213,7 +228,7 @@ export function Sidebar({
             : EMPLOYEE_GROUPS;
         })()
       : filterStaffGroups(STAFF_GROUPS, perms, role);
-  const homeBase = role === "employee" ? "/employee" : "/admin";
+  const homeBase = isPortalRole(role) ? "/employee" : "/admin";
 
   // Manual expand state — start with active section auto-expanded
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
@@ -295,7 +310,7 @@ export function Sidebar({
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold tracking-tight">PrintShop</div>
-          <div className="truncate text-[11px] text-muted-foreground capitalize">{role.replace("_", " ")} workspace</div>
+          <div className="truncate text-[11px] text-muted-foreground">{roleLabel(role)} workspace</div>
         </div>
       </div>
 
@@ -404,7 +419,7 @@ export function Sidebar({
           </div>
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium">{name}</div>
-            <div className="truncate text-[11px] capitalize text-muted-foreground">{role.replace("_", " ")}</div>
+            <div className="truncate text-[11px] text-muted-foreground">{roleLabel(role)}</div>
           </div>
           <ThemeToggle />
         </div>

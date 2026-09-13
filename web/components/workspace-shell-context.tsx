@@ -2,7 +2,7 @@
 
 import { createContext, useContext } from "react";
 import type { Permissions } from "@/lib/role-permissions";
-import type { Role } from "@/lib/supabase/server";
+import type { Role } from "@/lib/roles";
 
 export type WorkspaceShell = {
   role: Role;

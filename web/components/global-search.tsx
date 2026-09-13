@@ -35,6 +35,7 @@ const NAV_SHORTCUTS: ResultItem[] = [
   { id: "nav-salary",       section: "Navigation", icon: <FileText className="h-4 w-4" />,        title: "Salary",                  href: "/admin/salary" },
   { id: "nav-my-salary",    section: "Navigation", icon: <FileText className="h-4 w-4" />,        title: "My Salary",               href: "/admin/my-salary" },
   { id: "nav-tasks",        section: "Navigation", icon: <ClipboardList className="h-4 w-4" />,   title: "Tasks",                   href: "/admin/tasks" },
+  { id: "nav-content",      section: "Navigation", icon: <ClipboardList className="h-4 w-4" />,   title: "Content Planner",         href: "/admin/content-planner" },
   { id: "nav-stores",       section: "Navigation", icon: <Store className="h-4 w-4" />,            title: "Stores",                  href: "/admin/stores" },
   { id: "nav-reports",      section: "Navigation", icon: <BarChart2 className="h-4 w-4" />,        title: "Reports",                 href: "/admin/reports" },
   { id: "nav-activity",     section: "Navigation", icon: <Activity className="h-4 w-4" />,         title: "Activity Log",            href: "/admin/activity" },
@@ -329,8 +330,28 @@ export function GlobalSearch({ role }: { role?: string }) {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query]);
 
-  const navShortcuts = role === "employee"
-    ? NAV_SHORTCUTS.filter((n) => !["/admin/settings", "/admin/stores", "/admin/export", "/admin/my-salary", "/admin/inventory/ordering"].some((h) => n.href === h || n.href.startsWith(`${h}/`)))
+  const mediaNavHrefs = new Set([
+    "/employee",
+    "/employee/orders",
+    "/employee/tasks",
+    "/admin/content-planner",
+    "/employee/attendance",
+    "/employee/salary",
+    "/employee/profile",
+  ]);
+  const mediaNavShortcuts: ResultItem[] = [
+    { id: "nav-dashboard", section: "Navigation", icon: <LayoutDashboard className="h-4 w-4" />, title: "Dashboard", href: "/employee" },
+    { id: "nav-orders", section: "Navigation", icon: <ShoppingBag className="h-4 w-4" />, title: "My Orders", href: "/employee/orders" },
+    { id: "nav-tasks", section: "Navigation", icon: <ClipboardList className="h-4 w-4" />, title: "My Tasks", href: "/employee/tasks" },
+    { id: "nav-content", section: "Navigation", icon: <ClipboardList className="h-4 w-4" />, title: "Content Planner", href: "/admin/content-planner" },
+    { id: "nav-attendance", section: "Navigation", icon: <ClipboardList className="h-4 w-4" />, title: "Attendance", href: "/employee/attendance" },
+    { id: "nav-my-salary", section: "Navigation", icon: <FileText className="h-4 w-4" />, title: "My Salary", href: "/employee/salary" },
+    { id: "nav-profile", section: "Navigation", icon: <Users className="h-4 w-4" />, title: "Profile", href: "/employee/profile" },
+  ];
+  const navShortcuts = role === "media"
+    ? mediaNavShortcuts.filter((n) => mediaNavHrefs.has(n.href))
+    : role === "employee"
+    ? NAV_SHORTCUTS.filter((n) => !["/admin/settings", "/admin/stores", "/admin/export", "/admin/my-salary", "/admin/inventory/ordering", "/admin/content-planner"].some((h) => n.href === h || n.href.startsWith(`${h}/`)))
     : role === "manager"
     ? NAV_SHORTCUTS.filter((n) => n.href !== "/admin/settings")
     : NAV_SHORTCUTS.filter((n) => n.href !== "/admin/my-salary");

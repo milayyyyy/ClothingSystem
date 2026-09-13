@@ -16,6 +16,7 @@ import { Camera, Eye, EyeOff, Pencil, Plus, ScanFace, Settings2, ShieldCheck, Tr
 import { FaceEnrollDialog } from "@/components/face-enroll-dialog";
 import { RoleSettingsDialog } from "@/components/role-settings-dialog";
 import { useConfirmAction } from "@/components/confirm-dialog";
+import { ASSIGNABLE_ROLES, roleLabel } from "@/lib/roles";
 
 type EmpPosition = { id: string; name: string; sort_order: number };
 
@@ -249,7 +250,7 @@ export function EmployeesClient({
 
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 <Badge variant="teal">Permanent</Badge>
-                <Badge variant={p.role === "admin" ? "purple" : p.role === "manager" ? "amber" : "blue"}>{p.role}</Badge>
+                <Badge variant={p.role === "admin" ? "purple" : p.role === "manager" ? "amber" : p.role === "media" ? "teal" : "blue"}>{roleLabel(p.role)}</Badge>
                 <Badge variant={p.active ? "green" : "red"}>{p.active ? "Active" : "Inactive"}</Badge>
                 {p.position && <Badge variant="outline">{p.position}</Badge>}
               </div>
@@ -571,9 +572,9 @@ function AddEmployee({
         <div>
           <Label>Role</Label>
           <select className={selectClass} value={form.role} onChange={(e) => set("role", e.target.value)}>
-            <option value="employee">Employee</option>
-            <option value="manager">Manager</option>
-            <option value="admin">Admin</option>
+            {ASSIGNABLE_ROLES.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
           </select>
         </div>
         <div><Label>Date of birth</Label><Input type="date" value={form.date_of_birth} onChange={(e) => set("date_of_birth", e.target.value)} /></div>
@@ -740,9 +741,9 @@ function EditEmployee({
         <div>
           <Label>Role</Label>
           <select className={selectClass} value={form.role} onChange={(e) => set("role", e.target.value)}>
-            <option value="employee">Employee</option>
-            <option value="manager">Manager</option>
-            <option value="admin">Admin</option>
+            {ASSIGNABLE_ROLES.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
           </select>
         </div>
         <div>

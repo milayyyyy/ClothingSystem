@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AttendanceRow, EmployeeOption } from "@/app/admin/attendance/attendance-client";
+import { OPERATOR_PAYROLL_ROLES } from "@/lib/roles";
 
 export type AttendancePageData = {
   rows: AttendanceRow[];
@@ -17,7 +18,7 @@ export async function loadAttendancePageData(supabase: SupabaseClient): Promise<
     supabase
       .from("profiles")
       .select("id, full_name, email, face_descriptor")
-      .in("role", ["employee", "manager"])
+      .in("role", [...OPERATOR_PAYROLL_ROLES])
       .order("full_name"),
     supabase.from("app_settings").select("key, value").eq("key", "clock_mode").maybeSingle(),
   ]);

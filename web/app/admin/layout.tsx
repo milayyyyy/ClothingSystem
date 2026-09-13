@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { getPermissionsForRole } from "@/lib/role-permissions";
+import { asShellRole } from "@/lib/roles";
 import { AppShell } from "@/components/app-shell";
 import { WorkspaceShellProvider } from "@/components/workspace-shell-context";
 
@@ -15,11 +16,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const supabase = createClient();
   const permissions = await getPermissionsForRole(supabase, user.profile.role);
   const name = user.profile.full_name || user.email!;
+  const shellRole = asShellRole(user.profile.role);
   return (
-    <AppShell key={user.id} role={user.profile.role} name={name} permissions={permissions} userId={user.id}>
+    <AppShell key={user.id} role={shellRole} name={name} permissions={permissions} userId={user.id}>
       <WorkspaceShellProvider
         value={{
-          role: user.profile.role,
+          role: shellRole,
           userId: user.id,
           name,
           permissions,

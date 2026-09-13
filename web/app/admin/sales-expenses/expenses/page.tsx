@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { OPERATOR_PAYROLL_ROLES } from "@/lib/roles";
 import { PageHeader } from "@/components/page-header";
 import { ExpensesClient } from "@/app/admin/expenses/expenses-client";
 
@@ -22,7 +23,7 @@ export default async function AdminExpensesSubPage() {
     supabase
       .from("profiles")
       .select("id,full_name,email,role,employment_category")
-      .in("role", ["employee", "manager"])
+      .in("role", [...OPERATOR_PAYROLL_ROLES])
       .order("full_name", { ascending: true }),
     supabase
       .from("on_call_staff")
