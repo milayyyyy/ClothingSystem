@@ -148,62 +148,66 @@ export function DashboardReminderCards({
       </Card>
 
       {/* Inventory low stock */}
-      {showLowStock && <Card className="flex flex-col anim-in">
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
-              Low stock
-            </CardTitle>
-            {invHref ? (
-              <Link href={invHref} className="shrink-0 text-xs font-medium text-primary hover:underline">Open →</Link>
-            ) : (
-              <span className="shrink-0 text-xs text-muted-foreground">Heads-up</span>
+      {showLowStock && (
+        <Card className="flex flex-col anim-in">
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                Low stock
+              </CardTitle>
+              {invHref ? (
+                <Link href={invHref} className="shrink-0 text-xs font-medium text-primary hover:underline">Open →</Link>
+              ) : (
+                <span className="shrink-0 text-xs text-muted-foreground">Heads-up</span>
+              )}
+            </div>
+            <CardDescription>Inventory — at or below minimum</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-1 flex-col pt-0">
+            <LowStockList
+              items={invItems}
+              emptyText="All inventory above minimum."
+              footerHref={invHref}
+              footerLabel={invHref ? "View inventory →" : undefined}
+            />
+            {!invHref && invItems.length > 0 && (
+              <p className="mt-auto pt-1 text-xs text-muted-foreground">Tell admin if you need stock pulled.</p>
             )}
-          </div>
-          <CardDescription>Inventory — at or below minimum</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-1 flex-col pt-0">
-          <LowStockList
-            items={invItems}
-            emptyText="All inventory above minimum."
-            footerHref={invHref}
-            footerLabel={invHref ? "View inventory →" : undefined}
-          />
-          {!invHref && invItems.length > 0 && (
-            <p className="mt-auto pt-1 text-xs text-muted-foreground">Tell admin if you need stock pulled.</p>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Ready-made low stock */}
-      {showLowStock && <Card className="flex flex-col anim-in">
-        <CardHeader className="pb-3">
-          <div className="flex items-start justify-between gap-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-blue-500" />
-              Low stock
-            </CardTitle>
-            {rmHref ? (
-              <Link href={rmHref} className="shrink-0 text-xs font-medium text-primary hover:underline">Open →</Link>
-            ) : (
-              <span className="shrink-0 text-xs text-muted-foreground">Heads-up</span>
+      {showLowStock && (
+        <Card className="flex flex-col anim-in">
+          <CardHeader className="pb-3">
+            <div className="flex items-start justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-blue-500" />
+                Low stock
+              </CardTitle>
+              {rmHref ? (
+                <Link href={rmHref} className="shrink-0 text-xs font-medium text-primary hover:underline">Open →</Link>
+              ) : (
+                <span className="shrink-0 text-xs text-muted-foreground">Heads-up</span>
+              )}
+            </div>
+            <CardDescription>Ready-made — at or below minimum</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-1 flex-col pt-0">
+            <LowStockList
+              items={rmItems}
+              emptyText="All ready-made above minimum."
+              footerHref={rmHref}
+              footerLabel={rmHref ? "View ready-made →" : undefined}
+            />
+            {!rmHref && rmItems.length > 0 && (
+              <p className="mt-auto pt-1 text-xs text-muted-foreground">Tell admin if you need stock pulled.</p>
             )}
-          </div>
-          <CardDescription>Ready-made — at or below minimum</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-1 flex-col pt-0">
-          <LowStockList
-            items={rmItems}
-            emptyText="All ready-made above minimum."
-            footerHref={rmHref}
-            footerLabel={rmHref ? "View ready-made →" : undefined}
-          />
-          {!rmHref && rmItems.length > 0 && (
-            <p className="mt-auto pt-1 text-xs text-muted-foreground">Tell admin if you need stock pulled.</p>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
