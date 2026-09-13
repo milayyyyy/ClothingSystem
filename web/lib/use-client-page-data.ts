@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useWorkspaceShellOptional } from "@/components/workspace-shell-context";
 
 function readSessionCache<T>(key: string): T | null {
   if (typeof window === "undefined") return null;
@@ -34,7 +35,9 @@ type Options<T> = {
  * Reuses sessionStorage for instant paint when revisiting a tab.
  */
 export function useClientPageData<T>({ cacheKey, load, initial }: Options<T>) {
-  const cached = readSessionCache<T>(cacheKey);
+  const userId = useWorkspaceShellOptional()?.userId ?? "";
+  const scopedKey = userId ? `${cacheKey}:${userId}` : cacheKey;
+  const cached = readSessionCache<T>(scopedKey);
   const [data, setData] = useState<T | null>(() => initial ?? cached ?? null);
   const [loading, setLoading] = useState(() => (initial ?? cached) == null);
   const [error, setError] = useState<string | null>(null);
@@ -49,13 +52,13 @@ export function useClientPageData<T>({ cacheKey, load, initial }: Options<T>) {
     try {
       const next = await loadRef.current();
       setData(next);
-      writeSessionCache(cacheKey, next);
+      writeSessionCache(scopedKey, next);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load data");
     } finally {
       setLoading(false);
     }
-  }, [cacheKey]);
+  }, [scopedKey]);
 
   useEffect(() => {
     void refresh();

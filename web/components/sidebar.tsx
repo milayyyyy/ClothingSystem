@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { clearClientAuthCache } from "@/lib/clear-client-auth-cache";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -271,6 +272,8 @@ export function Sidebar({
   async function logout() {
     const supabase = createClient();
     await supabase.auth.signOut();
+    clearClientAuthCache();
+    router.refresh();
     router.push("/login");
   }
 

@@ -2,6 +2,9 @@ import { PageHeader } from "@/components/page-header";
 import { InventoryFullStockExportButton } from "@/components/inventory-full-stock-export-button";
 import { InventoryPageContent } from "./inventory-page-content";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default function AdminInventoryPage() {
   return (
     <div>

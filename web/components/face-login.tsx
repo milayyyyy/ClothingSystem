@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { clearClientAuthCache } from "@/lib/clear-client-auth-cache";
 import { Button } from "@/components/ui/button";
 import { Camera, CheckCircle2, Loader2, ScanFace, XCircle } from "lucide-react";
 
@@ -173,8 +174,9 @@ export function FaceLogin() {
         data.clockedIn && data.role === "employee" ? " You are clocked in." : "";
       setMsg(`Welcome, ${name}!${clockNote}`);
 
-      router.push(typeof data.redirect === "string" ? data.redirect : "/employee");
+      clearClientAuthCache();
       router.refresh();
+      router.push(typeof data.redirect === "string" ? data.redirect : "/employee");
     } catch (err: unknown) {
       console.error("face login scan:", err);
       signingInRef.current = false;
