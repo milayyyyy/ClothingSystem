@@ -252,6 +252,8 @@ export function ContentPlannerClient({
   const [expandDay, setExpandDay] = useState<string | null>(null);
   const [showReminders, setShowReminders] = useState(true);
   const [showTasks,     setShowTasks]     = useState(true);
+  const [storeFilters, setStoreFilters] = useState<string[]>([]);
+  const [typeFilters, setTypeFilters] = useState<string[]>([]);
   const [actionSaving,  setActionSaving]  = useState(false);
 
   const TASK_SELECT = "id, title, description, due_date, priority, status, task_type, machine_type_id, repeat_mode, repeat_interval_days";
@@ -309,12 +311,19 @@ export function ContentPlannerClient({
   const itemsByDay = useMemo(() => {
     const m = new Map<string, ContentItem[]>();
     for (const item of items) {
+      if (storeFilters.length > 0) {
+        const storeId = inferStoreId(item.title, storeChoices, item.content_store_id);
+        if (!storeId || !storeFilters.includes(storeId)) continue;
+      }
+      if (typeFilters.length > 0) {
+        if (!item.content_type_id || !typeFilters.includes(item.content_type_id)) continue;
+      }
       const key = toLocalDateStr(new Date(item.scheduled_at));
       if (!m.has(key)) m.set(key, []); m.get(key)!.push(item);
     }
     for (const [, arr] of m) arr.sort((a,b) => a.scheduled_at.localeCompare(b.scheduled_at));
     return m;
-  }, [items]);
+  }, [items, storeFilters, typeFilters, storeChoices]);
 
   const remindersByDay = useMemo(() => {
     const m = new Map<string, ReminderItem[]>();
@@ -475,6 +484,11 @@ export function ContentPlannerClient({
   }
   function setF<K extends keyof FormState>(k: K, v: FormState[K]) { setForm(prev=>({...prev,[k]:v})); }
 
+  function toggleFilter(list: string[], id: string, setList: (next: string[]) => void) {
+    setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+  }
+  const filtersActive = storeFilters.length > 0 || typeFilters.length > 0;
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex min-h-[calc(100dvh-11rem)] items-stretch gap-4">
@@ -501,6 +515,87 @@ export function ContentPlannerClient({
               <Plus className="h-4 w-4" /> Add content
             </Button>
           </div>
+        </div>
+
+        <div className="space-y-2 rounded-lg border border-border bg-card px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="w-12 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Store</span>
+            <button
+              type="button"
+              onClick={() => setStoreFilters([])}
+              className={cn(
+                "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                storeFilters.length === 0
+                  ? "border-primary bg-primary/15 text-foreground ring-1 ring-primary/40"
+                  : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+              )}
+            >
+              All
+            </button>
+            {storeChoices.map((store) => {
+              const selected = storeFilters.includes(store.id);
+              const color = colorForStore(store);
+              return (
+                <button
+                  key={store.id}
+                  type="button"
+                  onClick={() => toggleFilter(storeFilters, store.id, setStoreFilters)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                    selected ? "ring-1 ring-foreground/30" : "opacity-75 hover:opacity-100",
+                  )}
+                  style={{ backgroundColor: hexAlpha(color, selected ? "33" : "14"), borderColor: hexAlpha(color, selected ? "99" : "55"), color }}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />
+                  {store.name}
+                </button>
+              );
+            })}
+          </div>
+          {!typesMissing && types.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="w-12 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Type</span>
+              <button
+                type="button"
+                onClick={() => setTypeFilters([])}
+                className={cn(
+                  "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                  typeFilters.length === 0
+                    ? "border-primary bg-primary/15 text-foreground ring-1 ring-primary/40"
+                    : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                )}
+              >
+                All
+              </button>
+              {types.map((t) => {
+                const selected = typeFilters.includes(t.id);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => toggleFilter(typeFilters, t.id, setTypeFilters)}
+                    className={cn(
+                      "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
+                      selected
+                        ? "border-primary bg-primary/15 text-foreground ring-1 ring-primary/40"
+                        : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    {t.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {filtersActive && (
+            <button
+              type="button"
+              className="text-[11px] font-medium text-primary hover:underline"
+              onClick={() => { setStoreFilters([]); setTypeFilters([]); }}
+            >
+              Clear store &amp; type filters
+            </button>
+          )}
         </div>
 
         {/* Grid */}
