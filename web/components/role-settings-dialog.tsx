@@ -51,8 +51,8 @@ function blankPerms(): Permissions {
   return JSON.parse(JSON.stringify(EMPTY_PERMS));
 }
 
-/** Employee access is fixed in the app (/employee/*); not editable here. */
-const HIDDEN_ROLE_NAMES = new Set(["employee"]);
+/** Built-in account types are assigned on Add / Edit employee, not here. */
+const HIDDEN_ROLE_NAMES = new Set(["employee", "media"]);
 
 function visibleRoles(list: Role[]) {
   return list.filter((r) => !HIDDEN_ROLE_NAMES.has(r.name));
@@ -198,7 +198,7 @@ export function RoleSettingsDialog({
       open={open}
       onClose={onClose}
       title="Role Settings"
-      description="Permissions for admin, sub-admin, and custom roles. Employee portal access is fixed in the app and is not listed here."
+      description="Permissions for admin, manager, and custom roles. Employee and Media Management accounts are assigned on Add employee."
       size="xl"
     >
       <div className="flex gap-4 min-h-[440px]">

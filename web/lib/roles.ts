@@ -1,9 +1,9 @@
 /** App login roles stored on `profiles.role`. */
 export type Role = "admin" | "manager" | "employee" | "media";
 
-export const ASSIGNABLE_ROLES: { value: Role; label: string }[] = [
-  { value: "employee", label: "Employee" },
-  { value: "media", label: "Media Management" },
+export const ASSIGNABLE_ROLES: { value: Role; label: string; hint?: string }[] = [
+  { value: "employee", label: "Employee", hint: "Orders, tasks, inventory" },
+  { value: "media", label: "Media Management", hint: "Content planner, orders, tasks" },
   { value: "manager", label: "Manager" },
   { value: "admin", label: "Admin" },
 ];

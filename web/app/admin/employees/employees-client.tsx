@@ -25,6 +25,41 @@ const selectClass = cn(
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background focus-visible:border-primary",
 );
 
+function RolePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (role: string) => void;
+}) {
+  return (
+    <div>
+      <Label>Role</Label>
+      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+        {ASSIGNABLE_ROLES.map((r) => {
+          const selected = value === r.value;
+          return (
+            <button
+              key={r.value}
+              type="button"
+              onClick={() => onChange(r.value)}
+              className={cn(
+                "rounded-md border px-2.5 py-2 text-left transition-colors",
+                selected
+                  ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary/40"
+                  : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+              )}
+            >
+              <span className="block text-sm font-medium">{r.label}</span>
+              {r.hint && <span className="mt-0.5 block text-[10px] leading-snug opacity-80">{r.hint}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 type P = any;
 type PositionsMgrProps = { open: boolean; onClose: () => void; onChanged: () => void };
 
@@ -569,13 +604,8 @@ function AddEmployee({
             {positions.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
           </select>
         </div>
-        <div>
-          <Label>Role</Label>
-          <select className={selectClass} value={form.role} onChange={(e) => set("role", e.target.value)}>
-            {ASSIGNABLE_ROLES.map((r) => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
-          </select>
+        <div className="col-span-2">
+          <RolePicker value={form.role} onChange={(role) => set("role", role)} />
         </div>
         <div><Label>Date of birth</Label><Input type="date" value={form.date_of_birth} onChange={(e) => set("date_of_birth", e.target.value)} /></div>
         <div><Label>Start of employment</Label><Input type="date" value={form.employment_start} onChange={(e) => set("employment_start", e.target.value)} /></div>
@@ -738,13 +768,8 @@ function EditEmployee({
             {hasLegacy && <option value={form.position}>{form.position} (legacy)</option>}
           </select>
         </div>
-        <div>
-          <Label>Role</Label>
-          <select className={selectClass} value={form.role} onChange={(e) => set("role", e.target.value)}>
-            {ASSIGNABLE_ROLES.map((r) => (
-              <option key={r.value} value={r.value}>{r.label}</option>
-            ))}
-          </select>
+        <div className="col-span-2">
+          <RolePicker value={form.role} onChange={(role) => set("role", role)} />
         </div>
         <div>
           <Label>Status</Label>
