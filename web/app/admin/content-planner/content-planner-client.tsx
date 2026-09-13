@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Bell, CheckSquare, X, Check, ArrowRight, RotateCcw, Repeat, Settings2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Bell, CheckSquare, X, Check, ArrowRight, RotateCcw, Repeat, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { spawnNextRecurringTask, spawnNextRecurringReminder, repeatLabel } from "@/lib/task-recurrence";
 
@@ -190,6 +190,105 @@ function TypeBadge({ type, size = "sm" }: { type: ContentType | null | undefined
   );
 }
 
+function MultiFilterDropdown({
+  label,
+  allLabel,
+  options,
+  selected,
+  onChange,
+  colorFor,
+}: {
+  label: string;
+  allLabel: string;
+  options: { id: string; name: string }[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  colorFor?: (id: string) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const summary =
+    selected.length === 0
+      ? allLabel
+      : selected.length === 1
+        ? (options.find((o) => o.id === selected[0])?.name ?? allLabel)
+        : `${selected.length} ${label}`;
+
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-label={`Filter by ${label}`}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          "inline-flex h-8 max-w-[11rem] items-center gap-1.5 rounded-md border border-input bg-background px-2 text-xs shadow-sm",
+          selected.length > 0 && "border-primary/50",
+        )}
+      >
+        {selected.length === 1 && colorFor && (
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorFor(selected[0]) }} />
+        )}
+        <span className="min-w-0 truncate">{summary}</span>
+        <ChevronDown className={cn("ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="absolute left-0 z-30 mt-1 min-w-[12.5rem] rounded-md border bg-popover p-1 shadow-md">
+          <button
+            type="button"
+            className={cn(
+              "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted/60",
+              selected.length === 0 && "bg-primary/10 font-medium",
+            )}
+            onClick={() => onChange([])}
+          >
+            {allLabel}
+          </button>
+          {options.map((o) => {
+            const on = selected.includes(o.id);
+            const color = colorFor?.(o.id);
+            return (
+              <button
+                key={o.id}
+                type="button"
+                className={cn(
+                  "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted/60",
+                  on && "bg-primary/10",
+                )}
+                onClick={() => toggle(o.id)}
+              >
+                <span
+                  className={cn(
+                    "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border",
+                    on ? "border-primary bg-primary text-primary-foreground" : "border-input",
+                  )}
+                >
+                  {on && <Check className="h-3 w-3" />}
+                </span>
+                {color && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
+                <span className="truncate">{o.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StoreBadge({ store, size = "sm" }: { store: ContentStore | null | undefined; size?: "sm" | "md" }) {
   if (!store) return null;
   const color = colorForStore(store);
@@ -252,8 +351,8 @@ export function ContentPlannerClient({
   const [expandDay, setExpandDay] = useState<string | null>(null);
   const [showReminders, setShowReminders] = useState(true);
   const [showTasks,     setShowTasks]     = useState(true);
-  const [storeFilter, setStoreFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
+  const [storeFilters, setStoreFilters] = useState<string[]>([]);
+  const [typeFilters, setTypeFilters] = useState<string[]>([]);
   const [actionSaving,  setActionSaving]  = useState(false);
 
   const TASK_SELECT = "id, title, description, due_date, priority, status, task_type, machine_type_id, repeat_mode, repeat_interval_days";
@@ -311,17 +410,19 @@ export function ContentPlannerClient({
   const itemsByDay = useMemo(() => {
     const m = new Map<string, ContentItem[]>();
     for (const item of items) {
-      if (storeFilter) {
+      if (storeFilters.length > 0) {
         const storeId = inferStoreId(item.title, storeChoices, item.content_store_id);
-        if (!storeId || storeId !== storeFilter) continue;
+        if (!storeId || !storeFilters.includes(storeId)) continue;
       }
-      if (typeFilter && item.content_type_id !== typeFilter) continue;
+      if (typeFilters.length > 0) {
+        if (!item.content_type_id || !typeFilters.includes(item.content_type_id)) continue;
+      }
       const key = toLocalDateStr(new Date(item.scheduled_at));
       if (!m.has(key)) m.set(key, []); m.get(key)!.push(item);
     }
     for (const [, arr] of m) arr.sort((a,b) => a.scheduled_at.localeCompare(b.scheduled_at));
     return m;
-  }, [items, storeFilter, typeFilter, storeChoices]);
+  }, [items, storeFilters, typeFilters, storeChoices]);
 
   const remindersByDay = useMemo(() => {
     const m = new Map<string, ReminderItem[]>();
@@ -482,8 +583,6 @@ export function ContentPlannerClient({
   }
   function setF<K extends keyof FormState>(k: K, v: FormState[K]) { setForm(prev=>({...prev,[k]:v})); }
 
-  const filterSelectClass = "h-8 max-w-[11rem] rounded-md border border-input bg-background px-2 text-xs shadow-sm";
-
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex min-h-[calc(100dvh-11rem)] items-stretch gap-4">
@@ -498,29 +597,22 @@ export function ContentPlannerClient({
             <Button variant="outline" size="sm" onClick={() => { setViewYear(today.getFullYear()); setViewMonth(today.getMonth()); }}>Today</Button>
             <Button variant="outline" size="sm" onClick={nextMonth}><ChevronRight className="h-4 w-4" /></Button>
             <h2 className="ml-2 text-lg font-semibold">{MONTHS[viewMonth]} {viewYear}</h2>
-            <select
-              aria-label="Filter by store"
-              className={filterSelectClass}
-              value={storeFilter}
-              onChange={(e) => setStoreFilter(e.target.value)}
-            >
-              <option value="">All stores</option>
-              {storeChoices.map((store) => (
-                <option key={store.id} value={store.id}>{store.name}</option>
-              ))}
-            </select>
+            <MultiFilterDropdown
+              label="stores"
+              allLabel="All stores"
+              options={storeChoices}
+              selected={storeFilters}
+              onChange={setStoreFilters}
+              colorFor={(id) => colorForStore(storeChoices.find((s) => s.id === id))}
+            />
             {!typesMissing && types.length > 0 && (
-              <select
-                aria-label="Filter by type"
-                className={filterSelectClass}
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-              >
-                <option value="">All types</option>
-                {types.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
+              <MultiFilterDropdown
+                label="types"
+                allLabel="All types"
+                options={types}
+                selected={typeFilters}
+                onChange={setTypeFilters}
+              />
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
