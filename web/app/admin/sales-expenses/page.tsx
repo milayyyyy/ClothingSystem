@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function SalesExpensesHubPage() {
   const supabase = createClient();
   const [{ data: orders }, { data: expenses }] = await Promise.all([
-    supabase.from("orders").select("*").order("created_at", { ascending: false }),
+    supabase.from("orders").select("id,total,status,stage,kind,order_type,source,notes,return_status,created_at,updated_at").order("created_at", { ascending: false }),
     supabase.from("expenses").select("expense_date,amount,category"),
   ]);
   const expenseRows = (expenses || []) as { expense_date: string; amount: number; category: string }[];

@@ -5,8 +5,9 @@ import { ThemeProvider } from "@/components/theme-provider";
 
 const inter = Inter({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "500", "600"],
   display: "swap",
+  preload: true,
 });
 
 export const metadata: Metadata = {

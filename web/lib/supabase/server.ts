@@ -40,7 +40,13 @@ export function createClient() {
  */
 export const getSessionUser = cache(async () => {
   const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // Cookie JWT first (no Auth network). Fall back to getUser() only when missing.
+  const { data: { session } } = await supabase.auth.getSession();
+  let user = session?.user ?? null;
+  if (!user) {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  }
   if (!user) return null;
   const { data: profile } = await supabase
     .from("profiles")

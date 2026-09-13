@@ -19,20 +19,17 @@ export async function fetchReadyMadeDashboardLowStockItems(
   if (error || !boards?.length) return [];
 
   const activeBoards = (boards as BoardRow[]).filter((b) => b.low_stock_minimum_enabled !== false);
-  const items: DashboardLowStockItem[] = [];
-
-  for (const board of activeBoards) {
-    const lowRows = await fetchReadyMadeLowStockRowsForBoard(supabase, board);
-    for (const lr of lowRows) {
-      items.push({
+  const perBoard = await Promise.all(
+    activeBoards.map(async (board) => {
+      const lowRows = await fetchReadyMadeLowStockRowsForBoard(supabase, board);
+      return lowRows.map((lr) => ({
         id: `ready-made:${board.id}:${lr.rowId}`,
         name: `${board.name || "Sheet"} · ${lr.rowLabel}`,
         quantity: lr.qty,
         min_level: lr.min,
         unit: null,
-      });
-    }
-  }
-
-  return items;
+      }));
+    }),
+  );
+  return perBoard.flat();
 }

@@ -17,15 +17,42 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
+  let user = session?.user ?? null;
+  if (!user) {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  }
   const path = request.nextUrl.pathname;
   const isAuthRoute = path.startsWith("/login");
   const isProtected = path.startsWith("/admin") || path.startsWith("/employee");
 
+  const ROLE_COOKIE = "cs_role";
+  const allowedRoles = new Set(["admin", "manager", "employee"]);
   let profile: { role: string } | null = null;
   if (user) {
-    const { data } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    profile = data ?? null;
+    const cached = request.cookies.get(ROLE_COOKIE)?.value ?? "";
+    const prefix = `${user.id}.`;
+    if (cached.startsWith(prefix)) {
+      const role = cached.slice(prefix.length);
+      if (allowedRoles.has(role)) profile = { role };
+    }
+    if (!profile) {
+      const { data } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+      profile = data ?? null;
+      if (profile?.role) {
+        response.cookies.set({
+          name: ROLE_COOKIE,
+          value: `${user.id}.${profile.role}`,
+          httpOnly: true,
+          sameSite: "lax",
+          path: "/",
+          maxAge: 60 * 60,
+        });
+      }
+    }
+  } else if (request.cookies.get(ROLE_COOKIE)) {
+    response.cookies.set({ name: ROLE_COOKIE, value: "", path: "/", maxAge: 0 });
   }
 
   if (!user && isProtected) {

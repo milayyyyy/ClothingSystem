@@ -1,16 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useState, type ReactNode } from "react";
-import dynamic from "next/dynamic";
+import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { SidebarFallback } from "@/components/sidebar-fallback";
+import { Sidebar } from "@/components/sidebar";
 import { Topbar } from "@/components/topbar";
 import { PwaRegister } from "@/components/pwa-register";
 import type { Permissions } from "@/lib/role-permissions";
-
-const Sidebar = dynamic(() => import("@/components/sidebar").then((m) => m.Sidebar), {
-  ssr: false,
-});
 
 type Role = "admin" | "manager" | "employee";
 
@@ -52,15 +47,13 @@ export function AppShell({
         onClick={() => setNavOpen(false)}
         tabIndex={navOpen ? 0 : -1}
       />
-      <Suspense fallback={<SidebarFallback mobile />}>
-        <Sidebar
-          role={role}
-          name={name}
-          permissions={permissions}
-          mobileOpen={navOpen}
-          onNavigate={() => setNavOpen(false)}
-        />
-      </Suspense>
+      <Sidebar
+        role={role}
+        name={name}
+        permissions={permissions}
+        mobileOpen={navOpen}
+        onNavigate={() => setNavOpen(false)}
+      />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar
           role={role}

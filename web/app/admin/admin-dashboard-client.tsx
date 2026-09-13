@@ -11,32 +11,54 @@ import { StatCard } from "@/components/ui/stat-card";
 import { BarChart } from "@/components/ui/bar-chart";
 import { peso, formatDate } from "@/lib/utils";
 import { OrderStatusBadge } from "@/components/ui/badge";
-import { isPendingPipelineOrder } from "@/lib/sales";
 import { ShoppingBag, Wallet, TrendingDown, TrendingUp, Package, Receipt, Warehouse, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DashboardReminderCards } from "@/components/dashboard-reminder-cards";
 import { useWorkspaceShell } from "@/components/workspace-shell-context";
 import { canEdit } from "@/lib/role-permissions";
 
+type DashOrder = {
+  id: string; order_no: string; customer_name: string; total: number; status: string;
+  stage?: string | null; sub_stage?: string | null; kind?: string | null; order_type?: string | null;
+  due_date: string; created_at: string; down_payment?: number;
+};
+type DashStatOrder = { id: string; total: number; down_payment?: number; status: string; created_at: string };
+
 type DashboardData = {
-  orders: { id: string; order_no: string; customer_name: string; total: number; status: string; due_date: string; created_at: string; down_payment?: number }[];
+  orders: DashOrder[];
+  statOrders: DashStatOrder[];
   expenses: { expense_date: string; amount: number }[];
   inventory: { id: string; name: string; quantity: number; min_level: number }[];
   tasks: { id: string; title: string; status: string; priority: string; due_date: string | null }[];
   readyMadeLow: Awaited<ReturnType<typeof fetchReadyMadeDashboardLowStockItems>>;
 };
 
+function monthStartIso() {
+  const d = new Date();
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString().slice(0, 10);
+}
+
 async function loadDashboard(supabase: ReturnType<typeof createClient>): Promise<DashboardData> {
-  const [{ data: orders }, { data: expenses }, { data: inventory }, { data: tasksRaw }, readyMadeLow] =
+  const [{ data: recent }, { data: statOrders }, { data: expenses }, { data: inventory }, { data: tasksRaw }, readyMadeLow] =
     await Promise.all([
-      supabase.from("orders").select("*").order("updated_at", { ascending: false }),
-      supabase.from("expenses").select("*"),
-      supabase.from("inventory").select("*"),
+      supabase
+        .from("orders")
+        .select("id,order_no,customer_name,total,status,stage,sub_stage,kind,order_type,due_date,created_at,down_payment")
+        .order("updated_at", { ascending: false })
+        .limit(5),
+      supabase
+        .from("orders")
+        .select("id,total,down_payment,status,created_at"),
+      supabase.from("expenses").select("expense_date,amount").gte("expense_date", monthStartIso()),
+      supabase.from("inventory").select("id,name,quantity,min_level"),
       supabase.from("tasks").select("id,title,status,priority,due_date").order("due_date", { ascending: true }),
       fetchReadyMadeDashboardLowStockItems(supabase),
     ]);
   return {
-    orders: (orders || []) as DashboardData["orders"],
+    orders: (recent || []) as DashOrder[],
+    statOrders: (statOrders || []) as DashStatOrder[],
     expenses: (expenses || []) as DashboardData["expenses"],
     inventory: (inventory || []) as DashboardData["inventory"],
     tasks: (tasksRaw || []) as DashboardData["tasks"],
@@ -50,7 +72,7 @@ export function AdminDashboardClient() {
   const canAddOrder = role === "admin" || role === "manager";
   const canAddExpense = canEdit(permissions, "sales_expenses");
   const { data, loading, error } = useClientPageData({
-    cacheKey: "page:admin-dashboard",
+    cacheKey: "page:admin-dashboard-v2",
     load: () => loadDashboard(supabase),
   });
 
@@ -60,11 +82,11 @@ export function AdminDashboardClient() {
   }
   if (!data) return <PageLoading />;
 
-  const { orders, expenses, inventory, tasks: tasksRaw, readyMadeLow } = data;
-  const totalSales = orders.reduce((s, o) => s + Number(o.total || 0), 0);
-  const collected = orders.reduce((s, o) => s + Number(o.down_payment || 0), 0);
+  const { orders, statOrders, expenses, inventory, tasks: tasksRaw, readyMadeLow } = data;
+  const totalSales = statOrders.reduce((s, o) => s + Number(o.total || 0), 0);
+  const collected = statOrders.reduce((s, o) => s + Number(o.down_payment || 0), 0);
   const outstanding = totalSales - collected;
-  const active = orders.filter((o) => !["delivered", "cancelled", "ready"].includes(o.status)).length;
+  const active = statOrders.filter((o) => !["delivered", "cancelled", "ready"].includes(o.status)).length;
   const monthExpenses = expenses
     .filter((e) => new Date(e.expense_date).getMonth() === new Date().getMonth())
     .reduce((s, e) => s + Number(e.amount), 0);
@@ -86,7 +108,7 @@ export function AdminDashboardClient() {
     return d;
   });
   const chartData = months.map((m) => {
-    const total = orders
+    const total = statOrders
       .filter((o) => {
         const d = new Date(o.created_at);
         return d.getMonth() === m.getMonth() && d.getFullYear() === m.getFullYear();

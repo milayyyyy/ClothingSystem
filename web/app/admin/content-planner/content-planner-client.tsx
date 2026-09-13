@@ -109,13 +109,18 @@ function buildGrid(year: number, month: number) {
   return days;
 }
 function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], { hour:"2-digit", minute:"2-digit", hour12:false });
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
 }
 function formatDateOnly(iso: string) {
   return new Date(iso).toLocaleDateString([], { weekday:"short", year:"numeric", month:"long", day:"numeric" });
 }
 function formatDateFull(iso: string) {
-  return new Date(iso).toLocaleString([], { weekday:"short", year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit", hour12:false });
+  return new Date(iso).toLocaleString([], { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
+}
+function displayTime(iso: string | null | undefined) {
+  if (!iso) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  return formatTime(iso);
 }
 function toDatetimeLocal(iso: string) {
   const d = new Date(iso); const pad = (n: number) => String(n).padStart(2,"0");
@@ -192,9 +197,8 @@ export function ContentPlannerClient({
   const [saving,    setSaving]    = useState(false);
   const [types,     setTypes]     = useState<ContentType[]>(initialTypes);
   const [manageTypesOpen, setManageTypesOpen] = useState(false);
-  const [detail,         setDetail]         = useState<ContentItem | null>(null);
-  const [reminderDetail, setReminderDetail] = useState<ReminderItem | null>(null);
-  const [taskDetail,     setTaskDetail]     = useState<TaskItem | null>(null);
+  const [detailDay,      setDetailDay]      = useState<string | null>(null);
+  const [focusedId,      setFocusedId]      = useState<string | null>(null);
   const [expandDay, setExpandDay] = useState<string | null>(null);
   const [showReminders, setShowReminders] = useState(true);
   const [showTasks,     setShowTasks]     = useState(true);
@@ -268,24 +272,27 @@ export function ContentPlannerClient({
 
   function patchReminder(id: string, patch: Partial<ReminderItem>) {
     setReminders(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
-    setReminderDetail(cur => (cur?.id === id ? { ...cur, ...patch } : cur));
   }
 
   function patchTask(id: string, patch: Partial<TaskItem>) {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
-    setTaskDetail(cur => (cur?.id === id ? { ...cur, ...patch } : cur));
   }
 
-  async function markReminderDone() {
-    if (!reminderDetail || reminderDetail.status === "done") return;
+  function openDay(dateStr: string, id?: string) {
+    setDetailDay(dateStr);
+    setFocusedId(id ?? null);
+  }
+
+  async function markReminderDone(r: ReminderItem) {
+    if (r.status === "done") return;
     setActionSaving(true);
     const { error } = await supabase
       .from("reminders")
       .update({ status: "done", updated_at: new Date().toISOString() })
-      .eq("id", reminderDetail.id);
+      .eq("id", r.id);
     if (!error) {
-      patchReminder(reminderDetail.id, { status: "done" });
-      const created = await spawnNextRecurringReminder(supabase, reminderDetail);
+      patchReminder(r.id, { status: "done" });
+      const created = await spawnNextRecurringReminder(supabase, r);
       if (created) {
         setReminders((prev) => [...prev, created as ReminderItem]);
       }
@@ -293,42 +300,40 @@ export function ContentPlannerClient({
     setActionSaving(false);
   }
 
-  async function markReminderPending() {
-    if (!reminderDetail || reminderDetail.status !== "done") return;
+  async function markReminderPending(r: ReminderItem) {
+    if (r.status !== "done") return;
     setActionSaving(true);
     const { error } = await supabase
       .from("reminders")
       .update({ status: "pending", updated_at: new Date().toISOString() })
-      .eq("id", reminderDetail.id);
-    if (!error) patchReminder(reminderDetail.id, { status: "pending" });
+      .eq("id", r.id);
+    if (!error) patchReminder(r.id, { status: "pending" });
     setActionSaving(false);
   }
 
-  async function forwardTask() {
-    if (!taskDetail) return;
-    const next = TASK_STATUS_FLOW[taskDetail.status];
+  async function forwardTask(t: TaskItem) {
+    const next = TASK_STATUS_FLOW[t.status];
     if (!next) return;
     setActionSaving(true);
     const patch: Record<string, unknown> = { status: next };
     if (next === "done") patch.completed_at = new Date().toISOString();
-    const { error } = await supabase.from("tasks").update(patch).eq("id", taskDetail.id);
+    const { error } = await supabase.from("tasks").update(patch).eq("id", t.id);
     if (!error) {
-      patchTask(taskDetail.id, { status: next });
+      patchTask(t.id, { status: next });
       if (next === "done") {
-        await spawnNextRecurringTask(supabase, taskDetail, []);
+        await spawnNextRecurringTask(supabase, t, []);
       }
     }
     setActionSaving(false);
   }
 
-  async function reopenTask() {
-    if (!taskDetail) return;
+  async function reopenTask(t: TaskItem) {
     setActionSaving(true);
     const { error } = await supabase
       .from("tasks")
       .update({ status: "open", completed_at: null })
-      .eq("id", taskDetail.id);
-    if (!error) patchTask(taskDetail.id, { status: "open" });
+      .eq("id", t.id);
+    if (!error) patchTask(t.id, { status: "open" });
     setActionSaving(false);
   }
 
@@ -338,14 +343,21 @@ export function ContentPlannerClient({
     e?.stopPropagation();
     setEditing(item);
     setForm({ title:item.title, platform:item.platform, scheduled_at:toDatetimeLocal(item.scheduled_at), status:item.status, caption:item.caption??"", notes:item.notes??"", content_type_id:item.content_type_id ?? types[0]?.id ?? "" });
-    setDetail(null); setFormOpen(true);
+    setFormOpen(true);
   }
   async function handleDelete(id: string, e?: React.MouseEvent) {
     e?.stopPropagation();
     if (!confirm("Delete this content item?")) return;
     await supabase.from("content_schedules").delete().eq("id", id);
     setItems(prev => prev.filter(i => i.id !== id));
-    if (detail?.id === id) setDetail(null);
+    if (focusedId === id) {
+      const remainingContent = (detailDay ? (itemsByDay.get(detailDay) ?? []) : []).filter((i) => i.id !== id);
+      const rem = detailDay ? (remindersByDay.get(detailDay) ?? []) : [];
+      const tsk = detailDay ? (tasksByDay.get(detailDay) ?? []) : [];
+      const next = remainingContent[0]?.id ?? rem[0]?.id ?? tsk[0]?.id ?? null;
+      setFocusedId(next);
+      if (!next) setDetailDay(null);
+    }
   }
   async function handleSave() {
     if (!form.title.trim()) return;
@@ -375,9 +387,12 @@ export function ContentPlannerClient({
       const row = data as ContentItem;
       if (editing) {
         setItems(prev => prev.map(i => i.id === editing.id ? row : i));
-        setDetail(row);
+        setFocusedId(row.id);
+        setDetailDay(toLocalDateStr(new Date(row.scheduled_at)));
       } else {
         setItems(prev => [...prev, row]);
+        setFocusedId(row.id);
+        setDetailDay(toLocalDateStr(new Date(row.scheduled_at)));
       }
     }
     setSaving(false); setFormOpen(false);
@@ -386,7 +401,7 @@ export function ContentPlannerClient({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex gap-4">
+    <div className="flex min-h-[calc(100dvh-11rem)] items-stretch gap-4">
 
       {/* ── Calendar ──────────────────────────────────────────────────── */}
       <div className="min-w-0 flex-1 space-y-3">
@@ -453,11 +468,11 @@ export function ContentPlannerClient({
                       <button
                         type="button"
                         key={`rem-${r.id}`}
-                        onClick={e => { e.stopPropagation(); setDetail(null); setTaskDetail(null); setReminderDetail(r); }}
+                        onClick={e => { e.stopPropagation(); openDay(dateStr, r.id); }}
                         className={cn(
                           "flex w-full items-center gap-1 rounded border border-violet-400/30 bg-violet-400/10 px-1 py-0.5 text-left text-[10px] transition-all hover:bg-violet-400/25 hover:border-violet-400/50",
                           r.status === "done" && "opacity-50",
-                          reminderDetail?.id === r.id && "ring-1 ring-violet-400",
+                          focusedId === r.id && "ring-1 ring-violet-400",
                         )}
                         title={r.title}
                       >
@@ -472,11 +487,11 @@ export function ContentPlannerClient({
                       <button
                         type="button"
                         key={`task-${t.id}`}
-                        onClick={e => { e.stopPropagation(); setDetail(null); setReminderDetail(null); setTaskDetail(t); }}
+                        onClick={e => { e.stopPropagation(); openDay(dateStr, t.id); }}
                         className={cn(
                           "flex w-full items-center gap-1 rounded border border-green-500/30 bg-green-500/10 px-1 py-0.5 text-left text-[10px] transition-all hover:bg-green-500/20 hover:border-green-500/50",
                           (t.status === "done" || t.status === "cancelled") && "opacity-50",
-                          taskDetail?.id === t.id && "ring-1 ring-green-500",
+                          focusedId === t.id && "ring-1 ring-green-500",
                         )}
                         title={t.title}
                       >
@@ -492,9 +507,12 @@ export function ContentPlannerClient({
                       const color = ctype ? normalizeHex(ctype.color) : null;
                       return (
                       <div key={item.id}
-                        className={cn("flex cursor-pointer items-center gap-1 rounded border px-1 py-0.5 text-[10px] transition-all", !color && STATUS_CFG[item.status].pill, detail?.id === item.id && "ring-1 ring-primary")}
+                        className={cn("flex cursor-pointer items-center gap-1 rounded border px-1 py-0.5 text-[10px] transition-all", !color && STATUS_CFG[item.status].pill, focusedId === item.id && "ring-1 ring-primary")}
                         style={color ? { borderColor: hexAlpha(color, "66"), backgroundColor: hexAlpha(color, "22"), borderLeftWidth: 3, borderLeftColor: color } : undefined}
-                        onClick={e => { e.stopPropagation(); setReminderDetail(null); setTaskDetail(null); setDetail(item); }}
+                        onClick={e => {
+                          e.stopPropagation();
+                          openDay(dateStr, item.id);
+                        }}
                         title={ctype ? `${ctype.name} · ${item.title}` : item.title}
                       >
                         <span className="shrink-0 font-mono text-[10px] text-foreground/80">{formatTime(item.scheduled_at)}</span>
@@ -537,179 +555,282 @@ export function ContentPlannerClient({
         </div>
       </div>
 
-      {/* ── Content detail panel ──────────────────────────────────────── */}
-      {detail && (
-        <div className="w-72 shrink-0 space-y-3 rounded-lg border border-border bg-card p-4 text-sm">
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="font-semibold leading-snug">{detail.title}</h3>
-            <button type="button" className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" onClick={() => setDetail(null)}>
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className={cn("flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs", STATUS_CFG[detail.status].pill)}>
-              <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_CFG[detail.status].dot)} />{STATUS_CFG[detail.status].label}
-            </span>
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <PlatformBadge platform={detail.platform} />{getPlatform(detail.platform).label}
-            </span>
-            <TypeBadge type={typeById(detail.content_type_id)} size="md" />
-          </div>
-          <div className="rounded-md bg-muted/40 px-3 py-2 text-xs">
-            <p className="font-medium text-muted-foreground">Scheduled</p>
-            <p className="mt-0.5">{formatDateFull(detail.scheduled_at)}</p>
-          </div>
-          {detail.caption && (
-            <div>
-              <p className="mb-0.5 text-xs font-medium text-muted-foreground">Caption</p>
-              <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-3 py-2 text-xs">{detail.caption}</p>
-            </div>
-          )}
-          {detail.notes && (
-            <div>
-              <p className="mb-0.5 text-xs font-medium text-muted-foreground">Notes</p>
-              <p className="rounded-md bg-muted/30 px-3 py-2 text-xs">{detail.notes}</p>
-            </div>
-          )}
-          <div className="flex gap-2 pt-1">
-            <Button size="sm" variant="outline" className="flex-1 gap-1" onClick={() => openEdit(detail)}>
-              <Pencil className="h-3.5 w-3.5" /> Edit
-            </Button>
-            <Button size="sm" variant="outline" className="gap-1 text-destructive hover:bg-destructive/10" onClick={() => void handleDelete(detail.id)}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Reminder detail panel ─────────────────────────────────────── */}
-      {reminderDetail && (
-        <div className="w-72 shrink-0 space-y-3 rounded-lg border border-border bg-card p-4 text-sm">
-          <div className="flex items-start justify-between gap-2">
+      {/* ── Day panel — reminders, tasks, and content in one card ──── */}
+      {detailDay && (() => {
+        const dayItems = itemsByDay.get(detailDay) ?? [];
+        const dayReminders = remindersByDay.get(detailDay) ?? [];
+        const dayTasks = tasksByDay.get(detailDay) ?? [];
+        const total = dayItems.length + dayReminders.length + dayTasks.length;
+        const dayDate = new Date(`${detailDay}T12:00:00`);
+        const dayLabel = dayDate.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+        const counts = [
+          dayReminders.length ? `${dayReminders.length} ${dayReminders.length === 1 ? "reminder" : "reminders"}` : null,
+          dayTasks.length ? `${dayTasks.length} ${dayTasks.length === 1 ? "task" : "tasks"}` : null,
+          dayItems.length ? `${dayItems.length} ${dayItems.length === 1 ? "post" : "posts"}` : null,
+        ].filter(Boolean).join(" · ");
+        return (
+        <div className="flex w-80 shrink-0 flex-col self-stretch rounded-lg border border-border bg-card p-4 text-sm">
+          <div className="flex shrink-0 items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-violet-400">Reminder</p>
-              <h3 className="font-semibold leading-snug">{reminderDetail.title}</h3>
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">This day</p>
+              <h3 className="font-semibold leading-snug">{dayLabel}</h3>
+              <p className="text-xs text-muted-foreground">{counts || "Nothing on this day"}</p>
             </div>
-            <button type="button" className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" onClick={() => setReminderDetail(null)}>
+            <button type="button" className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" onClick={() => { setDetailDay(null); setFocusedId(null); }}>
               <X className="h-4 w-4" />
             </button>
           </div>
-
-          <div className="flex flex-wrap gap-2">
-            <span className={cn(
-              "rounded-full border px-2 py-0.5 text-xs capitalize",
-              reminderDetail.priority === "urgent" && "border-red-500/30 bg-red-500/10 text-red-500",
-              reminderDetail.priority === "high" && "border-orange-400/30 bg-orange-400/10 text-orange-400",
-              reminderDetail.priority === "medium" && "border-blue-400/30 bg-blue-400/10 text-blue-400",
-              reminderDetail.priority === "low" && "border-slate-400/30 bg-slate-400/10 text-slate-400",
-            )}>
-              {PRIORITY_LABEL[reminderDetail.priority] ?? reminderDetail.priority} priority
-            </span>
-            <span className={cn(
-              "rounded-full border px-2 py-0.5 text-xs",
-              reminderDetail.status === "done"
-                ? "border-green-500/30 bg-green-500/10 text-green-500"
-                : "border-amber-400/30 bg-amber-400/10 text-amber-500",
-            )}>
-              {reminderDetail.status === "done" ? "Done" : "Pending"}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-md bg-muted/40 px-3 py-2 text-xs">
-              <p className="font-medium text-muted-foreground">Due date</p>
-              <p className="mt-0.5">{reminderDetail.due_at ? formatDateOnly(reminderDetail.due_at) : "—"}</p>
-            </div>
-            <div className="rounded-md bg-muted/40 px-3 py-2 text-xs">
-              <p className="font-medium text-muted-foreground">Due time</p>
-              <p className="mt-0.5 font-mono">{reminderDetail.due_at ? formatTime(reminderDetail.due_at) : "—"}</p>
-            </div>
-          </div>
-
-          {repeatLabel(reminderDetail) && (
-            <div className="flex items-center gap-1.5 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              <Repeat className="h-3.5 w-3.5 shrink-0" />
-              {repeatLabel(reminderDetail)}
-            </div>
-          )}
-
-          <div>
-            <p className="mb-0.5 text-xs font-medium text-muted-foreground">Notes</p>
-            {reminderDetail.notes ? (
-              <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-3 py-2 text-xs">{reminderDetail.notes}</p>
-            ) : (
-              <p className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">No notes</p>
-            )}
-          </div>
-
-          {reminderDetail.status === "done" ? (
-            <Button size="sm" variant="outline" className="w-full gap-1.5" disabled={actionSaving} onClick={() => void markReminderPending()}>
-              <RotateCcw className="h-3.5 w-3.5" /> Mark pending
-            </Button>
+          {total === 0 ? (
+            <p className="mt-3 text-xs text-muted-foreground">No reminders, tasks, or content on this day.</p>
           ) : (
-            <Button size="sm" className="w-full gap-1.5" disabled={actionSaving} onClick={() => void markReminderDone()}>
-              <Check className="h-3.5 w-3.5" /> Done
-            </Button>
+            <div className="mt-3 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-0.5">
+              {dayReminders.map((r) => {
+                const focused = focusedId === r.id;
+                return (
+                <div
+                  key={`rem-${r.id}`}
+                  className={cn(
+                    "rounded-lg border border-violet-400/30 p-3",
+                    focused && "space-y-2 ring-1 ring-violet-400",
+                  )}
+                >
+                  <button
+                    type="button"
+                    className="flex w-full items-start justify-between gap-2 text-left"
+                    onClick={() => setFocusedId(focused ? null : r.id)}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-violet-400">Reminder</p>
+                      <h4 className={cn("font-semibold leading-snug", r.status === "done" && "line-through opacity-60")}>{r.title}</h4>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">{r.status === "done" ? "Done" : "Pending"}</p>
+                    </div>
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">{displayTime(r.due_at) ?? "All day"}</span>
+                  </button>
+                  {focused && (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className={cn(
+                          "rounded-full border px-1.5 py-0.5 text-[10px] capitalize",
+                          r.priority === "urgent" && "border-red-500/30 bg-red-500/10 text-red-500",
+                          r.priority === "high" && "border-orange-400/30 bg-orange-400/10 text-orange-400",
+                          r.priority === "medium" && "border-blue-400/30 bg-blue-400/10 text-blue-400",
+                          r.priority === "low" && "border-slate-400/30 bg-slate-400/10 text-slate-400",
+                        )}>
+                          {PRIORITY_LABEL[r.priority] ?? r.priority} priority
+                        </span>
+                        <span className={cn(
+                          "rounded-full border px-1.5 py-0.5 text-[10px]",
+                          r.status === "done"
+                            ? "border-green-500/30 bg-green-500/10 text-green-500"
+                            : "border-amber-400/30 bg-amber-400/10 text-amber-500",
+                        )}>
+                          {r.status === "done" ? "Done" : "Pending"}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-md bg-muted/40 px-2.5 py-1.5 text-xs">
+                          <p className="font-medium text-muted-foreground">Due date</p>
+                          <p className="mt-0.5">{r.due_at ? formatDateOnly(r.due_at) : "—"}</p>
+                        </div>
+                        <div className="rounded-md bg-muted/40 px-2.5 py-1.5 text-xs">
+                          <p className="font-medium text-muted-foreground">Due time</p>
+                          <p className="mt-0.5 font-mono">{displayTime(r.due_at) ?? "—"}</p>
+                        </div>
+                      </div>
+                      {repeatLabel(r) && (
+                        <div className="flex items-center gap-1.5 rounded-md bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+                          <Repeat className="h-3.5 w-3.5 shrink-0" />
+                          {repeatLabel(r)}
+                        </div>
+                      )}
+                      <div>
+                        <p className="mb-0.5 text-[10px] font-medium text-muted-foreground">Notes</p>
+                        {r.notes ? (
+                          <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-2.5 py-1.5 text-xs">{r.notes}</p>
+                        ) : (
+                          <p className="rounded-md bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">No notes</p>
+                        )}
+                      </div>
+                      <div className="pt-0.5">
+                        {r.status === "done" ? (
+                          <Button size="sm" variant="outline" className="h-7 w-full gap-1 text-xs" disabled={actionSaving} onClick={() => void markReminderPending(r)}>
+                            <RotateCcw className="h-3.5 w-3.5" /> Mark pending
+                          </Button>
+                        ) : (
+                          <Button size="sm" className="h-7 w-full gap-1 text-xs" disabled={actionSaving} onClick={() => void markReminderDone(r)}>
+                            <Check className="h-3.5 w-3.5" /> Done
+                          </Button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+                );
+              })}
+
+              {dayTasks.map((t) => {
+                const focused = focusedId === t.id;
+                return (
+                <div
+                  key={`task-${t.id}`}
+                  className={cn(
+                    "rounded-lg border border-green-500/30 p-3",
+                    focused && "space-y-2 ring-1 ring-green-500",
+                  )}
+                >
+                  <button
+                    type="button"
+                    className="flex w-full items-start justify-between gap-2 text-left"
+                    onClick={() => setFocusedId(focused ? null : t.id)}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-green-400">Task</p>
+                      <h4 className={cn("font-semibold leading-snug", (t.status === "done" || t.status === "cancelled") && "line-through opacity-60")}>{t.title}</h4>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">{TASK_STATUS_LABEL[t.status] ?? t.status}</p>
+                    </div>
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">{displayTime(t.due_date) ?? "All day"}</span>
+                  </button>
+                  {focused && (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className="rounded-full border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[10px]">
+                          {TASK_STATUS_LABEL[t.status] ?? t.status}
+                        </span>
+                        {t.priority && (
+                          <span className={cn(
+                            "rounded-full border px-1.5 py-0.5 text-[10px] capitalize",
+                            t.priority === "urgent" && "border-red-500/30 bg-red-500/10 text-red-500",
+                            t.priority === "high" && "border-orange-400/30 bg-orange-400/10 text-orange-400",
+                            (t.priority === "medium" || t.priority === "normal") && "border-blue-400/30 bg-blue-400/10 text-blue-400",
+                            t.priority === "low" && "border-slate-400/30 bg-slate-400/10 text-slate-400",
+                          )}>
+                            {PRIORITY_LABEL[t.priority] ?? t.priority} priority
+                          </span>
+                        )}
+                      </div>
+                      <div className="rounded-md bg-muted/40 px-2.5 py-1.5 text-xs">
+                        <p className="font-medium text-muted-foreground">Due date</p>
+                        <p className="mt-0.5">{t.due_date ? formatDateOnly(t.due_date.includes("T") ? t.due_date : `${t.due_date}T12:00:00`) : "—"}</p>
+                      </div>
+                      <div>
+                        <p className="mb-0.5 text-[10px] font-medium text-muted-foreground">Description</p>
+                        {t.description ? (
+                          <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-2.5 py-1.5 text-xs">{t.description}</p>
+                        ) : (
+                          <p className="rounded-md bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">No description</p>
+                        )}
+                      </div>
+                      <div className="pt-0.5">
+                        {t.status === "done" || t.status === "cancelled" ? (
+                          <Button size="sm" variant="outline" className="h-7 w-full gap-1 text-xs" disabled={actionSaving} onClick={() => void reopenTask(t)}>
+                            <RotateCcw className="h-3.5 w-3.5" /> Reopen
+                          </Button>
+                        ) : (
+                          <Button size="sm" className="h-7 w-full gap-1 text-xs" disabled={actionSaving} onClick={() => void forwardTask(t)}>
+                            {t.status === "open" ? <ArrowRight className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
+                            {TASK_FORWARD_LABEL[t.status] ?? "Update"}
+                          </Button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+                );
+              })}
+
+              {dayItems.map((item) => {
+                const focused = focusedId === item.id;
+                const ctype = typeById(item.content_type_id);
+                const color = ctype ? normalizeHex(ctype.color) : null;
+                return (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "rounded-lg border p-3",
+                      focused && "space-y-2 ring-1 ring-primary",
+                    )}
+                    style={color ? { borderLeftWidth: 3, borderLeftColor: color } : undefined}
+                  >
+                    <button
+                      type="button"
+                      className="flex w-full items-start justify-between gap-2 text-left"
+                      onClick={() => setFocusedId(focused ? null : item.id)}
+                    >
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Schedule</p>
+                        <h4 className="font-semibold leading-snug">{item.title}</h4>
+                        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                          <span className={cn("inline-flex items-center gap-1", item.status === "posted" && "text-emerald-500", item.status === "scheduled" && "text-teal-500")}>
+                            <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_CFG[item.status].dot)} />
+                            {STATUS_CFG[item.status].label}
+                          </span>
+                          <span>·</span>
+                          <span className="inline-flex items-center gap-1">
+                            <PlatformBadge platform={item.platform} />
+                            {getPlatform(item.platform).label}
+                          </span>
+                          {ctype && (
+                            <>
+                              <span>·</span>
+                              <TypeBadge type={ctype} size="sm" />
+                            </>
+                          )}
+                        </p>
+                      </div>
+                      <span className="shrink-0 font-mono text-xs text-muted-foreground">{formatTime(item.scheduled_at)}</span>
+                    </button>
+                    {focused && (
+                      <>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className={cn("flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]", STATUS_CFG[item.status].pill)}>
+                            <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_CFG[item.status].dot)} />
+                            {STATUS_CFG[item.status].label}
+                          </span>
+                          <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <PlatformBadge platform={item.platform} />
+                            {getPlatform(item.platform).label}
+                          </span>
+                          <TypeBadge type={ctype} size="sm" />
+                        </div>
+                        <div className="rounded-md bg-muted/40 px-2.5 py-1.5 text-xs">
+                          <p className="font-medium text-muted-foreground">Scheduled</p>
+                          <p className="mt-0.5">{formatDateFull(item.scheduled_at)}</p>
+                          <p className="mt-0.5 font-mono text-muted-foreground">Time {formatTime(item.scheduled_at)}</p>
+                        </div>
+                        <div>
+                          <p className="mb-0.5 text-[10px] font-medium text-muted-foreground">Caption</p>
+                          {item.caption ? (
+                            <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-2.5 py-1.5 text-xs">{item.caption}</p>
+                          ) : (
+                            <p className="rounded-md bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">No caption</p>
+                          )}
+                        </div>
+                        <div>
+                          <p className="mb-0.5 text-[10px] font-medium text-muted-foreground">Notes</p>
+                          {item.notes ? (
+                            <p className="rounded-md bg-muted/30 px-2.5 py-1.5 text-xs">{item.notes}</p>
+                          ) : (
+                            <p className="rounded-md bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">No notes</p>
+                          )}
+                        </div>
+                        <div className="flex gap-2 pt-0.5">
+                          <Button size="sm" variant="outline" className="h-7 flex-1 gap-1 text-xs" onClick={() => openEdit(item)}>
+                            <Pencil className="h-3.5 w-3.5" /> Edit
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-7 gap-1 text-destructive hover:bg-destructive/10" onClick={() => void handleDelete(item.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
-      )}
-
-      {/* ── Task detail panel ─────────────────────────────────────────── */}
-      {taskDetail && (
-        <div className="w-72 shrink-0 space-y-3 rounded-lg border border-border bg-card p-4 text-sm">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-green-400">Task</p>
-              <h3 className="font-semibold leading-snug">{taskDetail.title}</h3>
-            </div>
-            <button type="button" className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" onClick={() => setTaskDetail(null)}>
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-full border border-green-500/30 bg-green-500/10 px-2 py-0.5 text-xs">
-              {TASK_STATUS_LABEL[taskDetail.status] ?? taskDetail.status}
-            </span>
-            {taskDetail.priority && (
-              <span className={cn(
-                "rounded-full border px-2 py-0.5 text-xs capitalize",
-                taskDetail.priority === "urgent" && "border-red-500/30 bg-red-500/10 text-red-500",
-                taskDetail.priority === "high" && "border-orange-400/30 bg-orange-400/10 text-orange-400",
-                (taskDetail.priority === "medium" || taskDetail.priority === "normal") && "border-blue-400/30 bg-blue-400/10 text-blue-400",
-                taskDetail.priority === "low" && "border-slate-400/30 bg-slate-400/10 text-slate-400",
-              )}>
-                {PRIORITY_LABEL[taskDetail.priority] ?? taskDetail.priority} priority
-              </span>
-            )}
-          </div>
-
-          <div className="rounded-md bg-muted/40 px-3 py-2 text-xs">
-            <p className="font-medium text-muted-foreground">Due date</p>
-            <p className="mt-0.5">{taskDetail.due_date ? formatDateOnly(taskDetail.due_date.includes("T") ? taskDetail.due_date : `${taskDetail.due_date}T12:00:00`) : "—"}</p>
-          </div>
-
-          <div>
-            <p className="mb-0.5 text-xs font-medium text-muted-foreground">Description</p>
-            {taskDetail.description ? (
-              <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-3 py-2 text-xs">{taskDetail.description}</p>
-            ) : (
-              <p className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">No description</p>
-            )}
-          </div>
-
-          {taskDetail.status === "done" || taskDetail.status === "cancelled" ? (
-            <Button size="sm" variant="outline" className="w-full gap-1.5" disabled={actionSaving} onClick={() => void reopenTask()}>
-              <RotateCcw className="h-3.5 w-3.5" /> Reopen
-            </Button>
-          ) : (
-            <Button size="sm" className="w-full gap-1.5" disabled={actionSaving} onClick={() => void forwardTask()}>
-              {taskDetail.status === "open" ? <ArrowRight className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
-              {TASK_FORWARD_LABEL[taskDetail.status] ?? "Update"}
-            </Button>
-          )}
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── Add / Edit dialog ────────────────────────────────────────── */}
       <Dialog open={formOpen} onClose={() => setFormOpen(false)} title={editing ? "Edit content" : "Add content"}>

@@ -8,7 +8,10 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminSalesSubPage() {
   const supabase = createClient();
-  const { data: orders } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
+  const { data: orders } = await supabase
+    .from("orders")
+    .select("id,order_no,customer_name,total,status,stage,kind,order_type,source,notes,return_status,created_at,updated_at,due_date")
+    .order("created_at", { ascending: false });
   return (
     <div className="space-y-6">
       <PageHeader
