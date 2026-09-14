@@ -3,6 +3,7 @@ import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { canUseContentPlanner, defaultAfterLoginPath } from "@/lib/roles";
 import { PageHeader } from "@/components/page-header";
 import { ContentPlannerClient, type ContentStore } from "./content-planner-client";
+import { markDueContentPosted } from "@/lib/content-schedule-status";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ export default async function ContentPlannerPage() {
   if (!canUseContentPlanner(user.profile.role)) redirect(defaultAfterLoginPath(user.profile.role));
 
   const supabase = createClient();
+  await markDueContentPosted(supabase);
   const [{ data: items }, { data: reminders }, { data: tasks }, typesRes, storesWithColor] = await Promise.all([
     supabase.from("content_schedules").select("*").order("scheduled_at"),
     supabase.from("reminders").select("*").order("due_at"),

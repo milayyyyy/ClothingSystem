@@ -9,6 +9,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Bell, CheckSquare, X, Check, ArrowRight, RotateCcw, Repeat, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { spawnNextRecurringTask, spawnNextRecurringReminder, repeatLabel } from "@/lib/task-recurrence";
+import { markDueContentPosted } from "@/lib/content-schedule-status";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -354,6 +355,8 @@ export function ContentPlannerClient({
   const [storeFilters, setStoreFilters] = useState<string[]>([]);
   const [typeFilters, setTypeFilters] = useState<string[]>([]);
   const [actionSaving,  setActionSaving]  = useState(false);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
 
   const TASK_SELECT = "id, title, description, due_date, priority, status, task_type, machine_type_id, repeat_mode, repeat_interval_days";
 
@@ -401,6 +404,60 @@ export function ContentPlannerClient({
         }
         if (data) setTasks(data as TaskItem[]);
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timeout = 0;
+
+    async function applyDuePosted() {
+      setItems((prev) => {
+        const dueIds = new Set(
+          prev
+            .filter((item) => (item.status === "scheduled" || item.status === "draft") && new Date(item.scheduled_at).getTime() <= Date.now())
+            .map((item) => item.id),
+        );
+        if (dueIds.size === 0) return prev;
+        return prev.map((item) => (dueIds.has(item.id) ? { ...item, status: "posted" as const } : item));
+      });
+      const { ids } = await markDueContentPosted(supabase);
+      if (cancelled) return;
+      if (ids.length > 0) {
+        const posted = new Set(ids);
+        setItems((prev) => prev.map((item) => (
+          posted.has(item.id) && item.status !== "posted" ? { ...item, status: "posted" as const } : item
+        )));
+      }
+      arm();
+    }
+
+    function arm() {
+      window.clearTimeout(timeout);
+      const now = Date.now();
+      let wait = 60_000;
+      for (const item of itemsRef.current) {
+        if (item.status !== "scheduled" && item.status !== "draft") continue;
+        const remaining = new Date(item.scheduled_at).getTime() - now;
+        if (remaining <= 0) {
+          wait = 250;
+          break;
+        }
+        if (remaining < wait) wait = remaining;
+      }
+      timeout = window.setTimeout(() => { void applyDuePosted(); }, Math.max(250, wait));
+    }
+
+    void applyDuePosted();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void applyDuePosted();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -585,10 +642,10 @@ export function ContentPlannerClient({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex min-h-[calc(100dvh-11rem)] items-stretch gap-4">
+    <div className="flex min-h-[calc(100dvh-11rem)] flex-col items-stretch gap-4 lg:flex-row">
 
       {/* ── Calendar ──────────────────────────────────────────────────── */}
-      <div className="min-w-0 flex-1 space-y-3">
+      <div className={cn("min-w-0 flex-1 space-y-3", detailDay && "max-lg:hidden")}>
 
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -770,15 +827,20 @@ export function ContentPlannerClient({
           dayItems.length ? `${dayItems.length} ${dayItems.length === 1 ? "post" : "posts"}` : null,
         ].filter(Boolean).join(" · ");
         return (
-        <div className="flex w-80 shrink-0 flex-col self-stretch rounded-lg border border-border bg-card p-4 text-sm">
+        <div className="flex min-h-0 w-full flex-col self-stretch rounded-lg border border-border bg-card p-4 text-sm lg:w-80 lg:shrink-0">
           <div className="flex shrink-0 items-start justify-between gap-2">
             <div className="min-w-0">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">This day</p>
               <h3 className="font-semibold leading-snug">{dayLabel}</h3>
               <p className="text-xs text-muted-foreground">{counts || "Nothing on this day"}</p>
             </div>
-            <button type="button" className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground" onClick={() => { setDetailDay(null); setFocusedId(null); }}>
-              <X className="h-4 w-4" />
+            <button
+              type="button"
+              aria-label="Close day details"
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+              onClick={() => { setDetailDay(null); setFocusedId(null); }}
+            >
+              <X className="h-5 w-5" />
             </button>
           </div>
           {total === 0 ? (
