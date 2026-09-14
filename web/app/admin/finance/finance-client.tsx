@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { FinanceCsvExportDialog } from "@/components/finance-csv-export-dialog";
 import { useConfirmAction } from "@/components/confirm-dialog";
 import { ArrowLeftRight, Copy, Check, Download } from "lucide-react";
+import { deleteSalariesLinkedToExpenses } from "@/lib/payroll-ledger";
 
 type FinanceAccountRow = {
   id: string;
@@ -622,6 +623,12 @@ export function FinanceClient({
             onClick={async () => {
               if (!linkedExpenseTx?.expense_id) return;
               setDeletingLinked(true);
+              const payroll = await deleteSalariesLinkedToExpenses(supabase, [linkedExpenseTx.expense_id]);
+              if (payroll.error) {
+                setDeletingLinked(false);
+                alert(payroll.error);
+                return;
+              }
               // Deleting the expense cascades and removes the transaction automatically
               const { error: e } = await supabase.from("expenses").delete().eq("id", linkedExpenseTx.expense_id);
               setDeletingLinked(false);
@@ -633,7 +640,7 @@ export function FinanceClient({
           >
             <span className="block font-medium text-destructive">Delete transaction + linked expense / sales record</span>
             <span className="block text-xs text-muted-foreground mt-0.5">
-              Permanently removes both this transaction and the connected expense or sales record. Cannot be undone.
+              Permanently removes both this transaction and the connected expense or sales record. Linked payroll is also removed from Recorded payroll and My Salary. Cannot be undone.
             </span>
           </button>
           <div className="pt-1">

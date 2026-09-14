@@ -20,6 +20,7 @@ import {
 } from "@/components/expense-categories-dialog";
 import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
 import { employmentCategoryLabel, normalizeEmploymentCategory } from "@/lib/employment-category";
+import { deleteSalariesLinkedToExpenses } from "@/lib/payroll-ledger";
 
 const RECEIPT_BUCKET = "expense-receipts";
 
@@ -268,7 +269,12 @@ export function ExpensesClient({
 
   async function bulkDelete() {
     if (selectedIds.size === 0) return;
-    if (!confirm(`Delete ${selectedIds.size} selected expense${selectedIds.size > 1 ? "s" : ""}? This cannot be undone.`)) return;
+    if (
+      !confirm(
+        `Delete ${selectedIds.size} selected expense${selectedIds.size > 1 ? "s" : ""}? Linked payroll records (Recorded payroll and My Salary) are also removed. This cannot be undone.`,
+      )
+    )
+      return;
     setBulkBusy(true);
     const ids = Array.from(selectedIds);
     // Remove receipts for those that have one
@@ -276,8 +282,18 @@ export function ExpensesClient({
     if (withReceipts.length > 0) {
       await supabase.storage.from(RECEIPT_BUCKET).remove(withReceipts.map((e) => e.receipt_path!));
     }
-    await supabase.from("expenses").delete().in("id", ids);
+    const payroll = await deleteSalariesLinkedToExpenses(supabase, ids);
+    if (payroll.error) {
+      setBulkBusy(false);
+      alert(payroll.error);
+      return;
+    }
+    const { error } = await supabase.from("expenses").delete().in("id", ids);
     setBulkBusy(false);
+    if (error) {
+      alert(error.message);
+      return;
+    }
     await refresh();
   }
 
@@ -291,12 +307,26 @@ export function ExpensesClient({
   }
 
   async function remove(row: ExpenseRow) {
-    if (!confirm("Delete this expense?")) return;
+    if (
+      !confirm(
+        "Delete this expense? If it is a salary payout, it is also removed from Recorded payroll and the employee's My Salary.",
+      )
+    )
+      return;
     if (row.receipt_path) {
       const { error } = await supabase.storage.from(RECEIPT_BUCKET).remove([row.receipt_path]);
       if (error) console.warn("Receipt delete:", error.message);
     }
-    await supabase.from("expenses").delete().eq("id", row.id);
+    const payroll = await deleteSalariesLinkedToExpenses(supabase, [row.id]);
+    if (payroll.error) {
+      alert(payroll.error);
+      return;
+    }
+    const { error } = await supabase.from("expenses").delete().eq("id", row.id);
+    if (error) {
+      alert(error.message);
+      return;
+    }
     refresh();
   }
 

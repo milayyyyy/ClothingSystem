@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Trash2 } from "lucide-react";
 import { peso, formatDate, formatDateTime, cn } from "@/lib/utils";
+import { deleteRecordedPayrollRow } from "@/lib/payroll-ledger";
 import {
   allowanceBasisLabel,
   allowanceForPeriod,
@@ -630,6 +631,7 @@ export function SalaryClient({
   const [liveAttendance, setLiveAttendance] = useState(attendance);
   const [loadingPeriod, setLoadingPeriod] = useState(false);
   const [payRow, setPayRow] = useState<MonthPayPreviewRow | null>(null);
+  const [deletingPayrollId, setDeletingPayrollId] = useState<string | null>(null);
   const [periodStartStr, setPeriodStartStr] = useState(() => {
     const stored = loadStoredPayrollPeriod();
     return stored?.start ?? defaultPayrollRange().start;
@@ -813,6 +815,31 @@ export function SalaryClient({
       };
     });
   }, [employees, attendanceUnpaidInPeriod, periodStart, periodEnd, periodDays, list, periodStartStr, periodEndStr]);
+
+  async function removeRecordedPayroll(s: (typeof list)[0]) {
+    const linked = Boolean(s.expense_id);
+    const ok = confirm(
+      linked
+        ? "Delete this payroll record from Recorded payroll and the employee's My Salary? The linked expense and finance transaction will also be deleted."
+        : "Delete this payroll record from Recorded payroll and the employee's My Salary? This cannot be undone.",
+    );
+    if (!ok) return;
+    setDeletingPayrollId(s.id);
+    const result = await deleteRecordedPayrollRow(supabase, {
+      id: s.id,
+      user_id: s.user_id,
+      period_start: s.period_start,
+      period_end: s.period_end,
+      expense_id: s.expense_id ?? null,
+    });
+    setDeletingPayrollId(null);
+    if (result.error) {
+      alert(result.error);
+      return;
+    }
+    setList((prev) => prev.filter((row) => String(row.id) !== String(s.id)));
+    void router.refresh();
+  }
 
   async function markPaid(id: string) {
     const { data } = await supabase
@@ -1073,7 +1100,9 @@ export function SalaryClient({
           <details className="mt-1 text-[11px] text-muted-foreground">
             <summary className="cursor-pointer font-medium text-foreground/80 hover:text-foreground">How follow-up pays work</summary>
             <p className="mt-1 leading-snug">
-              One row per employee per period; each Pay updates totals and creates its own expense. Mark paid toggles status only.
+              One row per employee per period; each Pay updates totals and creates its own expense. Deleting that
+              expense or finance entry also removes this row and the employee&apos;s My Salary record. Mark paid
+              toggles status only.
             </p>
           </details>
         </CardHeader>
@@ -1119,11 +1148,24 @@ export function SalaryClient({
                       </Badge>
                     </td>
                     <td className="p-2">
-                      {!salaryRowIsPaid(s) && (
-                        <Button size="sm" variant="outline" onClick={() => void markPaid(s.id)}>
-                          Mark Paid
+                      <div className="flex items-center justify-end gap-1">
+                        {!salaryRowIsPaid(s) && (
+                          <Button size="sm" variant="outline" onClick={() => void markPaid(s.id)}>
+                            Mark Paid
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                          disabled={deletingPayrollId === s.id}
+                          onClick={() => void removeRecordedPayroll(s)}
+                          aria-label="Delete payroll record"
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </Button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 );
