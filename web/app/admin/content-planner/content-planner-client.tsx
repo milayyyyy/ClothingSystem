@@ -688,7 +688,12 @@ export function ContentPlannerClient({
         {/* Grid */}
         <div className="overflow-hidden rounded-lg border border-border bg-card">
           <div className="grid grid-cols-7 border-b border-border bg-muted/50">
-            {DAYS.map(d => <div key={d} className="py-2 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{d}</div>)}
+            {DAYS.map(d => (
+              <div key={d} className="py-1.5 text-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:py-2 sm:text-[11px]">
+                <span className="sm:hidden">{d.slice(0, 1)}</span>
+                <span className="hidden sm:inline">{d}</span>
+              </div>
+            ))}
           </div>
           <div className="grid grid-cols-7 divide-x divide-y divide-border">
             {grid.map(day => {
@@ -710,7 +715,7 @@ export function ContentPlannerClient({
 
               return (
                 <div key={dateStr}
-                  className={cn("min-h-[7.5rem] cursor-pointer p-1 transition-colors hover:bg-muted/20", isToday && "bg-primary/5", !inMonth && "bg-muted/10 opacity-60")}
+                  className={cn("min-h-[4.5rem] cursor-pointer overflow-hidden p-0.5 transition-colors hover:bg-muted/20 sm:min-h-[7.5rem] sm:p-1", isToday && "bg-primary/5", !inMonth && "bg-muted/10 opacity-60")}
                   onClick={() => openAdd(dateStr)}
                 >
                   <div className="mb-1 flex items-start justify-between">

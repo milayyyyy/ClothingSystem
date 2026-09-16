@@ -328,7 +328,7 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
 
       {/* Active tasks */}
       <Card className="mb-4">
-        <CardContent className="p-0">
+        <CardContent className="overflow-x-auto overscroll-x-contain p-0">
           <table className="w-full min-w-[700px] text-sm">
             <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
@@ -361,7 +361,7 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
             Completed &amp; Cancelled ({finished.length})
           </summary>
           <Card>
-            <CardContent className="p-0">
+            <CardContent className="overflow-x-auto overscroll-x-contain p-0">
               <table className="w-full min-w-[700px] text-sm opacity-75">
                 <tbody>
                   {finished.map((t) => <TaskRow key={t.id} t={t} />)}

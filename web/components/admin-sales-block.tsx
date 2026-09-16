@@ -152,7 +152,7 @@ export function AdminSalesBlock({
             <CardTitle>Breakdown</CardTitle>
             <CardDescription>Order count and revenue by channel</CardDescription>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="overflow-x-auto overscroll-x-contain p-0">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>

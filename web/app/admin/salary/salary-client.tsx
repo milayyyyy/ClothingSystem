@@ -927,16 +927,16 @@ export function SalaryClient({
           id="payroll-period-start"
           type="date"
           aria-label="Payroll period start"
-          className="h-8 w-[10.25rem] text-xs tabular-nums"
+          className="h-11 w-full text-base tabular-nums sm:h-8 sm:w-[10.25rem] sm:text-xs"
           value={periodStartStr}
           onChange={(e) => onPayrollStartChange(e.target.value)}
         />
-        <span className="text-xs text-muted-foreground">–</span>
+        <span className="hidden text-xs text-muted-foreground sm:inline">–</span>
         <Input
           id="payroll-period-end"
           type="date"
           aria-label="Payroll period end"
-          className="h-8 w-[10.25rem] text-xs tabular-nums"
+          className="h-11 w-full text-base tabular-nums sm:h-8 sm:w-[10.25rem] sm:text-xs"
           value={periodEndStr}
           onChange={(e) => onPayrollEndChange(e.target.value)}
         />
@@ -1106,7 +1106,7 @@ export function SalaryClient({
             </p>
           </details>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto overscroll-x-contain">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-left text-xs">
               <tr>

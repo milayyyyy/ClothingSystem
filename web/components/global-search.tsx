@@ -389,7 +389,7 @@ export function GlobalSearch({ role }: { role?: string }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[10vh] backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 px-2 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-sm sm:px-4 sm:pt-[10vh]"
       onClick={() => setOpen(false)}
     >
       <div
@@ -408,7 +408,7 @@ export function GlobalSearch({ role }: { role?: string }) {
             onChange={(e) => { setQuery(e.target.value); setSelectedIdx(0); }}
             onKeyDown={handleKey}
             placeholder="Search orders, employees, tasks, inventory…"
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground sm:text-sm"
           />
           {query && (
             <button onClick={() => setQuery("")} className="text-muted-foreground hover:text-foreground">
@@ -441,7 +441,7 @@ export function GlobalSearch({ role }: { role?: string }) {
                   return (
                     <button
                       key={item.id}
-                      className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors
+                      className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors sm:py-2.5
                         ${isSelected ? "bg-primary text-primary-foreground" : "hover:bg-muted/60"}`}
                       onMouseEnter={() => setSelectedIdx(globalIdx)}
                       onClick={() => navigate(item)}
@@ -490,12 +490,14 @@ export function GlobalSearch({ role }: { role?: string }) {
 export function QuickSearchTrigger() {
   return (
     <button
+      type="button"
       onClick={() => window.dispatchEvent(new CustomEvent("global-search:open"))}
-      className="hidden items-center gap-2 rounded-md border bg-muted/30 px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted md:flex"
+      className="inline-flex h-10 w-10 items-center justify-center rounded-md border bg-muted/30 text-muted-foreground transition-colors hover:bg-muted md:h-auto md:w-auto md:gap-2 md:px-3 md:py-1.5"
+      aria-label="Quick search"
     >
-      <Search className="h-3.5 w-3.5" />
-      <span className="text-xs">Quick search</span>
-      <kbd className="ml-2 rounded border bg-background px-1.5 py-0.5 text-[10px]">⌘K</kbd>
+      <Search className="h-4 w-4 md:h-3.5 md:w-3.5" />
+      <span className="hidden text-xs md:inline">Quick search</span>
+      <kbd className="ml-2 hidden rounded border bg-background px-1.5 py-0.5 text-[10px] md:inline">⌘K</kbd>
     </button>
   );
 }

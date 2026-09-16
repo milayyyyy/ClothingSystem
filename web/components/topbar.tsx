@@ -50,7 +50,7 @@ export function Topbar({
             type="button"
             variant="outline"
             size="sm"
-            className="h-9 w-9 shrink-0 p-0 lg:hidden"
+            className="h-10 w-10 shrink-0 p-0 lg:hidden"
             onClick={onMenuClick}
             aria-label="Open menu"
           >

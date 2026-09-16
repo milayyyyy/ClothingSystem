@@ -9,7 +9,7 @@ export const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
 Card.displayName = "Card";
 
 export const CardHeader = ({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("flex flex-col space-y-1.5 p-6 pb-4", className)} {...p} />
+  <div className={cn("flex flex-col space-y-1.5 p-4 pb-3 sm:p-6 sm:pb-4", className)} {...p} />
 );
 export const CardTitle = ({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) => (
   <div className={cn("text-base font-semibold leading-none tracking-tight", className)} {...p} />
@@ -18,8 +18,8 @@ export const CardDescription = ({ className, ...p }: React.HTMLAttributes<HTMLDi
   <div className={cn("text-sm text-muted-foreground", className)} {...p} />
 );
 export const CardContent = ({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("p-6 pt-0", className)} {...p} />
+  <div className={cn("p-4 pt-0 sm:p-6 sm:pt-0", className)} {...p} />
 );
 export const CardFooter = ({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("flex items-center p-6 pt-0", className)} {...p} />
+  <div className={cn("flex items-center p-4 pt-0 sm:p-6 sm:pt-0", className)} {...p} />
 );

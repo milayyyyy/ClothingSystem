@@ -2363,7 +2363,8 @@ export function OrdersClient({
             </table>
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto overscroll-x-contain">
+            <table className="w-full min-w-[720px] text-sm">
               <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="w-10 px-2 py-3 text-center font-medium">
@@ -2531,6 +2532,7 @@ export function OrdersClient({
                 )}
               </tbody>
             </table>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -27,31 +27,33 @@ export function Dialog({ open, onClose, children, title, description, size = "lg
         role="presentation"
       >
         <div className="fixed inset-0 bg-background/80" aria-hidden />
-        <div className="relative flex min-h-full items-center justify-center p-4 sm:p-6 sm:py-10">
+        <div className="relative flex min-h-full items-end justify-center p-0 sm:items-center sm:p-6 sm:py-10">
           <div
             className={cn(
-              "relative z-10 flex w-full max-h-[min(90dvh,calc(100dvh-2rem))] flex-col overflow-hidden rounded-xl border bg-card shadow-2xl",
+              "relative z-10 flex w-full flex-col overflow-hidden border bg-card shadow-2xl",
+              "max-sm:max-h-[min(92dvh,100dvh)] max-sm:max-w-none max-sm:rounded-t-2xl max-sm:pb-safe",
+              "sm:max-h-[min(90dvh,calc(100dvh-2rem))] sm:rounded-xl",
               w,
             )}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="relative shrink-0 border-b border-border/60 px-6 pb-4 pt-6 pr-14">
+            <div className="relative shrink-0 border-b border-border/60 px-4 pb-3 pt-4 pr-14 sm:px-6 sm:pb-4 sm:pt-6">
               <button
                 type="button"
                 onClick={onClose}
-                className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="absolute right-2 top-2 inline-flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:right-3 sm:top-3"
                 aria-label="Close"
               >
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5 sm:h-4 sm:w-4" />
               </button>
               {(title || description) && (
                 <div>
-                  {title && <h2 className="text-lg font-semibold tracking-tight">{title}</h2>}
+                  {title && <h2 className="text-base font-semibold tracking-tight sm:text-lg">{title}</h2>}
                   {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
                 </div>
               )}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">{children}</div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">{children}</div>
           </div>
         </div>
       </div>

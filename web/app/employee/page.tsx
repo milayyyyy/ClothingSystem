@@ -83,7 +83,7 @@ export default async function EmployeeDashboard() {
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>My Open Orders</CardTitle></CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="overflow-x-auto overscroll-x-contain p-0">
             <table className="w-full text-sm">
               <thead className="text-left bg-muted/40"><tr><th className="p-3">#</th><th>Customer</th><th>Status</th><th>Due</th></tr></thead>
               <tbody>
@@ -98,7 +98,7 @@ export default async function EmployeeDashboard() {
 
         <Card>
           <CardHeader><CardTitle>Recent Pay</CardTitle></CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="overflow-x-auto overscroll-x-contain p-0">
             <table className="w-full text-sm">
               <thead className="text-left bg-muted/40"><tr><th className="p-3">Period</th><th>Days</th><th>Net</th><th>Status</th></tr></thead>
               <tbody>
