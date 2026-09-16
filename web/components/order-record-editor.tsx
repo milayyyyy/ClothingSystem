@@ -19,6 +19,7 @@ import {
 } from "@/lib/order-records";
 import { OrderRecordAttachments } from "@/components/order-record-attachments";
 import { OrderRecordBigSellerImport } from "@/components/order-record-bigseller-import";
+import { prepareStorageUpload } from "@/lib/compress-image";
 import { ArrowLeft, CheckCircle2, Loader2, XCircle } from "lucide-react";
 
 type Props = {
@@ -167,8 +168,15 @@ export function OrderRecordEditor({
         setErr("Only PDF and image files are allowed.");
         continue;
       }
+      let prepared;
+      try {
+        prepared = await prepareStorageUpload(file, "screenshot");
+      } catch (err) {
+        setErr(err instanceof Error ? err.message : "Could not compress this file.");
+        break;
+      }
       const fd = new FormData();
-      fd.append("file", file);
+      fd.append("file", prepared.file);
       const res = await fetch(`/api/order-records/${recordId}/attachments`, { method: "POST", body: fd });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {

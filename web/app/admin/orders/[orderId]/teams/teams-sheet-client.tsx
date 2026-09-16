@@ -23,6 +23,7 @@ import {
 } from "@/lib/order-teams-sheet-pdf";
 import { FileDown } from "lucide-react";
 import { uploadJerseyDesignPhoto } from "@/lib/jersey-design-upload";
+import { JERSEY_DESIGNS_BUCKET, TEAM_DESIGN_MAX, storagePathFromPublicUrl } from "@/lib/media-storage";
 import {
   emptyPlayer,
   emptyTeam,
@@ -52,7 +53,6 @@ type FlatRow = {
   jerseyChecklist: JerseyChecklistItem[];
 };
 
-const TEAM_DESIGN_MAX = 24;
 
 function peso(n: number) {
   return `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -115,7 +115,7 @@ function TeamDesignStrip({
     onBusyChange(true);
     try {
       for (const file of files) {
-        const publicUrl = await uploadJerseyDesignPhoto(orderId, teamKey, file);
+        const publicUrl = await uploadJerseyDesignPhoto(orderId, teamKey, file, [...urls, ...added]);
         added.push(publicUrl);
       }
       await onUrlsChange([...urls, ...added]);
@@ -245,7 +245,7 @@ function TeamDesignStrip({
               {uploading ? "Uploading…" : "Choose photos"}
             </Label>
             <span className="text-[10px] text-muted-foreground">
-              {dragOver ? "Drop images to upload" : "Drag here or click Choose photos"}
+              {dragOver ? "Drop images to upload" : "Compressed to JPEG · drag or click Choose photos"}
             </span>
           </div>
         )}
@@ -850,6 +850,7 @@ export function TeamsSheetClient({
   }
 
   async function handleDesignUrlsChange(sheetKey: string, nextUrls: string[]) {
+    const prevUrls = flatRows.find((r) => r.sheetKey === sheetKey)?.teamDesignUrls ?? [];
     const updatedRows = flatRows.map((r) =>
       r.sheetKey === sheetKey ? { ...r, teamDesignUrls: nextUrls } : r,
     );
@@ -863,6 +864,13 @@ export function TeamsSheetClient({
         nextUrls,
         flatRowsToTeams(updatedRows),
       );
+      const removed = prevUrls.filter((u) => !nextUrls.includes(u));
+      const stalePaths = removed
+        .map((url) => storagePathFromPublicUrl(url, JERSEY_DESIGNS_BUCKET))
+        .filter((p): p is string => Boolean(p));
+      if (stalePaths.length) {
+        await supabase.storage.from(JERSEY_DESIGNS_BUCKET).remove(stalePaths);
+      }
       if (!updatedInPlace) reload();
       setMessage("Design photos saved.");
     } catch (err) {

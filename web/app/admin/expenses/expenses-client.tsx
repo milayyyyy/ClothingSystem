@@ -21,8 +21,10 @@ import {
 import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
 import { employmentCategoryLabel, normalizeEmploymentCategory } from "@/lib/employment-category";
 import { deleteSalariesLinkedToExpenses } from "@/lib/payroll-ledger";
+import { prepareStorageUpload } from "@/lib/compress-image";
+import { EXPENSE_RECEIPTS_BUCKET, expenseReceiptPath } from "@/lib/media-storage";
 
-const RECEIPT_BUCKET = "expense-receipts";
+const RECEIPT_BUCKET = EXPENSE_RECEIPTS_BUCKET;
 
 export type FinanceAccountOption = { id: string; name: string; kind: string };
 
@@ -73,11 +75,6 @@ type ExpenseRow = {
   finance_account_id?: string | null;
   receipt_path?: string | null;
 };
-
-function safeReceiptFileName(name: string) {
-  const base = name.replace(/[/\\]/g, "").replace(/[^a-zA-Z0-9._-]/g, "_");
-  return base.slice(0, 120) || "receipt";
-}
 
 function expenseDateKey(expenseDate: string | null | undefined): string {
   return String(expenseDate || "").slice(0, 10);
@@ -901,10 +898,17 @@ function ExpenseForm({
       }
 
       if (receiptFile && receiptFile.size > 0) {
-        const path = `${id}/${Date.now()}-${safeReceiptFileName(receiptFile.name)}`;
+        let prepared;
+        try {
+          prepared = await prepareStorageUpload(receiptFile, "receipt");
+        } catch (err) {
+          alert(err instanceof Error ? err.message : "Could not compress the receipt.");
+          return;
+        }
+        const path = expenseReceiptPath(id, prepared.ext);
         const { error: upErr } = await supabase.storage
           .from(RECEIPT_BUCKET)
-          .upload(path, receiptFile, { contentType: receiptFile.type || undefined, upsert: false });
+          .upload(path, prepared.file, { contentType: prepared.file.type || undefined, upsert: true });
         if (upErr) {
           alert(`Expense saved but receipt upload failed: ${upErr.message}`);
         } else {
@@ -1150,7 +1154,9 @@ function ExpenseForm({
               setReceiptFile(f ?? null);
             }}
           />
-          <p className="mt-1 text-xs text-muted-foreground">Optional. JPG, PNG, WebP, GIF, or PDF (stored privately).</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Optional. Photos are compressed to JPEG before upload. PDF is kept as-is if it is under 1.5 MB.
+          </p>
         </div>
         <div className="col-span-2">
           <Label>Notes</Label>

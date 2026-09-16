@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, ShieldOff, KeyRound, Mail, Phone, QrCode, Smartphone } from "lucide-react";
+import { ShieldCheck, ShieldOff, KeyRound, Mail, Phone, QrCode, Smartphone, HardDrive } from "lucide-react";
 import Image from "next/image";
 import { PwaInstallButton } from "@/components/pwa-install-button";
 
@@ -90,6 +90,43 @@ export function SettingsClient({ initialEmail, initialPhone }: { initialEmail: s
       setPwMsg("Error: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setPwBusy(false);
+    }
+  }
+
+  const [storageBusy, setStorageBusy] = useState(false);
+  const [storageMsg, setStorageMsg] = useState<string | null>(null);
+
+  async function runStorageCleanup() {
+    if (
+      !confirm(
+        "Delete unused receipt, screenshot, and design files from Storage? Files still attached to a record are kept. This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+    setStorageBusy(true);
+    setStorageMsg(null);
+    try {
+      const res = await fetch("/api/admin/storage-cleanup", { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStorageMsg("Error: " + (json.error || "Cleanup failed"));
+        return;
+      }
+      const deleted = Number(json.deleted) || 0;
+      const scanned = Number(json.scanned) || 0;
+      const skipped = Number(json.skippedRecent) || 0;
+      const extra =
+        Array.isArray(json.errors) && json.errors.length
+          ? ` Some deletes did not complete: ${json.errors.slice(0, 2).join("; ")}`
+          : "";
+      setStorageMsg(
+        `Scanned ${scanned} file${scanned === 1 ? "" : "s"}, removed ${deleted} unused.${skipped ? ` Skipped ${skipped} recent upload${skipped === 1 ? "" : "s"}.` : ""}${extra}`,
+      );
+    } catch (err: unknown) {
+      setStorageMsg("Error: " + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setStorageBusy(false);
     }
   }
 
@@ -309,6 +346,20 @@ export function SettingsClient({ initialEmail, initialPhone }: { initialEmail: s
         <p className="text-xs text-muted-foreground">
           When 2FA is enabled, sensitive actions (like bulk deleting activity logs) will require your authenticator code.
         </p>
+      </Section>
+
+      <Section
+        title="Storage cleanup"
+        description="Remove leftover receipt, screenshot, and design files that are no longer attached to a record. Files uploaded in the last 2 hours are skipped."
+      >
+        <p className="text-sm text-muted-foreground flex items-start gap-2">
+          <HardDrive className="mt-0.5 h-4 w-4 shrink-0" />
+          New uploads are compressed to JPEG. Use this if Storage is still growing from replaced or deleted photos.
+        </p>
+        <Button type="button" variant="outline" onClick={() => void runStorageCleanup()} disabled={storageBusy}>
+          {storageBusy ? "Scanning…" : "Remove unused files"}
+        </Button>
+        <Msg msg={storageMsg} />
       </Section>
     </div>
   );

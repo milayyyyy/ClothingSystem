@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ExportAllPdfButton } from "@/components/export-all-pdf-button";
+import { MediaArchivePdfButton } from "@/components/media-archive-pdf-button";
 import { InventoryFullStockExportButton } from "@/components/inventory-full-stock-export-button";
 import { CsvExportDialog, type CsvColumn } from "@/components/csv-export-dialog";
 import { FinanceCsvExportDialog } from "@/components/finance-csv-export-dialog";
@@ -136,6 +137,20 @@ export function AdminExportClient() {
             into a single PDF for one date — no need to export each section separately.
           </p>
           <ExportAllPdfButton />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Receipts, screenshots & designs</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
+          <p>
+            Download a PDF of expense receipts, daily-order screenshots, and jersey design photos for a date range.
+            Files are grouped by category, each with date and name. After download you can remove those files from
+            Storage (records stay).
+          </p>
+          <MediaArchivePdfButton />
         </CardContent>
       </Card>
 

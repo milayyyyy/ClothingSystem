@@ -1,25 +1,26 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
-import { extensionFromFileName, jerseyDesignUploadErrorMessage } from "@/lib/sublimation-teams";
+import { prepareStorageUpload } from "@/lib/compress-image";
+import { JERSEY_DESIGNS_BUCKET, nextJerseyDesignPath } from "@/lib/media-storage";
+import { jerseyDesignUploadErrorMessage } from "@/lib/sublimation-teams";
 
-const BUCKET = "jersey-designs";
-
-/** Same pattern as finance QR uploads: direct Supabase storage from the browser. */
+/** Same pattern as finance QR uploads: compress in the browser, then store JPEG. */
 export async function uploadJerseyDesignPhoto(
   orderId: string,
   teamKey: string,
   file: File,
+  existingUrls: string[] = [],
 ): Promise<string> {
+  const prepared = await prepareStorageUpload(file, "design");
+  const path = nextJerseyDesignPath(orderId, teamKey, existingUrls);
   const supabase = createClient();
-  const ext = extensionFromFileName(file.name);
-  const path = `${orderId}/teams/${teamKey}/${Date.now()}-${globalThis.crypto?.randomUUID?.() ?? "img"}.${ext}`;
-  const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
+  const { error: upErr } = await supabase.storage.from(JERSEY_DESIGNS_BUCKET).upload(path, prepared.file, {
     upsert: true,
-    contentType: file.type || undefined,
+    contentType: "image/jpeg",
   });
   if (upErr) throw new Error(jerseyDesignUploadErrorMessage(upErr));
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  const { data } = supabase.storage.from(JERSEY_DESIGNS_BUCKET).getPublicUrl(path);
   if (!data.publicUrl) throw new Error("Upload failed");
   return data.publicUrl;
 }

@@ -7,7 +7,7 @@ import { createClient, getSessionUser } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 
 const BUCKET = "jersey-designs";
-const MAX_BYTES = 15 * 1024 * 1024;
+const MAX_BYTES = 3 * 1024 * 1024;
 
 function serviceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -51,7 +51,7 @@ export async function POST(
     return NextResponse.json({ error: "Choose an image file (JPG, PNG, HEIC, etc.)" }, { status: 400 });
   }
   if (file.size > MAX_BYTES) {
-    return NextResponse.json({ error: "Image must be 15 MB or smaller" }, { status: 400 });
+    return NextResponse.json({ error: "Image must be 3 MB or smaller after compression." }, { status: 400 });
   }
 
   const id = crypto.randomUUID();

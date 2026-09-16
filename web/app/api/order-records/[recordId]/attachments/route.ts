@@ -3,13 +3,12 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import {
   ORDER_RECORD_BUCKET,
   attachmentKind,
-  safeAttachmentName,
 } from "@/lib/order-records";
 import { createClient, getSessionUser, isStaff } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-const MAX_BYTES = 20 * 1024 * 1024;
+const MAX_BYTES = 3 * 1024 * 1024;
 
 function serviceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -72,13 +71,14 @@ export async function POST(
     return NextResponse.json({ error: "Upload a PDF or image (JPG, PNG, etc.)." }, { status: 400 });
   }
   if (file.size > MAX_BYTES) {
-    return NextResponse.json({ error: "File must be 20 MB or smaller." }, { status: 400 });
+    return NextResponse.json({ error: "File must be 3 MB or smaller after compression." }, { status: 400 });
   }
 
-  const path = `${me.id}/${recordId}/${Date.now()}-${safeAttachmentName(file.name)}`;
+  const ext = kind === "pdf" ? "pdf" : "jpg";
+  const path = `${recordId}/${crypto.randomUUID()}.${ext}`;
   const bytes = Buffer.from(await file.arrayBuffer());
   const { error: upErr } = await admin.storage.from(ORDER_RECORD_BUCKET).upload(path, bytes, {
-    contentType: file.type || undefined,
+    contentType: kind === "pdf" ? file.type || "application/pdf" : "image/jpeg",
     upsert: false,
   });
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 400 });

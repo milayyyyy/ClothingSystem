@@ -8,7 +8,7 @@ export default function AdminExportPage() {
     <div className="space-y-6">
       <PageHeader
         title="Export"
-        description="Download everything in one PDF, or export individual sections as CSV for Excel."
+        description="Download everything in one PDF, export receipts/screenshots/designs as a photo archive, or export individual sections as CSV."
       />
       <AdminExportClient />
     </div>

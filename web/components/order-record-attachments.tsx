@@ -168,7 +168,7 @@ export function OrderRecordAttachments({
       <div>
         <Label>Attachments (PDF or photos)</Label>
         <p className="text-xs text-muted-foreground">
-          Drag and drop files here, or click to browse. Uploads save automatically.
+          Drag and drop files here, or click to browse. Photos are compressed to JPEG. Uploads save automatically.
         </p>
       </div>
 
