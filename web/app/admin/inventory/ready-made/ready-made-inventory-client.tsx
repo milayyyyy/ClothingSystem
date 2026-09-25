@@ -44,8 +44,22 @@ function sortByOrder<T extends { sort_order: number }>(arr: T[]) {
 
 const UNGROUPED_COLLAPSE_KEY = "__ungrouped__";
 
+/** Matches Tailwind `lg` (1024px): phone / small tablet uses the popup sheet picker. */
+function useIsPhoneUi() {
+  const [isPhone, setIsPhone] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsPhone(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return isPhone;
+}
+
 export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean }) {
   const supabase = createClient();
+  const isPhoneUi = useIsPhoneUi();
   const { ask, dialog: confirmDialog } = useConfirmAction();
   const [groups, setGroups] = useState<Group[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
@@ -170,6 +184,10 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
     void loadGrid(activeId);
   }, [activeId, loadGrid]);
 
+  useEffect(() => {
+    if (!isPhoneUi) setSheetNavOpen(false);
+  }, [isPhoneUi]);
+
   function boardsInGroup(groupId: string | null) {
     return sortByOrder(boards.filter((b) => (b.group_id ?? null) === (groupId ?? null)));
   }
@@ -178,6 +196,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
     const gid = groupId ?? groups[0]?.id ?? "";
     setNewBoardGroupId(gid);
     setNewBoardName("");
+    setSheetNavOpen(false);
     setNewBoardOpen(true);
   }
 
@@ -824,6 +843,137 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
     );
   }
 
+  function renderSheetGroups() {
+    return (
+      <>
+        {sortByOrder(groups).map((g) => {
+          const boardsFiltered = filterBoardsInGroup(g.id, g);
+          const allInGroup = boardsInGroup(g.id);
+          if (sheetQ && boardsFiltered.length === 0 && !g.name.toLowerCase().includes(sheetQ)) return null;
+          const collapsed = isSheetListCollapsed(g.id, boardsFiltered, g.name);
+          const sheetCount = allInGroup.length;
+          return (
+            <div key={g.id} className="rounded-lg border border-border bg-card/40 p-2 shadow-sm">
+              <div className="mb-1.5 flex items-center gap-1">
+                <button
+                  type="button"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground sm:h-7 sm:w-7"
+                  onClick={() => toggleGroupCollapsed(g.id)}
+                  aria-expanded={!collapsed}
+                  aria-label={collapsed ? `Show sheets in ${g.name}` : `Hide sheets in ${g.name}`}
+                  title={collapsed ? "Show sheets" : "Hide sheets"}
+                >
+                  <ChevronRight className={cn("h-4 w-4 transition-transform", !collapsed && "rotate-90")} />
+                </button>
+                <Input
+                  className="h-9 min-w-0 flex-1 text-base font-medium sm:h-8 sm:text-sm"
+                  key={`gname:${g.id}:${g.name}`}
+                  defaultValue={g.name}
+                  readOnly={!canEdit}
+                  onBlur={(e) => {
+                    if (!canEdit) return;
+                    if (e.target.value !== g.name) void renameGroup(g.id, e.target.value);
+                  }}
+                  aria-label="Group name"
+                />
+                {canEdit && (
+                  <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0 sm:h-8 sm:w-8" onClick={() => deleteGroup(g.id)} aria-label="Delete group">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+              {collapsed ? (
+                <button
+                  type="button"
+                  className="mb-1 w-full rounded-md px-1 py-2 text-left text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                  onClick={() => toggleGroupCollapsed(g.id)}
+                >
+                  {sheetCount === 0
+                    ? "No sheets — tap to expand"
+                    : sheetCount === 1
+                      ? "1 sheet hidden — tap to show"
+                      : `${sheetCount} sheets hidden — tap to show`}
+                </button>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {boardsFiltered.map((b) => renderSheetRow(b))}
+                  {sheetCount === 0 && (
+                    <p className="text-[11px] text-muted-foreground">No sheets — add one below.</p>
+                  )}
+                  {sheetCount > 0 && boardsFiltered.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground">No sheets match search.</p>
+                  )}
+                </div>
+              )}
+              {canEdit && !collapsed && (
+                <Button type="button" variant="secondary" size="sm" className="mt-2 h-9 w-full text-[11px] sm:h-7" onClick={() => openNewSheet(g.id)}>
+                  <Plus className="mr-1 h-3 w-3" /> Sheet in this group
+                </Button>
+              )}
+              {canEdit && collapsed && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-9 w-full text-[11px] text-muted-foreground sm:h-7"
+                  onClick={() => {
+                    toggleGroupCollapsed(g.id);
+                    openNewSheet(g.id);
+                  }}
+                >
+                  <Plus className="mr-1 h-3 w-3" /> Add sheet
+                </Button>
+              )}
+            </div>
+          );
+        })}
+        {ungroupedBoards.length > 0 && (() => {
+          const ungroupedFiltered = sheetQ ? filterBoardsInGroup(null, null) : ungroupedBoards;
+          const ungroupedCollapsed = isSheetListCollapsed(UNGROUPED_COLLAPSE_KEY, ungroupedFiltered, "Ungrouped");
+          return (
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 p-2">
+              <div className="mb-2 flex items-center gap-1">
+                <button
+                  type="button"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground sm:h-7 sm:w-7"
+                  onClick={() => toggleGroupCollapsed(UNGROUPED_COLLAPSE_KEY)}
+                  aria-expanded={!ungroupedCollapsed}
+                  aria-label={ungroupedCollapsed ? "Show ungrouped sheets" : "Hide ungrouped sheets"}
+                >
+                  <ChevronRight className={cn("h-4 w-4 transition-transform", !ungroupedCollapsed && "rotate-90")} />
+                </button>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Ungrouped</div>
+              </div>
+              {ungroupedCollapsed ? (
+                <button
+                  type="button"
+                  className="w-full rounded-md px-1 py-2 text-left text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                  onClick={() => toggleGroupCollapsed(UNGROUPED_COLLAPSE_KEY)}
+                >
+                  {ungroupedBoards.length === 1
+                    ? "1 sheet hidden — tap to show"
+                    : `${ungroupedBoards.length} sheets hidden — tap to show`}
+                </button>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {ungroupedFiltered.map((b) => renderSheetRow(b))}
+                  {sheetQ && ungroupedFiltered.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground">No ungrouped sheets match.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+        {groups.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No groups yet. Add one, or apply migration <code className="rounded bg-muted px-1">022_ready_made_sheet_groups.sql</code> if the app errors loading data.
+          </p>
+        )}
+      </>
+    );
+  }
+
   if (loading) {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
   }
@@ -832,7 +982,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
     <div className="space-y-3 sm:space-y-4">
       {confirmDialog}
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+        <div className="relative hidden min-w-0 flex-1 sm:max-w-sm lg:block">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <Label htmlFor="rm-sheet-search" className="sr-only">
             Search sheets
@@ -925,146 +1075,45 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
           <button
             type="button"
             className="flex min-h-11 w-full items-center gap-2 rounded-md border bg-card px-3 text-left lg:hidden"
-            onClick={() => setSheetNavOpen((v) => !v)}
+            onClick={() => setSheetNavOpen(true)}
+            aria-haspopup="dialog"
             aria-expanded={sheetNavOpen}
           >
-            <ChevronRight className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", sheetNavOpen && "rotate-90")} />
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-sm font-medium">{activeBoard?.name || "Select a sheet"}</span>
-            <span className="shrink-0 text-[11px] text-muted-foreground">{sheetNavOpen ? "Hide" : "Sheets"}</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">Sheets</span>
           </button>
         )}
-        <aside
-          className={cn(
-            "w-full shrink-0 space-y-2 lg:block lg:w-60",
-            boards.length === 0 || sheetNavOpen || sheetSearch.trim() ? "block" : "hidden",
-          )}
-        >
-          <h2 className="hidden text-[10px] font-semibold uppercase tracking-wide text-muted-foreground lg:block">Sheet groups</h2>
-          {sortByOrder(groups).map((g) => {
-            const boardsFiltered = filterBoardsInGroup(g.id, g);
-            const allInGroup = boardsInGroup(g.id);
-            if (sheetQ && boardsFiltered.length === 0 && !g.name.toLowerCase().includes(sheetQ)) return null;
-            const collapsed = isSheetListCollapsed(g.id, boardsFiltered, g.name);
-            const sheetCount = allInGroup.length;
-            return (
-            <div key={g.id} className="rounded-lg border border-border bg-card/40 p-2 shadow-sm">
-              <div className="mb-1.5 flex items-center gap-1">
-                <button
-                  type="button"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground sm:h-7 sm:w-7"
-                  onClick={() => toggleGroupCollapsed(g.id)}
-                  aria-expanded={!collapsed}
-                  aria-label={collapsed ? `Show sheets in ${g.name}` : `Hide sheets in ${g.name}`}
-                  title={collapsed ? "Show sheets" : "Hide sheets"}
-                >
-                  <ChevronRight className={cn("h-4 w-4 transition-transform", !collapsed && "rotate-90")} />
-                </button>
-                <Input
-                  className="h-9 min-w-0 flex-1 text-base font-medium sm:h-8 sm:text-sm"
-                  key={`gname:${g.id}:${g.name}`}
-                  defaultValue={g.name}
-                  readOnly={!canEdit}
-                  onBlur={(e) => {
-                    if (!canEdit) return;
-                    if (e.target.value !== g.name) void renameGroup(g.id, e.target.value);
-                  }}
-                  aria-label="Group name"
-                />
-                {canEdit && (
-                  <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0 sm:h-8 sm:w-8" onClick={() => deleteGroup(g.id)} aria-label="Delete group">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-              </div>
-              {collapsed ? (
-                <button
-                  type="button"
-                  className="mb-1 w-full rounded-md px-1 py-0.5 text-left text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                  onClick={() => toggleGroupCollapsed(g.id)}
-                >
-                  {sheetCount === 0
-                    ? "No sheets — click to expand"
-                    : sheetCount === 1
-                      ? "1 sheet hidden — click to show"
-                      : `${sheetCount} sheets hidden — click to show`}
-                </button>
-              ) : (
-                <div className="flex flex-col gap-1.5">
-                  {boardsFiltered.map((b) => renderSheetRow(b))}
-                  {sheetCount === 0 && (
-                    <p className="text-[11px] text-muted-foreground">No sheets — add one below.</p>
-                  )}
-                  {sheetCount > 0 && boardsFiltered.length === 0 && (
-                    <p className="text-[11px] text-muted-foreground">No sheets match search.</p>
-                  )}
-                </div>
-              )}
-              {canEdit && !collapsed && (
-                <Button type="button" variant="secondary" size="sm" className="mt-2 h-7 w-full text-[11px]" onClick={() => openNewSheet(g.id)}>
-                  <Plus className="mr-1 h-3 w-3" /> Sheet in this group
-                </Button>
-              )}
-              {canEdit && collapsed && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="mt-1 h-7 w-full text-[11px] text-muted-foreground"
-                  onClick={() => {
-                    toggleGroupCollapsed(g.id);
-                    openNewSheet(g.id);
-                  }}
-                >
-                  <Plus className="mr-1 h-3 w-3" /> Add sheet
-                </Button>
-              )}
-            </div>
-            );
-          })}
-          {ungroupedBoards.length > 0 && (() => {
-            const ungroupedFiltered = sheetQ ? filterBoardsInGroup(null, null) : ungroupedBoards;
-            const ungroupedCollapsed = isSheetListCollapsed(UNGROUPED_COLLAPSE_KEY, ungroupedFiltered, "Ungrouped");
-            return (
-            <div className="rounded-lg border border-dashed border-border bg-muted/20 p-2">
-              <div className="mb-2 flex items-center gap-1">
-                <button
-                  type="button"
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground sm:h-7 sm:w-7"
-                  onClick={() => toggleGroupCollapsed(UNGROUPED_COLLAPSE_KEY)}
-                  aria-expanded={!ungroupedCollapsed}
-                  aria-label={ungroupedCollapsed ? "Show ungrouped sheets" : "Hide ungrouped sheets"}
-                >
-                  <ChevronRight className={cn("h-4 w-4 transition-transform", !ungroupedCollapsed && "rotate-90")} />
-                </button>
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Ungrouped</div>
-              </div>
-              {ungroupedCollapsed ? (
-                <button
-                  type="button"
-                  className="w-full rounded-md px-1 py-0.5 text-left text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                  onClick={() => toggleGroupCollapsed(UNGROUPED_COLLAPSE_KEY)}
-                >
-                  {ungroupedBoards.length === 1
-                    ? "1 sheet hidden — click to show"
-                    : `${ungroupedBoards.length} sheets hidden — click to show`}
-                </button>
-              ) : (
-              <div className="flex flex-col gap-1.5">
-                {ungroupedFiltered.map((b) => renderSheetRow(b))}
-                {sheetQ && ungroupedFiltered.length === 0 && (
-                  <p className="text-[11px] text-muted-foreground">No ungrouped sheets match.</p>
-                )}
-              </div>
-              )}
-            </div>
-            );
-          })()}
-          {groups.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No groups yet. Add one, or apply migration <code className="rounded bg-muted px-1">022_ready_made_sheet_groups.sql</code> if the app errors loading data.
-            </p>
-          )}
+        <aside className="hidden w-full shrink-0 space-y-2 lg:block lg:w-60">
+          <h2 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Sheet groups</h2>
+          {renderSheetGroups()}
         </aside>
+        <Dialog
+          open={isPhoneUi && sheetNavOpen}
+          onClose={() => setSheetNavOpen(false)}
+          title="Select a sheet"
+          description={activeBoard?.name ? `Current: ${activeBoard.name}` : "Choose a sheet to edit."}
+          size="md"
+        >
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <Label htmlFor="rm-sheet-search-phone" className="sr-only">
+                Search sheets
+              </Label>
+              <Input
+                id="rm-sheet-search-phone"
+                type="search"
+                placeholder="Search sheets or groups…"
+                value={sheetSearch}
+                onChange={(e) => setSheetSearch(e.target.value)}
+                className="h-11 pl-8"
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-2">{renderSheetGroups()}</div>
+          </div>
+        </Dialog>
 
         <div className="min-w-0 flex-1 space-y-3">
           {activeBoard && (

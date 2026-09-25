@@ -214,6 +214,18 @@ function recordedPayrollEmployeeName(
   return { name, onCall: Boolean(s.on_call_staff_id) };
 }
 
+function recordedPayeeKey(s: { user_id?: string | null; on_call_staff_id?: string | null }): string {
+  if (s.on_call_staff_id) return `oncall:${s.on_call_staff_id}`;
+  if (s.user_id) return `profile:${s.user_id}`;
+  return "unknown";
+}
+
+function formatYmdLabel(ymd: string): string {
+  if (!isValidYMD(ymd)) return ymd;
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+
 function formatFinanceAccountPick(a: FinanceAccountPick) {
   const k = String(a.kind || "").toLowerCase();
   const kind = k === "bank" ? "Bank" : k === "ewallet" ? "E-wallet" : "Cash";
@@ -679,6 +691,8 @@ export function SalaryClient({
   const [loadingPeriod, setLoadingPeriod] = useState(false);
   const [payRow, setPayRow] = useState<MonthPayPreviewRow | null>(null);
   const [deletingPayrollId, setDeletingPayrollId] = useState<string | null>(null);
+  const [recordedEmployeeFilter, setRecordedEmployeeFilter] = useState("all");
+  const [recordedPaidDate, setRecordedPaidDate] = useState("");
   const [periodStartStr, setPeriodStartStr] = useState(() => {
     const stored = loadStoredPayrollPeriod();
     return stored?.start ?? defaultPayrollRange().start;
@@ -941,6 +955,38 @@ export function SalaryClient({
     [list, periodStartStr, periodEndStr],
   );
 
+  const recordedEmployeeOptions = useMemo(() => {
+    const opts: { key: string; label: string }[] = [];
+    const seen = new Set<string>();
+    for (const e of employees) {
+      const key = `profile:${e.id}`;
+      seen.add(key);
+      opts.push({ key, label: String(e.full_name || e.email || "Employee") });
+    }
+    for (const e of onCallStaff) {
+      const key = `oncall:${e.id}`;
+      seen.add(key);
+      opts.push({ key, label: `${e.full_name || "On call"} (On call)` });
+    }
+    for (const s of list) {
+      const key = recordedPayeeKey(s);
+      if (key === "unknown" || seen.has(key)) continue;
+      seen.add(key);
+      opts.push({ key, label: recordedPayrollEmployeeName(s, employees, onCallStaff).name });
+    }
+    return opts.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  }, [employees, onCallStaff, list]);
+
+  const recordedEmployeeFilterLabel =
+    recordedEmployeeFilter === "all"
+      ? "all employees"
+      : recordedEmployeeOptions.find((o) => o.key === recordedEmployeeFilter)?.label || "selected employee";
+
+  function matchesRecordedEmployee(s: (typeof list)[0]) {
+    if (recordedEmployeeFilter === "all") return true;
+    return recordedPayeeKey(s) === recordedEmployeeFilter;
+  }
+
   /** Most recently paid first so follow-up pays in the same month surface at the top. */
   const recordedPayrollRows = useMemo(() => {
     const paidAtMs = (s: (typeof list)[0]) => {
@@ -955,17 +1001,28 @@ export function SalaryClient({
       const t = new Date(c as string).getTime();
       return Number.isFinite(t) ? t : 0;
     };
-    return [...recordedForSelectedPeriod].sort((a, b) => {
+    const source = recordedPaidDate
+      ? list.filter((s) => salaryPeriodYMDFromDb(s.paid_at) === recordedPaidDate)
+      : recordedForSelectedPeriod;
+    return [...source].filter(matchesRecordedEmployee).sort((a, b) => {
       const d = paidAtMs(b) - paidAtMs(a);
       if (d !== 0) return d;
       return createdMs(b) - createdMs(a);
     });
-  }, [recordedForSelectedPeriod]);
+  }, [list, recordedForSelectedPeriod, recordedPaidDate, recordedEmployeeFilter, employees, onCallStaff]);
 
   const recordedPeriodNetTotal = useMemo(
-    () => recordedForSelectedPeriod.reduce((s, x) => s + Number(x.net_pay || 0), 0),
-    [recordedForSelectedPeriod],
+    () => recordedPayrollRows.reduce((s, x) => s + Number(x.net_pay || 0), 0),
+    [recordedPayrollRows],
   );
+
+  const exactPaidOnSelectedDate = useMemo(() => {
+    if (!recordedPaidDate) return null;
+    return list
+      .filter((s) => salaryRowIsPaid(s) && salaryPeriodYMDFromDb(s.paid_at) === recordedPaidDate)
+      .filter(matchesRecordedEmployee)
+      .reduce((sum, x) => sum + Number(x.net_pay || 0), 0);
+  }, [list, recordedPaidDate, recordedEmployeeFilter]);
 
   return (
     <>
@@ -1139,17 +1196,81 @@ export function SalaryClient({
       </Card>
 
       <Card>
-        <CardHeader className="space-y-0 px-3 py-2">
+        <CardHeader className="space-y-3 px-3 py-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-sm font-semibold">Recorded payroll</CardTitle>
-            <span className="text-xs font-medium text-foreground">{periodRangeLabel}</span>
+            <span className="text-xs font-medium text-foreground">
+              {recordedPaidDate ? formatYmdLabel(recordedPaidDate) : periodRangeLabel}
+            </span>
           </div>
-          <details className="mt-1 text-[11px] text-muted-foreground">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <div className="min-w-0">
+              <Label htmlFor="rp-employee" className="text-[11px] text-muted-foreground">
+                Employee
+              </Label>
+              <select
+                id="rp-employee"
+                className={cn(selectClass, "mt-1 h-11 text-base sm:h-9 sm:text-sm")}
+                value={recordedEmployeeFilter}
+                onChange={(e) => setRecordedEmployeeFilter(e.target.value)}
+              >
+                <option value="all">All employees</option>
+                {recordedEmployeeOptions.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="min-w-0 sm:w-[11.5rem]">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="rp-paid-date" className="text-[11px] text-muted-foreground">
+                  Paid on date
+                </Label>
+                {recordedPaidDate ? (
+                  <button
+                    type="button"
+                    className="text-[11px] font-medium text-primary hover:underline"
+                    onClick={() => setRecordedPaidDate("")}
+                  >
+                    Clear
+                  </button>
+                ) : null}
+              </div>
+              <Input
+                id="rp-paid-date"
+                type="date"
+                className="mt-1 h-11 text-base tabular-nums sm:h-9 sm:text-sm"
+                value={recordedPaidDate}
+                onChange={(e) => setRecordedPaidDate(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="rounded-md border bg-muted/25 px-3 py-2">
+            {recordedPaidDate ? (
+              <>
+                <div className="text-[11px] text-muted-foreground">
+                  Exact amount paid on {formatYmdLabel(recordedPaidDate)}
+                  {recordedEmployeeFilter !== "all" ? ` · ${recordedEmployeeFilterLabel}` : ""}
+                </div>
+                <div className="text-lg font-semibold tabular-nums">{peso(exactPaidOnSelectedDate || 0)}</div>
+              </>
+            ) : (
+              <>
+                <div className="text-[11px] text-muted-foreground">
+                  Total in {periodRangeLabel}
+                  {recordedEmployeeFilter !== "all" ? ` · ${recordedEmployeeFilterLabel}` : ""}
+                </div>
+                <div className="text-lg font-semibold tabular-nums">{peso(recordedPeriodNetTotal)}</div>
+              </>
+            )}
+          </div>
+          <details className="text-[11px] text-muted-foreground">
             <summary className="cursor-pointer font-medium text-foreground/80 hover:text-foreground">How follow-up pays work</summary>
             <p className="mt-1 leading-snug">
               One row per employee per period; each Pay updates totals and creates its own expense. Deleting that
               expense or finance entry also removes this row and the employee&apos;s My Salary record. Mark paid
-              toggles status only.
+              toggles status only. Pick a paid-on date to see the exact amount paid that day.
             </p>
           </details>
         </CardHeader>
@@ -1230,8 +1351,9 @@ export function SalaryClient({
               {list.length > 0 && recordedPayrollRows.length === 0 && (
                 <tr>
                   <td colSpan={9} className="p-6 text-center text-muted-foreground">
-                    No recorded payroll overlapping {periodRangeLabel}. Pays from attendance and Employee salary
-                    expenses in this range will appear here.
+                    {recordedPaidDate
+                      ? `No payroll paid on ${formatYmdLabel(recordedPaidDate)}${recordedEmployeeFilter !== "all" ? ` for ${recordedEmployeeFilterLabel}` : ""}.`
+                      : `No recorded payroll overlapping ${periodRangeLabel}${recordedEmployeeFilter !== "all" ? ` for ${recordedEmployeeFilterLabel}` : ""}. Pays from attendance and Employee salary expenses in this range will appear here.`}
                   </td>
                 </tr>
               )}
@@ -1239,7 +1361,7 @@ export function SalaryClient({
             <tfoot>
               <tr className="border-t bg-muted/40">
                 <td colSpan={6} className="p-2 text-right font-medium">
-                  Total (net)
+                  {recordedPaidDate ? "Paid on date (net)" : "Total (net)"}
                 </td>
                 <td colSpan={3} className="font-semibold">
                   {peso(recordedPeriodNetTotal)}
