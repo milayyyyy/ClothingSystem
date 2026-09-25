@@ -422,7 +422,7 @@ export function ExpensesClient({
                 onChange={(e) => setAccountFilter(e.target.value)}
               >
                 <option value="all">All accounts</option>
-                <option value="__none__">Not linked (legacy)</option>
+                <option value="__none__">No finance account</option>
                 {financeAccounts.map((a) => (
                   <option key={a.id} value={a.id}>
                     {formatAccountOption(a)}
@@ -668,7 +668,7 @@ type ExpenseFormState = {
   employee_id: string;
 };
 
-function emptyForm(defaultAccountId: string, defaultCategory: string): ExpenseFormState {
+function emptyForm(defaultCategory: string): ExpenseFormState {
   return {
     expense_purpose: "general",
     expense_date: new Date().toISOString().slice(0, 10),
@@ -677,7 +677,7 @@ function emptyForm(defaultAccountId: string, defaultCategory: string): ExpenseFo
     amount: 0,
     notes: "",
     supplier_id: "",
-    finance_account_id: defaultAccountId,
+    finance_account_id: "",
     inventory_id: "",
     stock_mode: "add",
     stock_qty: 0,
@@ -705,9 +705,8 @@ function ExpenseForm({
   categoryNames: string[];
 }) {
   const supabase = createClient();
-  const defaultAccountId = financeAccounts[0]?.id || "";
   const defaultCategory = categoryNames[0] || "Materials";
-  const [form, setForm] = useState<ExpenseFormState>(() => emptyForm(defaultAccountId, defaultCategory));
+  const [form, setForm] = useState<ExpenseFormState>(() => emptyForm(defaultCategory));
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [invSearch, setInvSearch] = useState("");
@@ -723,10 +722,10 @@ function ExpenseForm({
 
   useEffect(() => {
     if (!open) return;
-    setForm(emptyForm(financeAccounts[0]?.id || "", defaultCategory));
+    setForm(emptyForm(defaultCategory));
     setReceiptFile(null);
     setInvSearch("");
-  }, [open, financeAccounts, defaultCategory]);
+  }, [open, defaultCategory]);
 
   function set(k: keyof ExpenseFormState, v: string | number) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -776,15 +775,6 @@ function ExpenseForm({
         alert("Select an inventory item, or set stock change to 0 if you are not adjusting on-hand quantity.");
         return;
       }
-    }
-
-    if (amt > 0 && financeAccounts.length === 0) {
-      alert("Add a finance account under Finance before recording an expense with an amount.");
-      return;
-    }
-    if (amt > 0 && !form.finance_account_id) {
-      alert("Choose a finance account. The expense amount will be deducted from that account.");
-      return;
     }
 
     setSaving(true);
@@ -927,7 +917,6 @@ function ExpenseForm({
   const purpose = form.expense_purpose;
   const submitDisabled =
     saving ||
-    (Number(form.amount) > 0 && (financeAccounts.length === 0 || !form.finance_account_id)) ||
     (purpose === "salary" && Number(form.amount) <= 0) ||
     (purpose === "inventory" && Number(form.stock_qty) > 0 && !form.inventory_id);
 
@@ -1065,7 +1054,7 @@ function ExpenseForm({
             )}
             <p className="text-[11px] text-muted-foreground">
               Optional. When someone is selected, creates a paid salary row for the amount and date. On-call workers appear
-              from the Employees → On call list. Finance account is still debited either way.
+              from the Employees → On call list. A finance account is deducted only if you pick one below.
             </p>
           </div>
         )}
@@ -1103,30 +1092,32 @@ function ExpenseForm({
         </div>
         <div>
           <Label>Paid through (finance account)</Label>
+          <select
+            className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
+            value={form.finance_account_id}
+            onChange={(e) => set("finance_account_id", e.target.value)}
+          >
+            <option value="">None (do not deduct from any account)</option>
+            {financeAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {formatAccountOption(a)}
+              </option>
+            ))}
+          </select>
           {financeAccounts.length === 0 ? (
-            <p className="mt-1 text-sm text-muted-foreground">
-              No finance accounts yet. Add one under{" "}
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              No finance accounts yet. You can still save this expense. Add an account under{" "}
               <Link href="/admin/finance" className="font-medium text-primary underline underline-offset-2">
                 Finance
               </Link>{" "}
-              to deduct expenses from a balance.
+              if you later want amounts to subtract from a balance.
             </p>
           ) : (
-            <select
-              className="mt-1 flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
-              value={form.finance_account_id}
-              onChange={(e) => set("finance_account_id", e.target.value)}
-            >
-              {financeAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {formatAccountOption(a)}
-                </option>
-              ))}
-            </select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Leave as None to record the expense without changing any account balance. Choosing an account subtracts the
+              amount from that Finance page balance.
+            </p>
           )}
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Saving subtracts the amount from this account (same balances as on the Finance page).
-          </p>
         </div>
         <div className="col-span-2">
           <Label>Supplier</Label>
@@ -1235,15 +1226,6 @@ function ExpenseEditDialog({
     const amt = Math.max(0, Math.round((Number(form.amount) || 0) * 100) / 100);
     const financeId = form.finance_account_id.trim() || null;
     const account = financeId ? financeAccounts.find((a) => a.id === financeId) : undefined;
-
-    if (amt > 0 && !financeId) {
-      alert("Choose a finance account when the amount is greater than zero.");
-      return;
-    }
-    if (amt > 0 && financeAccounts.length === 0) {
-      alert("Add a finance account under Finance first.");
-      return;
-    }
 
     setSaving(true);
     try {
@@ -1376,7 +1358,7 @@ function ExpenseEditDialog({
             value={form.finance_account_id}
             onChange={(e) => setForm((f) => ({ ...f, finance_account_id: e.target.value }))}
           >
-            <option value="">None (no deduction / remove ledger row)</option>
+            <option value="">None (do not deduct from any account)</option>
             {financeAccounts.map((a) => (
               <option key={a.id} value={a.id}>
                 {formatAccountOption(a)}

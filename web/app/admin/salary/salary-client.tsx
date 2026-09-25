@@ -169,6 +169,51 @@ const SALARY_TYPE_OPTIONS = [
   { value: "per_order", label: "Per order" },
 ] as const;
 
+const SALARY_LIST_SELECT =
+  "*, profile:user_id(full_name,email), oncall:on_call_staff_id(full_name), expense:expense_id(description)";
+
+export type OnCallStaffPick = { id: string; full_name: string | null };
+
+function asOne<T extends object>(v: T | T[] | null | undefined): T | null {
+  if (!v) return null;
+  return Array.isArray(v) ? (v[0] ?? null) : v;
+}
+
+function nameFromExpenseDescription(desc?: string | null): string {
+  const t = String(desc || "").trim();
+  if (!t) return "";
+  return t.replace(/^Salary\s+[—–-]\s+/i, "").trim();
+}
+
+function recordedPayrollEmployeeName(
+  s: {
+    user_id?: string | null;
+    on_call_staff_id?: string | null;
+    profile?: { full_name?: string | null; email?: string | null } | { full_name?: string | null; email?: string | null }[] | null;
+    oncall?: { full_name?: string | null } | { full_name?: string | null }[] | null;
+    expense?: { description?: string | null } | { description?: string | null }[] | null;
+  },
+  employees: { id: string; full_name?: string | null; email?: string | null }[],
+  onCallStaff: OnCallStaffPick[],
+): { name: string; onCall: boolean } {
+  const fromExpense = nameFromExpenseDescription(asOne(s.expense)?.description);
+  if (s.on_call_staff_id) {
+    const joined = asOne(s.oncall)?.full_name?.trim();
+    const listed = onCallStaff.find((e) => e.id === s.on_call_staff_id)?.full_name?.trim();
+    return { name: joined || listed || fromExpense || "—", onCall: true };
+  }
+  const profile = asOne(s.profile);
+  const emp = employees.find((e) => e.id === s.user_id);
+  const name =
+    profile?.full_name?.trim() ||
+    emp?.full_name?.trim() ||
+    profile?.email?.trim() ||
+    emp?.email?.trim() ||
+    fromExpense ||
+    "—";
+  return { name, onCall: Boolean(s.on_call_staff_id) };
+}
+
 function formatFinanceAccountPick(a: FinanceAccountPick) {
   const k = String(a.kind || "").toLowerCase();
   const kind = k === "bank" ? "Bank" : k === "ewallet" ? "E-wallet" : "Cash";
@@ -619,11 +664,13 @@ export function SalaryClient({
   salaries,
   attendance,
   financeAccounts = [],
+  onCallStaff = [],
 }: {
   employees: any[];
   salaries: any[];
   attendance: any[];
   financeAccounts?: FinanceAccountPick[];
+  onCallStaff?: OnCallStaffPick[];
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -661,7 +708,7 @@ export function SalaryClient({
           .order("time_in", { ascending: false }),
         supabase
           .from("salaries")
-          .select("*")
+          .select(SALARY_LIST_SELECT)
           .order("paid_at", { ascending: false, nullsFirst: false })
           .order("created_at", { ascending: false }),
       ]);
@@ -1123,11 +1170,14 @@ export function SalaryClient({
             </thead>
             <tbody>
               {recordedPayrollRows.map((s) => {
-                const emp = employees.find((e) => e.id === s.user_id);
+                const payee = recordedPayrollEmployeeName(s, employees, onCallStaff);
                 return (
                   <tr key={s.id} className="border-t">
                     <td className="p-2 text-sm">
-                      {emp?.full_name || emp?.email || "—"}
+                      {payee.name}
+                      {payee.onCall ? (
+                        <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">On call</span>
+                      ) : null}
                       {s.expense_id ? (
                         <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">Expense</span>
                       ) : null}

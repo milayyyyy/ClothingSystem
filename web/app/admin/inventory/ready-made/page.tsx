@@ -16,21 +16,22 @@ export default async function ReadyMadeInventoryPage() {
     <div>
       <PageHeader
         title="Ready made inventory"
-        description="Spreadsheet-style sheets in named groups: organize sheets, then edit grids with row labels, column headers, and cells."
+        description="Grouped sheets — tap a sheet, then edit rows, columns, and cells."
         action={
           <div className="flex flex-wrap gap-2">
             <InventoryFullStockExportButton compact />
             <Link
               href="/admin/inventory/assets"
-              className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-2.5 text-xs font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground sm:px-3 sm:text-sm"
             >
               Assets
             </Link>
             <Link
               href="/admin/inventory"
-              className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+              className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-2.5 text-xs font-medium shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground sm:px-3 sm:text-sm"
             >
-              Stock inventory
+              <span className="sm:hidden">Stock</span>
+              <span className="hidden sm:inline">Stock inventory</span>
             </Link>
           </div>
         }

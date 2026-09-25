@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,6 +67,8 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   const collapsedInitRef = useRef(false);
   /** Active sheet only: show rows flagged low stock (any column below minimum). */
   const [lowStockOnly, setLowStockOnly] = useState(false);
+  /** Phone: sheet list is hidden until this is open (desktop sidebar stays visible). */
+  const [sheetNavOpen, setSheetNavOpen] = useState(false);
   // Per-cell description dialog
   const [connectingCell, setConnectingCell] = useState<{ rowId: string; columnId: string; rowLabel: string; colHeader: string } | null>(null);
   const [connectCellDraft, setConnectCellDraft] = useState("");
@@ -782,8 +783,11 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
           title={
             b.low_stock_minimum_enabled === false ? "Low stock minimum is off for this sheet" : undefined
           }
-          onClick={() => setActiveId(b.id)}
-          className={`min-w-0 flex-1 rounded-md border px-2 py-1.5 text-left text-xs font-medium transition-colors ${
+          onClick={() => {
+            setActiveId(b.id);
+            setSheetNavOpen(false);
+          }}
+          className={`min-w-0 flex-1 rounded-md border px-2 py-2 text-left text-xs font-medium transition-colors sm:py-1.5 ${
             b.id === activeId
               ? "border-primary bg-primary/10 text-primary"
               : "border-transparent bg-muted/30 hover:bg-muted/60"
@@ -825,41 +829,35 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-4">
       {confirmDialog}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0 flex-1 space-y-2">
-          <p className="text-sm text-muted-foreground">
-            Organize sheets into groups on the left, then open a sheet to edit the grid (row names, column headers, cells).{" "}
-            <Link href="/admin/inventory" className="text-primary underline-offset-4 hover:underline">
-              ← Stock inventory
-            </Link>
-          </p>
-          <div className="flex max-w-md flex-col gap-1">
-            <Label htmlFor="rm-sheet-search" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              Search sheets
-            </Label>
-            <Input
-              id="rm-sheet-search"
-              type="search"
-              placeholder="Sheet or group name…"
-              value={sheetSearch}
-              onChange={(e) => setSheetSearch(e.target.value)}
-              className="h-9"
-              autoComplete="off"
-            />
-          </div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Label htmlFor="rm-sheet-search" className="sr-only">
+            Search sheets
+          </Label>
+          <Input
+            id="rm-sheet-search"
+            type="search"
+            placeholder="Search sheets or groups…"
+            value={sheetSearch}
+            onChange={(e) => setSheetSearch(e.target.value)}
+            className="h-10 pl-8 sm:h-8"
+            autoComplete="off"
+          />
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <InventoryFullStockExportButton compact mode="ready-made" />
           {canEdit && (
             <>
-              <Button type="button" variant="outline" size="sm" onClick={() => setNewGroupOpen(true)} disabled={saving}>
-                <Plus className="mr-1 h-4 w-4" /> New group
+              <Button type="button" variant="outline" size="sm" onClick={() => setNewGroupOpen(true)} disabled={saving} aria-label="New group">
+                <Plus className="h-4 w-4 sm:mr-1" />
+                <span className="hidden sm:inline">New group</span>
               </Button>
-              <Button type="button" size="sm" onClick={() => openNewSheet()} disabled={saving || !groups.length}>
-                <Plus className="mr-1 h-4 w-4" /> New sheet
+              <Button type="button" size="sm" onClick={() => openNewSheet()} disabled={saving || !groups.length} aria-label="New sheet">
+                <Plus className="h-4 w-4 sm:mr-1" />
+                <span className="hidden sm:inline">New sheet</span>
               </Button>
             </>
           )}
@@ -867,17 +865,15 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
       </div>
 
       {boards.length > 0 && (
-        <div className={cn("grid gap-4", activeBoard ? "max-w-xl sm:grid-cols-2" : "max-w-md")}>
+        <div className="flex flex-wrap items-center gap-1.5">
           {activeBoard && (
-            <Card>
-              <CardContent className="p-4">
-                <div className="text-xs text-muted-foreground">Rows on this sheet</div>
-                <div className="text-2xl font-semibold">{rows.length}</div>
-              </CardContent>
-            </Card>
+            <div className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5 text-xs">
+              <span className="text-muted-foreground">Rows</span>
+              <span className="font-semibold tabular-nums">{rows.length}</span>
+            </div>
           )}
-          <Card
-            role="button"
+          <button
+            type="button"
             tabIndex={lowStockMinimumActive && lowStockCount > 0 ? 0 : -1}
             aria-pressed={lowStockOnly}
             aria-disabled={!lowStockMinimumActive || lowStockCount === 0}
@@ -893,11 +889,11 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                     : `Show only low stock rows on this sheet (${lowStockCount})`
             }
             className={cn(
-              "outline-none transition-colors",
+              "inline-flex min-h-10 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-left text-xs outline-none transition-colors sm:min-h-0",
               lowStockMinimumActive &&
                 lowStockCount > 0 &&
-                "cursor-pointer hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-              lowStockOnly && lowStockMinimumActive && lowStockCount > 0 && "border-primary bg-primary/5 ring-2 ring-primary/40",
+                "cursor-pointer hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring",
+              lowStockOnly && lowStockMinimumActive && lowStockCount > 0 && "border-primary bg-primary/5",
               !lowStockMinimumActive && "cursor-not-allowed opacity-70",
               lowStockMinimumActive && lowStockCount === 0 && "cursor-default",
             )}
@@ -905,68 +901,45 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
               if (!lowStockMinimumActive || lowStockCount === 0) return;
               setLowStockOnly((v) => !v);
             }}
-            onKeyDown={(e) => {
-              if (!lowStockMinimumActive || lowStockCount === 0) return;
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setLowStockOnly((v) => !v);
-              }
-            }}
           >
-            <CardContent className="p-4">
-              <div className="text-xs text-muted-foreground">Low stock (all monitored sheets)</div>
-              <div className="text-2xl font-semibold text-destructive">
-                {allSheetsLowStockLoading ? "…" : allSheetsLowStockTotal}
-              </div>
-              {activeBoard && lowStockMinimumActive && (
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  This sheet: <span className="font-medium text-foreground">{lowStockCount}</span>
-                </p>
-              )}
-              {lowStockCount > 0 && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  {lowStockOnly
-                    ? "Filtered — click again to clear (this sheet only)"
-                    : "Click to list low stock rows on this sheet only (any column below minimum)"}
-                </p>
-              )}
-              {lowStockMinimumActive && lowStockCount === 0 && sheetMinimumResolved != null && cols.length > 0 && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  No low-stock rows on this sheet (no numeric cell strictly below your minimum in any column), or clear the filter
-                  to see all rows.
-                </p>
-              )}
-              {lowStockMinimumActive && lowStockCount === 0 && sheetMinimumResolved == null && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Set <span className="font-medium text-foreground">Minimum quantity</span> below — all columns are checked; any
-                  numeric cell strictly below that value counts as low stock for its row.
-                </p>
-              )}
-              {lowStockMinimumActive && lowStockCount === 0 && sheetMinimumResolved != null && cols.length === 0 && (
-                <p className="mt-1 text-[11px] text-muted-foreground">Add at least one column to evaluate cells for low stock.</p>
-              )}
-              {!lowStockMinimumActive && (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Turn on <span className="font-medium text-foreground">Low stock minimum</span> for this sheet (above the grid) to
-                  filter rows here. Totals above still include every sheet with low stock on and a minimum set.
-                </p>
-              )}
-              {lowStockMinimumActive &&
-                lowStockCount === 0 &&
-                allSheetsLowStockTotal > 0 &&
-                !allSheetsLowStockLoading && (
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Other sheets have low stock — pick a sheet in the sidebar to edit those rows.
-                  </p>
-                )}
-            </CardContent>
-          </Card>
+            <span className="text-muted-foreground">Low stock</span>
+            <span className="font-semibold tabular-nums text-destructive">
+              {allSheetsLowStockLoading ? "…" : allSheetsLowStockTotal}
+            </span>
+            {activeBoard && lowStockMinimumActive && (
+              <span className="text-muted-foreground">
+                · this sheet <span className="font-medium text-foreground">{lowStockCount}</span>
+              </span>
+            )}
+            {lowStockCount > 0 && (
+              <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                {lowStockOnly ? "· filtered" : "· tap to filter"}
+              </span>
+            )}
+          </button>
         </div>
       )}
 
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        <aside className="w-full shrink-0 space-y-3 lg:w-72">
-          <h2 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Sheet groups</h2>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:gap-4">
+        {boards.length > 0 && (
+          <button
+            type="button"
+            className="flex min-h-11 w-full items-center gap-2 rounded-md border bg-card px-3 text-left lg:hidden"
+            onClick={() => setSheetNavOpen((v) => !v)}
+            aria-expanded={sheetNavOpen}
+          >
+            <ChevronRight className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", sheetNavOpen && "rotate-90")} />
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{activeBoard?.name || "Select a sheet"}</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">{sheetNavOpen ? "Hide" : "Sheets"}</span>
+          </button>
+        )}
+        <aside
+          className={cn(
+            "w-full shrink-0 space-y-2 lg:block lg:w-60",
+            boards.length === 0 || sheetNavOpen || sheetSearch.trim() ? "block" : "hidden",
+          )}
+        >
+          <h2 className="hidden text-[10px] font-semibold uppercase tracking-wide text-muted-foreground lg:block">Sheet groups</h2>
           {sortByOrder(groups).map((g) => {
             const boardsFiltered = filterBoardsInGroup(g.id, g);
             const allInGroup = boardsInGroup(g.id);
@@ -974,11 +947,11 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
             const collapsed = isSheetListCollapsed(g.id, boardsFiltered, g.name);
             const sheetCount = allInGroup.length;
             return (
-            <div key={g.id} className="rounded-lg border border-border bg-card/40 p-3 shadow-sm">
-              <div className="mb-2 flex items-start gap-1">
+            <div key={g.id} className="rounded-lg border border-border bg-card/40 p-2 shadow-sm">
+              <div className="mb-1.5 flex items-center gap-1">
                 <button
                   type="button"
-                  className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground sm:h-7 sm:w-7"
                   onClick={() => toggleGroupCollapsed(g.id)}
                   aria-expanded={!collapsed}
                   aria-label={collapsed ? `Show sheets in ${g.name}` : `Hide sheets in ${g.name}`}
@@ -987,7 +960,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                   <ChevronRight className={cn("h-4 w-4 transition-transform", !collapsed && "rotate-90")} />
                 </button>
                 <Input
-                  className="h-8 min-w-0 flex-1 text-sm font-medium"
+                  className="h-9 min-w-0 flex-1 text-base font-medium sm:h-8 sm:text-sm"
                   key={`gname:${g.id}:${g.name}`}
                   defaultValue={g.name}
                   readOnly={!canEdit}
@@ -998,7 +971,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                   aria-label="Group name"
                 />
                 {canEdit && (
-                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => deleteGroup(g.id)} aria-label="Delete group">
+                  <Button type="button" variant="ghost" size="icon" className="h-9 w-9 shrink-0 sm:h-8 sm:w-8" onClick={() => deleteGroup(g.id)} aria-label="Delete group">
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 )}
@@ -1052,11 +1025,11 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
             const ungroupedFiltered = sheetQ ? filterBoardsInGroup(null, null) : ungroupedBoards;
             const ungroupedCollapsed = isSheetListCollapsed(UNGROUPED_COLLAPSE_KEY, ungroupedFiltered, "Ungrouped");
             return (
-            <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3">
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 p-2">
               <div className="mb-2 flex items-center gap-1">
                 <button
                   type="button"
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground sm:h-7 sm:w-7"
                   onClick={() => toggleGroupCollapsed(UNGROUPED_COLLAPSE_KEY)}
                   aria-expanded={!ungroupedCollapsed}
                   aria-label={ungroupedCollapsed ? "Show ungrouped sheets" : "Hide ungrouped sheets"}
@@ -1093,17 +1066,17 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
           )}
         </aside>
 
-        <div className="min-w-0 flex-1 space-y-4">
+        <div className="min-w-0 flex-1 space-y-3">
           {activeBoard && (
             <Card>
-              <CardContent className="space-y-4 p-4">
-                <div className="flex flex-wrap items-center gap-3 border-b border-border/60 pb-3">
+              <CardContent className="space-y-3 p-3 sm:p-4">
+                <div className="flex flex-col gap-2 border-b border-border/60 pb-2.5 sm:flex-row sm:flex-wrap sm:items-center">
                   <Label className="sr-only" htmlFor="board-name">
                     Sheet name
                   </Label>
                   <Input
                     id="board-name"
-                    className="max-w-md font-medium"
+                    className="h-10 min-w-0 flex-1 font-medium sm:h-8 sm:max-w-sm"
                     key={`${activeBoard.id}:${activeBoard.name}`}
                     defaultValue={activeBoard.name}
                     readOnly={!canEdit}
@@ -1115,13 +1088,13 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                       if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                     }}
                   />
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <Label htmlFor="board-group" className="text-xs text-muted-foreground whitespace-nowrap">
                       Group
                     </Label>
                     <select
                       id="board-group"
-                      className="h-9 min-w-[10rem] rounded-md border border-input bg-background px-2 text-xs shadow-sm"
+                      className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-base shadow-sm sm:h-8 sm:min-w-[9rem] sm:flex-none sm:text-xs"
                       value={activeBoard.group_id ?? "__none__"}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -1135,109 +1108,126 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                         </option>
                       ))}
                     </select>
+                    {canEdit && (
+                      <div className="ml-auto flex items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-10 px-2.5 sm:h-8"
+                          disabled={saving}
+                          onClick={() => void duplicateBoard(activeBoard.id)}
+                          aria-label="Duplicate sheet"
+                        >
+                          <Copy className="h-3.5 w-3.5 sm:mr-1" />
+                          <span className="hidden sm:inline">Duplicate</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-10 px-2.5 sm:h-8"
+                          onClick={() => deleteBoard(activeBoard.id)}
+                          aria-label="Delete sheet"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 sm:mr-1" />
+                          <span className="hidden sm:inline">Delete</span>
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                  {canEdit && (
-                    <>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={saving}
-                        onClick={() => void duplicateBoard(activeBoard.id)}
-                      >
-                        <Copy className="mr-1 h-3.5 w-3.5" /> Duplicate sheet
-                      </Button>
-                      <Button type="button" variant="outline" size="sm" onClick={() => deleteBoard(activeBoard.id)}>
-                        <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete sheet
-                      </Button>
-                    </>
-                  )}
                 </div>
 
-                <div className="space-y-3 rounded-md border border-border/60 bg-muted/15 px-3 py-2.5 text-xs">
-                  <label className="flex cursor-pointer items-start gap-3">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-input accent-primary"
-                      checked={activeBoard.low_stock_minimum_enabled !== false}
-                      onChange={(e) => { if (canEdit) void setBoardLowStockMinimum(activeBoard.id, e.target.checked); }}
-                      disabled={saving || !canEdit}
-                      aria-label="Low stock minimum for this sheet"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="font-medium text-foreground">Low stock minimum</span>
-                      <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                        Turn on to enable the low-stock count, row tint, and filter. Column names do not matter: set a minimum
-                        below, and every column’s numeric cells are checked — if any value in a row is{" "}
-                        <span className="font-medium text-foreground">strictly below</span> that minimum, the row counts as low
-                        stock (including on the dashboard Low stock card).
+                <details className="rounded-md border border-border/60 bg-muted/15 px-3 py-2 text-xs">
+                  <summary className="cursor-pointer list-none font-medium text-foreground [&::-webkit-details-marker]:hidden">
+                    <span className="flex items-center justify-between gap-2">
+                      <span>Low stock minimum</span>
+                      <span className="text-[11px] font-normal text-muted-foreground">
+                        {activeBoard.low_stock_minimum_enabled === false
+                          ? "Off"
+                          : activeBoard.low_stock_sheet_minimum == null
+                            ? "On · no minimum"
+                            : `On · min ${activeBoard.low_stock_sheet_minimum}`}
                       </span>
                     </span>
-                  </label>
-                  <div className="flex flex-col gap-2 border-t border-border/50 pt-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-3">
-                    <div className="flex w-full max-w-[11rem] flex-col gap-1">
-                      <Label htmlFor="board-sheet-min" className="text-[11px] text-muted-foreground">
-                        Minimum quantity
-                      </Label>
-                      <Input
-                        id="board-sheet-min"
-                        type="number"
-                        min={0}
-                        step={1}
+                  </summary>
+                  <div className="mt-2 space-y-2 border-t border-border/50 pt-2">
+                    <label className="flex cursor-pointer items-center gap-2.5">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 shrink-0 rounded border-input accent-primary"
+                        checked={activeBoard.low_stock_minimum_enabled !== false}
+                        onChange={(e) => { if (canEdit) void setBoardLowStockMinimum(activeBoard.id, e.target.checked); }}
                         disabled={saving || !canEdit}
-                        readOnly={!canEdit}
-                        className="h-9"
-                        key={`${activeBoard.id}:lsm:${activeBoard.low_stock_sheet_minimum ?? ""}`}
-                        defaultValue={activeBoard.low_stock_sheet_minimum ?? ""}
-                        placeholder="e.g. 10"
-                        onBlur={(e) => {
-                          const next = e.target.value.trim();
-                          const cur =
-                            activeBoard.low_stock_sheet_minimum == null
-                              ? ""
-                              : String(activeBoard.low_stock_sheet_minimum);
-                          if (next === cur) return;
-                          void setBoardSheetMinimum(activeBoard.id, e.target.value);
-                        }}
-                        aria-label="Minimum quantity — all columns compared to this value"
+                        aria-label="Low stock minimum for this sheet"
                       />
+                      <span className="text-[11px] text-muted-foreground">
+                        Count and tint rows when any numeric cell is strictly below the minimum.
+                      </span>
+                    </label>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
+                      <div className="flex w-full max-w-[11rem] flex-col gap-1">
+                        <Label htmlFor="board-sheet-min" className="text-[11px] text-muted-foreground">
+                          Minimum quantity
+                        </Label>
+                        <Input
+                          id="board-sheet-min"
+                          type="number"
+                          min={0}
+                          step={1}
+                          disabled={saving || !canEdit}
+                          readOnly={!canEdit}
+                          className="h-10 sm:h-8"
+                          key={`${activeBoard.id}:lsm:${activeBoard.low_stock_sheet_minimum ?? ""}`}
+                          defaultValue={activeBoard.low_stock_sheet_minimum ?? ""}
+                          placeholder="e.g. 10"
+                          onBlur={(e) => {
+                            const next = e.target.value.trim();
+                            const cur =
+                              activeBoard.low_stock_sheet_minimum == null
+                                ? ""
+                                : String(activeBoard.low_stock_sheet_minimum);
+                            if (next === cur) return;
+                            void setBoardSheetMinimum(activeBoard.id, e.target.value);
+                          }}
+                          aria-label="Minimum quantity — all columns compared to this value"
+                        />
+                      </div>
+                      <p className="hidden min-w-0 flex-1 text-[11px] leading-snug text-muted-foreground sm:block">
+                        Clear the field to stop numeric checks. Dashboard low-stock uses the same rule.
+                      </p>
                     </div>
-                    <p className="min-w-0 flex-1 text-[11px] leading-snug text-muted-foreground">
-                      Every column is scanned left to right. If any cell parses as a number and is{" "}
-                      <span className="font-medium text-foreground">strictly below</span> this minimum, the whole row is low
-                      stock (the count uses the lowest such value in that row). Clear the field to turn off numeric checks.
-                    </p>
                   </div>
-                </div>
+                </details>
 
-                <div className="flex max-w-md flex-col gap-1">
-                  <Label htmlFor="rm-grid-search" className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <div className="relative max-w-md">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                  <Label htmlFor="rm-grid-search" className="sr-only">
                     Search this sheet
                   </Label>
                   <Input
                     id="rm-grid-search"
                     type="search"
-                    placeholder="Row label, column header, or cell text…"
+                    placeholder="Search rows, columns, or cells…"
                     value={gridSearch}
                     onChange={(e) => setGridSearch(e.target.value)}
-                    className="h-9 text-sm"
+                    className="h-10 pl-8 sm:h-8"
                     autoComplete="off"
                   />
                 </div>
 
-                <div className="overflow-x-auto rounded-md border border-border">
+                <div className="-mx-3 overflow-x-auto overscroll-x-contain border-y border-border sm:mx-0 sm:rounded-md sm:border">
                   <table className="w-max min-w-full border-collapse text-left text-xs">
                     <thead>
                       <tr className="bg-muted/80">
-                        <th className="sticky left-0 z-[1] min-w-[7rem] border-b border-r bg-muted px-1 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <th className="sticky left-0 z-[1] min-w-[5.5rem] border-b border-r bg-muted px-1 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                           Row
                         </th>
                         {colsSorted.map((c) => (
-                          <th key={c.id} className="group min-w-[6rem] border-b border-r px-0 py-0">
+                          <th key={c.id} className="group min-w-[5.5rem] border-b border-r px-0 py-0">
                             <div className="flex items-center gap-0.5">
                               <input
-                                className="min-w-0 flex-1 border-0 bg-transparent px-1 py-1.5 text-[11px] font-medium outline-none focus:bg-background/80"
+                                className="min-w-0 flex-1 border-0 bg-transparent px-1.5 py-2 text-base font-medium outline-none focus:bg-background/80 sm:py-1.5 sm:text-[11px]"
                                 key={`h:${c.id}:${c.header_name}`}
                                 defaultValue={c.header_name}
                                 onBlur={(e) => {
@@ -1249,27 +1239,33 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                                 <button
                                   type="button"
                                   title={c.description ? `Description: ${c.description}` : "Set description for this column"}
-                                  className={`shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 ${c.description ? "text-primary" : "text-muted-foreground/50 hover:text-primary"}`}
+                                  className={cn(
+                                    "shrink-0 rounded p-1.5 sm:p-0.5 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100",
+                                    c.description ? "text-primary" : "text-muted-foreground/50 hover:text-primary",
+                                  )}
                                   onClick={() => { setConnectColDraft(c.description ?? ""); setConnectingCol(c); }}
                                 >
-                                  <Tag className="h-2.5 w-2.5" />
+                                  <Tag className="h-3 w-3 sm:h-2.5 sm:w-2.5" />
                                 </button>
                               )}
                               <button
                                 type="button"
-                                className={`shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 ${!canEdit ? "hidden" : ""}`}
+                                className={cn(
+                                  "shrink-0 rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:p-0.5 sm:opacity-0 sm:group-hover:opacity-100",
+                                  !canEdit && "hidden",
+                                )}
                                 onClick={() => removeColumn(c.id)}
                                 aria-label="Remove column"
                               >
-                                <Trash2 className="h-3 w-3" />
+                                <Trash2 className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
                               </button>
                             </div>
                           </th>
                         ))}
                         {canEdit && (
                           <th className="border-b bg-muted/40 px-1 py-1 align-middle">
-                            <Button type="button" variant="ghost" size="sm" className="h-7 text-[10px]" onClick={() => addColumn()}>
-                              + Column
+                            <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-[10px] sm:h-7" onClick={() => addColumn()}>
+                              + Col
                             </Button>
                           </th>
                         )}
@@ -1310,7 +1306,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                         >
                           <td className="sticky left-0 z-[1] border-r bg-card px-1 py-0">
                             <input
-                              className="w-full min-w-[6rem] border-0 bg-transparent px-1 py-1.5 text-[11px] outline-none focus:bg-primary/5"
+                              className="h-10 w-full min-w-[5rem] border-0 bg-transparent px-1.5 text-base outline-none focus:bg-primary/5 sm:h-7 sm:text-[11px]"
                               key={`r:${r.id}:${r.row_label}`}
                               defaultValue={r.row_label}
                               readOnly={!canEdit}
@@ -1325,7 +1321,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                             <td key={c.id} className="group/cell border-r p-0">
                               <div className="flex items-center">
                                 <input
-                                  className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 text-[11px] outline-none focus:bg-primary/5"
+                                  className="h-10 min-w-0 flex-1 border-0 bg-transparent px-1.5 text-base outline-none focus:bg-primary/5 sm:h-7 sm:text-[11px]"
                                   key={`c:${r.id}:${c.id}:${cellByPair.get(`${r.id}:${c.id}`) ?? ""}`}
                                   defaultValue={cellByPair.get(`${r.id}:${c.id}`) ?? ""}
                                   readOnly={!canEdit}
@@ -1340,23 +1336,29 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                                   <button
                                     type="button"
                                     title={cellMetaByPair.get(`${r.id}:${c.id}`)?.description ? `Description: ${cellMetaByPair.get(`${r.id}:${c.id}`)?.description}` : "Set description for this cell"}
-                                    className={`mr-0.5 shrink-0 rounded p-0.5 transition-opacity group-hover/cell:opacity-100 ${cellMetaByPair.get(`${r.id}:${c.id}`)?.description ? "opacity-100 text-primary" : "opacity-0 text-muted-foreground/50 hover:text-primary"}`}
+                                    className={cn(
+                                      "mr-0.5 shrink-0 rounded p-1.5 sm:p-0.5",
+                                      cellMetaByPair.get(`${r.id}:${c.id}`)?.description
+                                        ? "text-primary"
+                                        : "text-muted-foreground/50 hover:text-primary sm:opacity-0 sm:group-hover/cell:opacity-100",
+                                    )}
                                     onClick={() => openConnectCell(r, c)}
                                   >
-                                    <Tag className="h-2.5 w-2.5" />
+                                    <Tag className="h-3 w-3 sm:h-2.5 sm:w-2.5" />
                                   </button>
                                 )}
                               </div>
                             </td>
                           ))}
-                          <td className="bg-muted/10 px-1 py-0 text-center">
+                          <td className="bg-muted/10 px-0.5 py-0 text-center">
                             {canEdit && (
                               <button
                                 type="button"
-                                className="rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                className="inline-flex h-10 w-10 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive sm:h-7 sm:w-7"
                                 onClick={() => removeRow(r.id)}
+                                aria-label="Remove row"
                               >
-                                Remove
+                                <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
                           </td>
@@ -1366,7 +1368,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                   </table>
                 </div>
                 {canEdit && (
-                  <Button type="button" variant="secondary" size="sm" onClick={() => addRow()}>
+                  <Button type="button" variant="secondary" size="sm" className="w-full sm:w-auto" onClick={() => addRow()}>
                     <Plus className="mr-1 h-3.5 w-3.5" /> Add row
                   </Button>
                 )}
