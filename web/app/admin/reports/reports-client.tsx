@@ -378,12 +378,12 @@ function StatCard({
 
   return (
     <Card>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-2">
+      <CardContent className="p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-            <p className={`mt-1 text-2xl font-semibold tracking-tight ${accentClass}`}>{value}</p>
-            <p className="mt-1 text-xs text-muted-foreground leading-snug">{hint}</p>
+            <p className={`mt-2 text-2xl font-semibold tracking-tight ${accentClass}`}>{value}</p>
+            <p className="mt-1.5 text-xs text-muted-foreground leading-snug">{hint}</p>
           </div>
           <Icon className={`h-5 w-5 shrink-0 opacity-60 ${accentClass}`} />
         </div>

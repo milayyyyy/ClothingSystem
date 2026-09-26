@@ -1622,15 +1622,15 @@ export function TeamsSheetClient({
                             unitPrice > 0 ? peso(unitPrice) : <span className="text-muted-foreground">—</span>
                           ) : (
                             <input
-                              type="number"
-                              min={0}
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               className="h-8 w-full rounded border border-border/60 bg-transparent px-2 text-right font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
                               value={unitPrice === 0 ? "" : unitPrice}
                               placeholder="0.00"
                               onChange={(e) => {
-                                const v = e.target.value === "" ? 0 : Number(e.target.value);
-                                setLinePrices((prev) => ({ ...prev, [line.key]: isNaN(v) ? 0 : v }));
+                                const raw = e.target.value.replace(/[^\d.]/g, "");
+                                const v = raw === "" || raw === "." ? 0 : Number(raw);
+                                setLinePrices((prev) => ({ ...prev, [line.key]: Number.isFinite(v) ? v : 0 }));
                               }}
                               aria-label={`Price for ${line.name} ${line.size}`}
                             />
@@ -1666,15 +1666,15 @@ export function TeamsSheetClient({
                         extraAmount > 0 ? peso(extraAmount) : <span className="text-muted-foreground">—</span>
                       ) : (
                         <input
-                          type="number"
-                          min={0}
-                          step="0.01"
+                          type="text"
+                          inputMode="decimal"
                           className="h-8 w-full rounded border border-border/60 bg-transparent px-2 text-right font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
                           value={extraAmount > 0 ? extraAmount : ""}
                           placeholder="0.00"
                           onChange={(e) => {
-                            const v = Math.max(0, Number(e.target.value) || 0);
-                            setLinePrices((prev) => ({ ...prev, "__extra__": v }));
+                            const raw = e.target.value.replace(/[^\d.]/g, "");
+                            const v = raw === "" || raw === "." ? 0 : Number(raw);
+                            setLinePrices((prev) => ({ ...prev, "__extra__": Number.isFinite(v) ? Math.max(0, v) : 0 }));
                           }}
                           aria-label="Extra amount"
                         />

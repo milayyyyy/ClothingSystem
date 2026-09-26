@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
@@ -522,11 +523,11 @@ export function InventoryClient({
   return (
     <>
       {confirmDialog}
-      <div className="mb-4 grid gap-4 sm:grid-cols-2">
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 sm:gap-4">
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-5">
             <div className="text-xs text-muted-foreground">Total Items</div>
-            <div className="text-2xl font-semibold">{items.length}</div>
+            <div className="mt-2 text-2xl font-semibold tracking-tight">{items.length}</div>
           </CardContent>
         </Card>
         <Card
@@ -559,9 +560,9 @@ export function InventoryClient({
             }
           }}
         >
-          <CardContent className="p-4">
+          <CardContent className="p-5">
             <div className="text-xs text-muted-foreground">Low Stock</div>
-            <div className="text-2xl font-semibold text-destructive">{lowCount}</div>
+            <div className="mt-2 text-2xl font-semibold tracking-tight text-destructive">{lowCount}</div>
             {lowCount > 0 && (
               <p className="mt-1 text-[11px] text-muted-foreground">{lowOnly ? "Filtered — click again to clear" : "Click to list low stock only"}</p>
             )}
@@ -1435,7 +1436,7 @@ function ItemForm({
         </div>
         <div>
           <Label>On hand</Label>
-          <Input type="number" step="0.01" value={form.quantity ?? 0} onChange={(e) => set("quantity", Number(e.target.value))} />
+          <AmountInput value={form.quantity ?? 0} onValueChange={(n) => set("quantity", n)} placeholder="0" />
         </div>
         <div>
           <Label>Unit</Label>
@@ -1443,7 +1444,7 @@ function ItemForm({
         </div>
         <div>
           <Label>Minimum stocks</Label>
-          <Input type="number" step="0.01" value={form.min_level ?? 0} onChange={(e) => set("min_level", Number(e.target.value))} />
+          <AmountInput value={form.min_level ?? 0} onValueChange={(n) => set("min_level", n)} placeholder="0" />
         </div>
         <div>
           <Label>Status</Label>
@@ -1575,13 +1576,11 @@ function ItemForm({
                     onChange={(e) => updateSubItem(idx, "dimensions", e.target.value)}
                     placeholder="e.g. 30×40 cm"
                   />
-                  <Input
+                  <AmountInput
                     className={fieldClass}
-                    type="number"
-                    min={0}
-                    step="0.01"
                     value={sub.quantity}
-                    onChange={(e) => updateSubItem(idx, "quantity", Number(e.target.value))}
+                    onValueChange={(n) => updateSubItem(idx, "quantity", n)}
+                    placeholder="0"
                   />
                   <button
                     type="button"

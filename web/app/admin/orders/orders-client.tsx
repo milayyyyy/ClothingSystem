@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
@@ -3227,13 +3228,13 @@ function OrderForm({
         {!(isWalkinOnlineCreate) && (
           <div>
             <Label>Unit price (₱)</Label>
-            <Input type="number" min={0} step="0.01" value={form.unit_price} onChange={(e) => set("unit_price", Number(e.target.value))} />
+            <AmountInput value={form.unit_price} onValueChange={(n) => set("unit_price", n)} placeholder="0.00" />
           </div>
         )}
         {!(isWalkinOnlineCreate) && (
           <div>
             <Label>Down payment (₱)</Label>
-            <Input type="number" min={0} step="0.01" value={form.down_payment} onChange={(e) => set("down_payment", Number(e.target.value))} />
+            <AmountInput value={form.down_payment} onValueChange={(n) => set("down_payment", n)} placeholder="0.00" />
           </div>
         )}
         <div>

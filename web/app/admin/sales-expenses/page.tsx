@@ -16,7 +16,7 @@ export default async function SalesExpensesHubPage() {
   const expenseRows = (expenses || []) as { expense_date: string; amount: number; category: string }[];
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       <PageHeader
         title="Sales & expenses"
         description="Overview of this month, then open Sales or Expenses for full detail and entry."

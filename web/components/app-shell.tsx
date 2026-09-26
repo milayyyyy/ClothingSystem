@@ -60,7 +60,7 @@ export function AppShell({
           userId={userId}
           onMenuClick={() => setNavOpen(true)}
         />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-4 pb-safe sm:px-4 md:px-6 md:py-6">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-4 py-5 pb-safe sm:px-5 md:px-6 md:py-6">
           <div className="mx-auto w-full max-w-7xl anim-in">{children}</div>
         </main>
       </div>

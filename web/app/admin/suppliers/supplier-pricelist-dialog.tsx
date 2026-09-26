@@ -275,12 +275,12 @@ export function SupplierPricelistDialog({
                         </td>
                         <td className="p-1">
                           <Input
-                            type="number"
-                            step="0.01"
-                            min={0}
-                            className="h-8 text-right text-sm"
+                            type="text"
+                            inputMode="decimal"
+                            className="h-8 text-right text-sm tabular-nums"
                             value={editForm.price}
                             onChange={(e) => setEditForm((f) => ({ ...f, price: e.target.value }))}
+                            placeholder="0.00"
                           />
                         </td>
                         <td className="p-1">
@@ -355,12 +355,12 @@ export function SupplierPricelistDialog({
             <div>
               <Label className="text-xs">Price (₱)</Label>
               <Input
-                type="number"
-                step="0.01"
-                min={0}
-                className="mt-1 h-8"
+                type="text"
+                inputMode="decimal"
+                className="mt-1 h-8 tabular-nums"
                 value={addForm.price}
                 onChange={(e) => setAddForm((f) => ({ ...f, price: e.target.value }))}
+                placeholder="0.00"
               />
             </div>
             <div>

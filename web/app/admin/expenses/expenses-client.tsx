@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
@@ -329,29 +330,29 @@ export function ExpensesClient({
 
   return (
     <>
-      <div className="mb-4 grid gap-4 sm:grid-cols-3">
+      <div className="mb-5 grid gap-3 sm:grid-cols-3 sm:gap-4">
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-5">
             <div className="text-xs text-muted-foreground">Total in view</div>
-            <div className="text-2xl font-semibold">{peso(filteredTotal)}</div>
+            <div className="mt-2 text-2xl font-semibold tracking-tight">{peso(filteredTotal)}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-5">
             <div className="text-xs text-muted-foreground">Transactions in view</div>
-            <div className="text-2xl font-semibold">{filtered.length}</div>
+            <div className="mt-2 text-2xl font-semibold tracking-tight">{filtered.length}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-4">
+          <CardContent className="p-5">
             <div className="text-xs text-muted-foreground">Top category (in view)</div>
-            <div className="text-2xl font-semibold">{biggestFiltered ? biggestFiltered[0] : "—"}</div>
+            <div className="mt-2 text-2xl font-semibold tracking-tight">{biggestFiltered ? biggestFiltered[0] : "—"}</div>
           </CardContent>
         </Card>
       </div>
 
       <Card className="mb-4">
-        <CardContent className="space-y-4 p-4 sm:p-5">
+        <CardContent className="space-y-4 p-5 sm:p-6">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-muted-foreground">Quick range</span>
             <Button type="button" size="sm" variant="outline" onClick={() => applyPreset("month")}>
@@ -1088,7 +1089,7 @@ function ExpenseForm({
         </div>
         <div>
           <Label>Amount (₱)</Label>
-          <Input type="number" step="0.01" min={0} value={form.amount} onChange={(e) => set("amount", Number(e.target.value))} required />
+          <AmountInput value={form.amount} onValueChange={(n) => set("amount", n)} placeholder="0.00" />
         </div>
         <div>
           <Label>Paid through (finance account)</Label>
@@ -1340,14 +1341,12 @@ function ExpenseEditDialog({
         </div>
         <div>
           <Label htmlFor="ee-amt">Amount (₱)</Label>
-          <Input
+          <AmountInput
             id="ee-amt"
-            type="number"
-            step="0.01"
-            min={0}
             className="mt-1 h-9"
-            value={Number.isFinite(form.amount) ? form.amount : 0}
-            onChange={(e) => setForm((f) => ({ ...f, amount: Number(e.target.value) }))}
+            value={form.amount}
+            onValueChange={(n) => setForm((f) => ({ ...f, amount: n }))}
+            placeholder="0.00"
           />
         </div>
         <div>

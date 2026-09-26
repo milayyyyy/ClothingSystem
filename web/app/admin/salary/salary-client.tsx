@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { ChevronDown, Trash2 } from "lucide-react";
@@ -263,7 +264,7 @@ function PayFromAttendanceDialog({
   useEffect(() => {
     if (!open) return;
     setAccountId(financeAccounts[0]?.id || "");
-    setBonus("0");
+    setBonus("");
   }, [open, financeAccounts]);
 
   async function rollbackExpense(expenseId: string) {
@@ -495,12 +496,12 @@ function PayFromAttendanceDialog({
         <div>
           <Label>Bonus (₱)</Label>
           <Input
-            type="number"
-            min={0}
-            step="0.01"
-            className="mt-1 h-9"
+            type="text"
+            inputMode="decimal"
+            className="mt-1 h-9 tabular-nums"
             value={bonus}
             onChange={(e) => setBonus(e.target.value)}
+            placeholder="0.00"
           />
           <p className="mt-1 text-xs text-muted-foreground">
             Added to base + allowance; one Salary expense is posted for the full payout. Unpaid time rows in{" "}
@@ -592,13 +593,11 @@ function EmployeePayRow({ emp }: { emp: any }) {
       </td>
       <td className="p-2">
         <Label className="sr-only">Rate</Label>
-        <Input
-          type="number"
-          step="0.01"
-          min={0}
+        <AmountInput
           className="h-9"
           value={salaryRate}
-          onChange={(e) => setSalaryRate(Number(e.target.value))}
+          onValueChange={setSalaryRate}
+          placeholder="0.00"
         />
         <p className="mt-0.5 text-[10px] text-muted-foreground leading-none">
           {salaryType === "hourly" ? "Regular ₱/hr" : "₱ per day / period as per type"}
@@ -623,16 +622,11 @@ function EmployeePayRow({ emp }: { emp: any }) {
       </td>
       <td className="p-2 align-top">
         <Label className="sr-only">Overtime hourly rate</Label>
-        <Input
-          type="number"
-          min={0}
-          step="0.01"
+        <AmountInput
           className="h-9"
-          value={Number.isFinite(overtimeHourlyRate) ? overtimeHourlyRate : 0}
-          onChange={(e) => {
-            const raw = e.target.value;
-            setOvertimeHourlyRate(raw === "" ? 0 : Math.max(0, Number(raw) || 0));
-          }}
+          value={overtimeHourlyRate}
+          onValueChange={setOvertimeHourlyRate}
+          placeholder="0.00"
         />
         <p className="mt-0.5 text-[10px] text-muted-foreground leading-none">
           {salaryType === "hourly"
@@ -652,14 +646,12 @@ function EmployeePayRow({ emp }: { emp: any }) {
       </td>
       <td className="p-2">
         <Label className="sr-only">Allowance amount</Label>
-        <Input
-          type="number"
-          step="0.01"
-          min={0}
+        <AmountInput
           className="h-9"
           disabled={allowanceBasis === "none"}
           value={allowanceBasis === "none" ? 0 : allowanceAmount}
-          onChange={(e) => setAllowanceAmount(Number(e.target.value))}
+          onValueChange={setAllowanceAmount}
+          placeholder="0.00"
         />
       </td>
       <td className="p-2 text-right">

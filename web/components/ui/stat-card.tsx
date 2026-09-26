@@ -22,7 +22,7 @@ export function StatCard({
   const displayValue = typeof value === "number" ? String(value) : value;
   return (
     <Card className="card-hover anim-in">
-      <CardContent className="p-4 sm:p-5">
+      <CardContent className="p-5 sm:p-6">
         <div className="flex items-start justify-between gap-2">
           <p className="min-w-0 flex-1 text-[10px] font-medium uppercase leading-snug tracking-wide text-muted-foreground sm:text-xs">
             {label}

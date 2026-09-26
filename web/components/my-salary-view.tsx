@@ -31,15 +31,15 @@ export function MySalaryView({
       <PageHeader title="My Salary" description="Earnings history" />
       <div className="mb-3 grid gap-3 sm:grid-cols-2">
         <Card>
-          <CardContent className="p-3">
+          <CardContent className="p-5">
             <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Lifetime earnings</div>
-            <div className="mt-0.5 text-xl font-semibold tabular-nums">{peso(total)}</div>
+            <div className="mt-2 text-xl font-semibold tabular-nums">{peso(total)}</div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-3">
+          <CardContent className="p-5">
             <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Salary type</div>
-            <div className="mt-0.5 text-xl font-semibold capitalize tabular-nums">
+            <div className="mt-2 text-xl font-semibold capitalize tabular-nums">
               {salaryType || "—"} · {peso(salaryRate)}
             </div>
           </CardContent>

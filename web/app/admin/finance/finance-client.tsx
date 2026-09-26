@@ -1019,11 +1019,12 @@ export function FinanceClient({
               </Label>
               <Input
                 id="acc-opening"
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
+                className="tabular-nums"
                 value={accOpening}
                 onChange={(e) => setAccOpening(e.target.value)}
-                placeholder="Optional"
+                placeholder="0.00"
               />
               <p className="text-xs text-muted-foreground">
                 {editingAccount
@@ -1110,9 +1111,9 @@ export function FinanceClient({
             <Label htmlFor="xfer-amount">Amount</Label>
             <Input
               id="xfer-amount"
-              type="number"
-              step="0.01"
-              min="0.01"
+              type="text"
+              inputMode="decimal"
+              className="tabular-nums"
               value={transferAmount}
               onChange={(e) => setTransferAmount(e.target.value)}
               placeholder="0.00"
@@ -1192,7 +1193,7 @@ export function FinanceClient({
           </div>
           <div className="grid gap-1">
             <Label htmlFor="tx-amount">Amount</Label>
-            <Input id="tx-amount" type="number" step="0.01" value={txAmount} onChange={(e) => setTxAmount(e.target.value)} />
+            <Input id="tx-amount" type="text" inputMode="decimal" className="tabular-nums" value={txAmount} onChange={(e) => setTxAmount(e.target.value)} placeholder="0.00" />
           </div>
           <div className="grid gap-1">
             <Label htmlFor="tx-desc">Description</Label>

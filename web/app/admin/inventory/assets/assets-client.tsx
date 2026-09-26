@@ -504,11 +504,12 @@ function AssetFormDialog({
             <Label htmlFor="asset-purchase-cost">Purchase cost</Label>
             <Input
               id="asset-purchase-cost"
-              type="number"
-              min={0}
-              step="0.01"
+              type="text"
+              inputMode="decimal"
+              className="tabular-nums"
               value={form.purchase_cost}
               onChange={(e) => setForm((f) => ({ ...f, purchase_cost: e.target.value }))}
+              placeholder="0.00"
             />
           </div>
           <div className="sm:col-span-2">

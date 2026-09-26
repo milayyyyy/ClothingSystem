@@ -733,7 +733,7 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
 
       {/* Filter card */}
       <Card className="mb-4">
-        <CardContent className="p-4">
+        <CardContent className="p-5">
           {/* Top row: date presets + export + filter toggle */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium text-muted-foreground shrink-0">Date range</span>
