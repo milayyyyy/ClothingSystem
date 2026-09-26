@@ -16,7 +16,8 @@ export type FeatureKey =
   | "tasks"
   | "stores"
   | "activity_log"
-  | "settings";
+  | "settings"
+  | "reseller";
 
 export type FeaturePerm = { view: boolean; edit: boolean };
 export type Permissions = { all?: boolean } & Partial<Record<FeatureKey, FeaturePerm>>;
@@ -38,6 +39,7 @@ const FEATURE_KEYS: FeatureKey[] = [
   "stores",
   "activity_log",
   "settings",
+  "reseller",
 ];
 
 function blankPerms(): Permissions {
@@ -64,6 +66,7 @@ export function defaultMediaPerms(): Permissions {
     stores: off,
     activity_log: off,
     settings: off,
+    reseller: off,
   };
 }
 
@@ -87,6 +90,31 @@ export function defaultEmployeePerms(): Permissions {
     stores: off,
     activity_log: off,
     settings: off,
+    reseller: off,
+  };
+}
+
+/** Reseller accounts — catalog, own orders, and chat only. */
+export function defaultResellerPerms(): Permissions {
+  const off = { view: false, edit: false } as const;
+  return {
+    dashboard: off,
+    orders: off,
+    inventory: off,
+    ready_made: off,
+    reports: off,
+    suppliers: off,
+    returns: off,
+    sales_expenses: off,
+    finance: off,
+    employees: off,
+    attendance: off,
+    salary: off,
+    tasks: off,
+    stores: off,
+    activity_log: off,
+    settings: off,
+    reseller: { view: true, edit: false },
   };
 }
 
@@ -151,6 +179,7 @@ export function featureForAdminPath(path: string): FeatureKey | null {
   if (path.startsWith("/admin/activity")) return "activity_log";
   if (path.startsWith("/admin/settings")) return "settings";
   if (path.startsWith("/admin/export")) return "stores";
+  if (path.startsWith("/admin/reseller")) return "reseller";
   return null;
 }
 
@@ -163,6 +192,9 @@ export function isEmployeeOwnedAdminPath(path: string): boolean {
 }
 
 export function canAccessAdminPath(path: string, perms: Permissions, profileRole?: string): boolean {
+  if (profileRole === "reseller") {
+    return path === "/admin/reseller" || path.startsWith("/admin/reseller/");
+  }
   if (profileRole === "media") {
     return path === "/admin/content-planner" || path.startsWith("/admin/content-planner/");
   }
@@ -190,6 +222,7 @@ export async function getPermissionsForRole(
   if (role === "admin") return { all: true };
   if (role === "employee") return defaultEmployeePerms();
   if (role === "media") return defaultMediaPerms();
+  if (role === "reseller") return defaultResellerPerms();
 
   const { data } = await supabase.from("roles").select("permissions").eq("name", role).maybeSingle();
 

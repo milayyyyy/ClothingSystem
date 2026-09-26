@@ -39,6 +39,7 @@ import {
   ShoppingCart,
   CalendarDays,
   PackagePlus,
+  MessageCircle,
 } from "lucide-react";
 import {
   canView,
@@ -79,6 +80,16 @@ const STAFF_GROUPS: Group[] = [
   ]},
   { title: "Orders & sales", items: [
     { href: "/admin/pos", label: "POS Terminal", icon: ShoppingCart, adminOrManagerOnly: true },
+    {
+      href: "/admin/reseller",
+      label: "Reseller",
+      icon: Store,
+      children: [
+        { href: "/admin/reseller/products", label: "Reseller Product", icon: Package },
+        { href: "/admin/reseller/orders", label: "Reseller Order", icon: ShoppingBag },
+        { href: "/admin/reseller/chat", label: "Reseller Chat", icon: MessageCircle },
+      ],
+    },
     {
       href: "/admin/orders", label: "Orders", icon: ShoppingBag,
       children: [
@@ -136,6 +147,14 @@ const EMPLOYEE_GROUPS: Group[] = [
     { href: "/employee/attendance", label: "Attendance", icon: Clock },
     { href: "/employee/salary", label: "My Salary", icon: Wallet },
     { href: "/employee/profile", label: "Profile", icon: Users },
+  ]},
+];
+
+const RESELLER_GROUPS: Group[] = [
+  { title: "Reseller", items: [
+    { href: "/admin/reseller/products", label: "Reseller Product", icon: Package },
+    { href: "/admin/reseller/orders", label: "Reseller Order", icon: ShoppingBag },
+    { href: "/admin/reseller/chat", label: "Reseller Chat", icon: MessageCircle },
   ]},
 ];
 
@@ -218,7 +237,9 @@ export function Sidebar({
   const router = useRouter();
   const perms = permissions ?? ({ all: role === "admin" } as Permissions);
   const groups =
-    role === "media"
+    role === "reseller"
+      ? RESELLER_GROUPS
+      : role === "media"
       ? MEDIA_GROUPS
       : role === "employee"
       ? (() => {

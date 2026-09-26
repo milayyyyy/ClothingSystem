@@ -21,6 +21,7 @@ const NAMES: Record<string, string> = {
   attendance: "Attendance", salary: "Salary", expenses: "Expenses", reports: "Reports", maintenance: "Machine maintenance",
   "sales-expenses": "Sales & expenses", sales: "Sales", list: "Sales list",
   employee: "Dashboard", profile: "Profile", "content-planner": "Content Planner",
+  reseller: "Reseller", products: "Reseller Product", chat: "Reseller Chat",
 };
 
 export function Topbar({
@@ -36,7 +37,11 @@ export function Topbar({
 }) {
   const path = usePathname();
   const segs = path.split("/").filter(Boolean);
-  const crumbs = segs.map((s, i) => ({ label: NAMES[s] || s, href: "/" + segs.slice(0, i + 1).join("/") }));
+  const crumbs = segs.map((s, i) => {
+    let label = NAMES[s] || s;
+    if (s === "orders" && segs.includes("reseller")) label = "Reseller Order";
+    return { label, href: "/" + segs.slice(0, i + 1).join("/") };
+  });
   const pageTitle = crumbs.length > 0 ? crumbs[crumbs.length - 1].label : "PrintShop";
 
   return (
@@ -70,7 +75,7 @@ export function Topbar({
         </nav>
         <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
           <PwaInstallButton compact />
-          {userId && <StickyNotes userId={userId} />}
+          {userId && role !== "reseller" && <StickyNotes userId={userId} />}
           {(role === "admin" || role === "manager") && <RemindersNotificationBell />}
           <QuickSearchTrigger />
           <div className="hidden text-right text-xs md:block">

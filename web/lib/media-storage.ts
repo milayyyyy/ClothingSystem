@@ -2,6 +2,8 @@ export { ORDER_RECORD_BUCKET } from "@/lib/order-records";
 
 export const EXPENSE_RECEIPTS_BUCKET = "expense-receipts";
 export const JERSEY_DESIGNS_BUCKET = "jersey-designs";
+export const RESELLER_PRODUCTS_BUCKET = "reseller-products";
+export const RESELLER_PRODUCT_IMAGE_MAX = 9;
 
 export const TEAM_DESIGN_MAX = 24;
 

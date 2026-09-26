@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { getPermissionsForRole } from "@/lib/role-permissions";
-import { asShellRole, isStaffRole } from "@/lib/roles";
+import { asShellRole, defaultAfterLoginPath, isResellerRole, isStaffRole } from "@/lib/roles";
 import { AppShell } from "@/components/app-shell";
 import { WorkspaceShellProvider } from "@/components/workspace-shell-context";
 
@@ -14,6 +14,7 @@ export default async function EmployeeLayout({ children }: { children: React.Rea
   const user = await getSessionUser();
   if (!user) redirect("/login");
   if (isStaffRole(user.profile.role)) redirect("/admin");
+  if (isResellerRole(user.profile.role)) redirect(defaultAfterLoginPath("reseller"));
   const supabase = createClient();
   const permissions = await getPermissionsForRole(supabase, user.profile.role);
   const name = user.profile.full_name || user.email!;

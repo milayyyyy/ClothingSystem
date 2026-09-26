@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
   Activity, BarChart2, Building2, ClipboardList, DollarSign, FileText,
-  LayoutDashboard, Loader2, Package, PackageX, Receipt, Search,
+  LayoutDashboard, Loader2, MessageCircle, Package, PackageX, Receipt, Search,
   Settings, ShoppingBag, Store, Tag, Users, Warehouse, X,
 } from "lucide-react";
 
@@ -22,6 +22,10 @@ type ResultItem = {
 const NAV_SHORTCUTS: ResultItem[] = [
   { id: "nav-dashboard",    section: "Navigation", icon: <LayoutDashboard className="h-4 w-4" />, title: "Dashboard",              href: "/admin" },
   { id: "nav-orders",       section: "Navigation", icon: <ShoppingBag className="h-4 w-4" />,    title: "Orders",                  href: "/admin/orders" },
+  { id: "nav-reseller",     section: "Navigation", icon: <Store className="h-4 w-4" />,           title: "Reseller",                href: "/admin/reseller" },
+  { id: "nav-reseller-products", section: "Navigation", icon: <Package className="h-4 w-4" />,    title: "Reseller Product",        href: "/admin/reseller/products" },
+  { id: "nav-reseller-orders",   section: "Navigation", icon: <ShoppingBag className="h-4 w-4" />, title: "Reseller Order",         href: "/admin/reseller/orders" },
+  { id: "nav-reseller-chat",     section: "Navigation", icon: <MessageCircle className="h-4 w-4" />, title: "Reseller Chat",        href: "/admin/reseller/chat" },
   { id: "nav-inventory",    section: "Navigation", icon: <Package className="h-4 w-4" />,         title: "Inventory",               href: "/admin/inventory" },
   { id: "nav-assets",       section: "Navigation", icon: <Tag className="h-4 w-4" />,             title: "Assets",                  href: "/admin/inventory/assets" },
   { id: "nav-readymade",    section: "Navigation", icon: <Warehouse className="h-4 w-4" />,       title: "Ready-made Inventory",    href: "/admin/inventory/ready-made" },
@@ -348,7 +352,14 @@ export function GlobalSearch({ role }: { role?: string }) {
     { id: "nav-my-salary", section: "Navigation", icon: <FileText className="h-4 w-4" />, title: "My Salary", href: "/employee/salary" },
     { id: "nav-profile", section: "Navigation", icon: <Users className="h-4 w-4" />, title: "Profile", href: "/employee/profile" },
   ];
-  const navShortcuts = role === "media"
+  const resellerNavShortcuts: ResultItem[] = [
+    { id: "nav-reseller-products", section: "Navigation", icon: <Package className="h-4 w-4" />, title: "Reseller Product", href: "/admin/reseller/products" },
+    { id: "nav-reseller-orders", section: "Navigation", icon: <ShoppingBag className="h-4 w-4" />, title: "Reseller Order", href: "/admin/reseller/orders" },
+    { id: "nav-reseller-chat", section: "Navigation", icon: <MessageCircle className="h-4 w-4" />, title: "Reseller Chat", href: "/admin/reseller/chat" },
+  ];
+  const navShortcuts = role === "reseller"
+    ? resellerNavShortcuts
+    : role === "media"
     ? mediaNavShortcuts.filter((n) => mediaNavHrefs.has(n.href))
     : role === "employee"
     ? NAV_SHORTCUTS.filter((n) => !["/admin/settings", "/admin/stores", "/admin/export", "/admin/my-salary", "/admin/inventory/ordering", "/admin/content-planner"].some((h) => n.href === h || n.href.startsWith(`${h}/`)))

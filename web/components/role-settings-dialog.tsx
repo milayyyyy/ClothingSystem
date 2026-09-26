@@ -11,7 +11,8 @@ import { CheckCircle2, Lock, Plus, ShieldCheck, Trash2 } from "lucide-react";
 type FeatureKey =
   | "dashboard" | "orders" | "inventory" | "ready_made" | "reports"
   | "suppliers" | "returns" | "sales_expenses" | "finance" | "employees"
-  | "attendance" | "salary" | "tasks" | "stores" | "activity_log" | "settings";
+  | "attendance" | "salary" | "tasks" | "stores" | "activity_log" | "settings"
+  | "reseller";
 
 type FeaturePerm = { view: boolean; edit: boolean };
 type Permissions = { all?: boolean } & Partial<Record<FeatureKey, FeaturePerm>>;
@@ -41,6 +42,7 @@ const FEATURES: { key: FeatureKey; label: string }[] = [
   { key: "stores",         label: "Stores" },
   { key: "activity_log",   label: "Activity Log" },
   { key: "settings",       label: "Settings" },
+  { key: "reseller",       label: "Reseller" },
 ];
 
 const EMPTY_PERMS: Permissions = Object.fromEntries(
@@ -52,7 +54,7 @@ function blankPerms(): Permissions {
 }
 
 /** Built-in account types are assigned on Add / Edit employee, not here. */
-const HIDDEN_ROLE_NAMES = new Set(["employee", "media"]);
+const HIDDEN_ROLE_NAMES = new Set(["employee", "media", "reseller"]);
 
 function visibleRoles(list: Role[]) {
   return list.filter((r) => !HIDDEN_ROLE_NAMES.has(r.name));
@@ -198,7 +200,7 @@ export function RoleSettingsDialog({
       open={open}
       onClose={onClose}
       title="Role Settings"
-      description="Permissions for admin, manager, and custom roles. Employee and Media Management accounts are assigned on Add employee."
+      description="Permissions for admin, manager, and custom roles. Employee, Media Management, and Reseller accounts are assigned on Add employee."
       size="xl"
     >
       <div className="flex gap-4 min-h-[440px]">

@@ -29,7 +29,7 @@ export async function middleware(request: NextRequest) {
   const isProtected = path.startsWith("/admin") || path.startsWith("/employee");
 
   const ROLE_COOKIE = "cs_role";
-  const allowedRoles = new Set(["admin", "manager", "employee", "media"]);
+  const allowedRoles = new Set(["admin", "manager", "employee", "media", "reseller"]);
   let profile: { role: string } | null = null;
   if (user) {
     const cached = request.cookies.get(ROLE_COOKIE)?.value ?? "";
@@ -70,6 +70,21 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(url);
     }
     const role = profile.role;
+    if (role === "reseller") {
+      const onReseller =
+        path === "/admin/reseller" ||
+        path === "/admin/reseller/products" ||
+        path.startsWith("/admin/reseller/products/") ||
+        path === "/admin/reseller/orders" ||
+        path.startsWith("/admin/reseller/orders/") ||
+        path === "/admin/reseller/chat" ||
+        path.startsWith("/admin/reseller/chat/");
+      if (!onReseller || path.startsWith("/admin/reseller/products/new")) {
+        const url = request.nextUrl.clone();
+        url.pathname = "/admin/reseller/products";
+        return NextResponse.redirect(url);
+      }
+    }
     // Media accounts stay in the employee workspace except Content Planner.
     if (role === "media" && path.startsWith("/employee/order-records")) {
       const url = request.nextUrl.clone();

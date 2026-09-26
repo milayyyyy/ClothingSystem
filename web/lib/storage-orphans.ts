@@ -3,6 +3,7 @@ import { ORDER_RECORD_BUCKET } from "@/lib/order-records";
 import {
   EXPENSE_RECEIPTS_BUCKET,
   JERSEY_DESIGNS_BUCKET,
+  RESELLER_PRODUCTS_BUCKET,
   storagePathFromPublicUrl,
 } from "@/lib/media-storage";
 
@@ -57,13 +58,15 @@ async function referencedPaths(supabase: SupabaseClient): Promise<Set<string>> {
     if (p) keys.add(`${bucket}:${p}`);
   };
 
-  const [{ data: expenses, error: expErr }, { data: atts, error: attErr }, { data: teams, error: teamErr }, { data: players, error: playerErr }] =
+  const [{ data: expenses, error: expErr }, { data: atts, error: attErr }, { data: teams, error: teamErr }, { data: players, error: playerErr }, resellerRes] =
     await Promise.all([
       supabase.from("expenses").select("receipt_path").not("receipt_path", "is", null),
       supabase.from("order_record_attachments").select("path"),
       supabase.from("sublimation_teams").select("design_image_urls"),
       supabase.from("sublimation_team_players").select("design_image_url"),
+      supabase.from("reseller_products").select("images,variations"),
     ]);
+  const resellerProducts = resellerRes.error ? [] : resellerRes.data;
 
   if (expErr) throw new Error(expErr.message);
   if (attErr) throw new Error(attErr.message);
@@ -85,6 +88,33 @@ async function referencedPaths(supabase: SupabaseClient): Promise<Set<string>> {
     if (!url) continue;
     add(JERSEY_DESIGNS_BUCKET, storagePathFromPublicUrl(url, JERSEY_DESIGNS_BUCKET));
   }
+  for (const row of resellerProducts || []) {
+    const images = (row as { images?: unknown }).images;
+    if (Array.isArray(images)) {
+      for (const img of images) {
+        if (!img || typeof img !== "object") continue;
+        const o = img as { path?: unknown; url?: unknown };
+        if (typeof o.path === "string") add(RESELLER_PRODUCTS_BUCKET, o.path);
+        else if (typeof o.url === "string") add(RESELLER_PRODUCTS_BUCKET, storagePathFromPublicUrl(o.url, RESELLER_PRODUCTS_BUCKET));
+      }
+    }
+    const variations = (row as { variations?: unknown }).variations;
+    if (Array.isArray(variations)) {
+      for (const variation of variations) {
+        if (!variation || typeof variation !== "object") continue;
+        const options = (variation as { options?: unknown }).options;
+        if (!Array.isArray(options)) continue;
+        for (const opt of options) {
+          if (!opt || typeof opt !== "object") continue;
+          const o = opt as { image_path?: unknown; image_url?: unknown };
+          if (typeof o.image_path === "string") add(RESELLER_PRODUCTS_BUCKET, o.image_path);
+          else if (typeof o.image_url === "string") {
+            add(RESELLER_PRODUCTS_BUCKET, storagePathFromPublicUrl(o.image_url, RESELLER_PRODUCTS_BUCKET));
+          }
+        }
+      }
+    }
+  }
 
   return keys;
 }
@@ -98,17 +128,18 @@ export type StorageCleanupResult = {
 };
 
 export async function cleanupOrphanMedia(supabase: SupabaseClient): Promise<StorageCleanupResult> {
-  const [receipts, designs, attachments, referenced] = await Promise.all([
+  const [receipts, designs, attachments, resellerImages, referenced] = await Promise.all([
     listBucketObjects(supabase, EXPENSE_RECEIPTS_BUCKET),
     listBucketObjects(supabase, JERSEY_DESIGNS_BUCKET),
     listBucketObjects(supabase, ORDER_RECORD_BUCKET),
+    listBucketObjects(supabase, RESELLER_PRODUCTS_BUCKET).catch(() => [] as ListedObject[]),
     referencedPaths(supabase),
   ]);
 
   const now = Date.now();
   const orphans: ListedObject[] = [];
   let skippedRecent = 0;
-  for (const obj of [...receipts, ...designs, ...attachments]) {
+  for (const obj of [...receipts, ...designs, ...attachments, ...resellerImages]) {
     if (referenced.has(`${obj.bucket}:${obj.path}`)) continue;
     if (obj.createdAt && now - obj.createdAt < SKIP_NEWER_THAN_MS) {
       skippedRecent += 1;
@@ -136,7 +167,7 @@ export async function cleanupOrphanMedia(supabase: SupabaseClient): Promise<Stor
   }
 
   return {
-    scanned: receipts.length + designs.length + attachments.length,
+    scanned: receipts.length + designs.length + attachments.length + resellerImages.length,
     referenced: referenced.size,
     skippedRecent,
     deleted,

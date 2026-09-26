@@ -285,7 +285,7 @@ export function EmployeesClient({
 
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                 <Badge variant="teal">Permanent</Badge>
-                <Badge variant={p.role === "admin" ? "purple" : p.role === "manager" ? "amber" : p.role === "media" ? "teal" : "blue"}>{roleLabel(p.role)}</Badge>
+                <Badge variant={p.role === "admin" ? "purple" : p.role === "manager" ? "amber" : p.role === "media" ? "teal" : p.role === "reseller" ? "green" : "blue"}>{roleLabel(p.role)}</Badge>
                 <Badge variant={p.active ? "green" : "red"}>{p.active ? "Active" : "Inactive"}</Badge>
                 {p.position && <Badge variant="outline">{p.position}</Badge>}
               </div>

@@ -1,9 +1,10 @@
 /** App login roles stored on `profiles.role`. */
-export type Role = "admin" | "manager" | "employee" | "media";
+export type Role = "admin" | "manager" | "employee" | "media" | "reseller";
 
 export const ASSIGNABLE_ROLES: { value: Role; label: string; hint?: string }[] = [
   { value: "employee", label: "Employee", hint: "Orders, tasks, inventory" },
   { value: "media", label: "Media Management", hint: "Content planner, orders, tasks" },
+  { value: "reseller", label: "Reseller", hint: "Products, orders, chat" },
   { value: "manager", label: "Manager" },
   { value: "admin", label: "Admin" },
 ];
@@ -13,6 +14,7 @@ const ROLE_LABELS: Record<string, string> = {
   manager: "Manager",
   employee: "Employee",
   media: "Media Management",
+  reseller: "Reseller",
 };
 
 export function roleLabel(role: string | null | undefined) {
@@ -21,7 +23,9 @@ export function roleLabel(role: string | null | undefined) {
 }
 
 export function asShellRole(role: string | null | undefined): Role {
-  if (role === "admin" || role === "manager" || role === "employee" || role === "media") return role;
+  if (role === "admin" || role === "manager" || role === "employee" || role === "media" || role === "reseller") {
+    return role;
+  }
   return "employee";
 }
 
@@ -35,12 +39,17 @@ export function isPortalRole(role: string | null | undefined) {
   return role === "employee" || role === "media";
 }
 
+export function isResellerRole(role: string | null | undefined) {
+  return role === "reseller";
+}
+
 export function canUseContentPlanner(role: string | null | undefined) {
   return isStaffRole(role) || role === "media";
 }
 
 /** Default home after login or root redirect. */
 export function defaultAfterLoginPath(role: string | null | undefined) {
+  if (isResellerRole(role)) return "/admin/reseller/products";
   return isStaffRole(role) ? "/admin" : "/employee";
 }
 
