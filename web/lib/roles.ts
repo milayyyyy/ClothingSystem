@@ -2,7 +2,7 @@
 export type Role = "admin" | "manager" | "employee" | "media" | "reseller";
 
 export const ASSIGNABLE_ROLES: { value: Role; label: string; hint?: string }[] = [
-  { value: "employee", label: "Employee", hint: "Orders, tasks, inventory" },
+  { value: "employee", label: "Employee", hint: "Orders, tasks, inventory, reseller order and chat" },
   { value: "media", label: "Media Management", hint: "Content planner, orders, tasks" },
   { value: "reseller", label: "Reseller", hint: "Products, orders, chat" },
   { value: "manager", label: "Manager" },
@@ -41,6 +41,11 @@ export function isPortalRole(role: string | null | undefined) {
 
 export function isResellerRole(role: string | null | undefined) {
   return role === "reseller";
+}
+
+/** Admin, manager, and employees who handle reseller orders and chat. */
+export function canWorkResellerDesk(role: string | null | undefined) {
+  return isStaffRole(role) || role === "employee";
 }
 
 export function canUseContentPlanner(role: string | null | undefined) {

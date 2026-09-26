@@ -9,7 +9,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useWorkspaceShell } from "@/components/workspace-shell-context";
-import { isResellerRole, isStaffRole } from "@/lib/roles";
+import { canWorkResellerDesk, isResellerRole } from "@/lib/roles";
 import { cn, formatDateTime, formatSupabaseError } from "@/lib/utils";
 import {
   chatTitleFromMessage,
@@ -35,7 +35,7 @@ export function ResellerChatClient({
   const supabase = createClient();
   const { role, userId, name } = useWorkspaceShell();
   const canStart = isResellerRole(role);
-  const isStaff = isStaffRole(role);
+  const isStaff = canWorkResellerDesk(role);
   const [chats, setChats] = useState(initial);
   const [selectedId, setSelectedId] = useState<string | null>(initial[0]?.id ?? null);
   const [messages, setMessages] = useState<ResellerChatMessage[]>([]);
@@ -161,7 +161,7 @@ export function ResellerChatClient({
     <div className="space-y-4">
       {tableMissing && (
         <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          Apply migration 113 (reseller account), then reload.
+          Apply migrations 113 and 115 (reseller account + employee desk), then reload.
         </p>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -221,7 +221,7 @@ export function ResellerChatClient({
                         {isStaff ? selected.reseller_name : selected.title || "Chat"}
                       </div>
                       <div className="truncate text-xs text-muted-foreground">
-                        {isStaff ? selected.title || "Chat" : "Admin and manager can reply"}
+                        {isStaff ? selected.title || "Chat" : "Admin, manager, and employees can reply"}
                       </div>
                     </div>
                     <Button type="button" size="sm" variant="ghost" className="lg:hidden" onClick={() => setSelectedId(null)}>
@@ -280,7 +280,7 @@ export function ResellerChatClient({
         open={newOpen}
         onClose={() => !saving && setNewOpen(false)}
         title="New chat"
-        description="Admin and manager will see this conversation."
+        description="Admin, manager, and employees will see this conversation."
         size="md"
       >
         <div className="space-y-3">

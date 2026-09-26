@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { MessageCircle, Package, ShoppingBag } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { getSessionUser } from "@/lib/supabase/server";
 import { ResellerNav } from "./reseller-nav";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +29,9 @@ const SECTIONS = [
   },
 ] as const;
 
-export default function ResellerHubPage() {
+export default async function ResellerHubPage() {
+  const user = await getSessionUser();
+  if (user?.profile.role === "employee") redirect("/admin/reseller/orders");
   return (
     <div className="space-y-6">
       <PageHeader title="Reseller" description="Open Product, Order, or Chat." />

@@ -183,6 +183,11 @@ export function featureForAdminPath(path: string): FeatureKey | null {
   return null;
 }
 
+/** Reseller Order + Reseller Chat — employees may use these /admin pages. */
+export function isEmployeeResellerDeskPath(path: string): boolean {
+  return path.startsWith("/admin/reseller/orders") || path.startsWith("/admin/reseller/chat");
+}
+
 /** Admin URLs that employees should never use — they have /employee/* pages instead. */
 export function isEmployeeOwnedAdminPath(path: string): boolean {
   if (path === "/admin" || path === "/admin/") return true;
@@ -199,6 +204,7 @@ export function canAccessAdminPath(path: string, perms: Permissions, profileRole
     return path === "/admin/content-planner" || path.startsWith("/admin/content-planner/");
   }
   if (profileRole === "employee") {
+    if (isEmployeeResellerDeskPath(path)) return true;
     if (path.startsWith("/admin/inventory/ordering")) return false;
     if (isEmployeeOwnedAdminPath(path)) return false;
     const feature = featureForAdminPath(path);

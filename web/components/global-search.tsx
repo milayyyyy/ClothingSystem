@@ -362,7 +362,10 @@ export function GlobalSearch({ role }: { role?: string }) {
     : role === "media"
     ? mediaNavShortcuts.filter((n) => mediaNavHrefs.has(n.href))
     : role === "employee"
-    ? NAV_SHORTCUTS.filter((n) => !["/admin/settings", "/admin/stores", "/admin/export", "/admin/my-salary", "/admin/inventory/ordering", "/admin/content-planner"].some((h) => n.href === h || n.href.startsWith(`${h}/`)))
+    ? NAV_SHORTCUTS.filter((n) => {
+        if (n.href === "/admin/reseller" || n.href.startsWith("/admin/reseller/products")) return false;
+        return !["/admin/settings", "/admin/stores", "/admin/export", "/admin/my-salary", "/admin/inventory/ordering", "/admin/content-planner"].some((h) => n.href === h || n.href.startsWith(`${h}/`));
+      })
     : role === "manager"
     ? NAV_SHORTCUTS.filter((n) => n.href !== "/admin/settings")
     : NAV_SHORTCUTS.filter((n) => n.href !== "/admin/my-salary");

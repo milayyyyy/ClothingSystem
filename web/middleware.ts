@@ -113,7 +113,8 @@ export async function middleware(request: NextRequest) {
       const perms = await getPermissionsForRole(supabase, role);
       if (!canAccessAdminPath(path, perms, role)) {
         const url = request.nextUrl.clone();
-        if (path.startsWith("/admin/orders")) url.pathname = "/employee/orders";
+        if (path.startsWith("/admin/reseller")) url.pathname = "/admin/reseller/orders";
+        else if (path.startsWith("/admin/orders")) url.pathname = "/employee/orders";
         else if (path.startsWith("/admin/tasks")) url.pathname = "/employee/tasks";
         else if (path.startsWith("/admin/attendance")) url.pathname = "/employee/attendance";
         else if (path.startsWith("/admin/salary")) url.pathname = "/employee/salary";

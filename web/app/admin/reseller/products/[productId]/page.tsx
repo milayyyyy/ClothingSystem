@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function EditResellerProductPage({ params }: { params: { productId: string } }) {
   const user = await getSessionUser();
+  if (user?.profile.role === "employee") redirect("/admin/reseller/orders");
   if (!isResellerRole(user?.profile.role)) {
     return <ResellerProductForm productId={params.productId} />;
   }

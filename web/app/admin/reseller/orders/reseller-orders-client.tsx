@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useWorkspaceShell } from "@/components/workspace-shell-context";
-import { isResellerRole, isStaffRole } from "@/lib/roles";
+import { canWorkResellerDesk, isResellerRole } from "@/lib/roles";
 import { formatDateTime, formatSupabaseError, peso } from "@/lib/utils";
 import type { ResellerProduct } from "@/lib/reseller-products";
 import {
@@ -36,7 +36,7 @@ export function ResellerOrdersClient({
   const supabase = createClient();
   const { role, userId } = useWorkspaceShell();
   const canOrder = isResellerRole(role);
-  const canManage = isStaffRole(role);
+  const canManage = canWorkResellerDesk(role);
   const [orders, setOrders] = useState(initial);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
@@ -68,7 +68,7 @@ export function ResellerOrdersClient({
     <div className="space-y-4">
       {tableMissing && (
         <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          Apply migration 113 (reseller account), then reload.
+          Apply migrations 113 and 115 (reseller account + employee desk), then reload.
         </p>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}

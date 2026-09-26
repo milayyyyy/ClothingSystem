@@ -5,12 +5,14 @@ import { ResellerProductsClient } from "./reseller-products-client";
 import { asResellerProductList, resellerTableMissing } from "@/lib/reseller-products";
 import { isResellerRole } from "@/lib/roles";
 import { formatSupabaseError } from "@/lib/utils";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default async function ResellerProductPage() {
   const supabase = createClient();
   const user = await getSessionUser();
+  if (user?.profile.role === "employee") redirect("/admin/reseller/orders");
   const resellerView = isResellerRole(user?.profile.role);
   const query = supabase.from("reseller_products").select("*").order("updated_at", { ascending: false });
   const { data, error } = resellerView ? await query.eq("status", "listed") : await query;

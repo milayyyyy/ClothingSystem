@@ -142,6 +142,8 @@ const EMPLOYEE_GROUPS: Group[] = [
     { href: "/employee/orders", label: "My Orders", icon: ShoppingBag },
     { href: "/employee/order-records", label: "Daily Order Records", icon: FileStack },
     { href: "/employee/tasks", label: "My Tasks", icon: ListChecks },
+    { href: "/admin/reseller/orders", label: "Reseller Order", icon: ShoppingBag },
+    { href: "/admin/reseller/chat", label: "Reseller Chat", icon: MessageCircle },
   ]},
   { title: "Personal", items: [
     { href: "/employee/attendance", label: "Attendance", icon: Clock },
@@ -195,7 +197,7 @@ function filterStaffGroups(groups: Group[], perms: Permissions, role: Role): Gro
 
 /** Extra admin links for employees (inventory, suppliers, etc.) — not tasks/salary/attendance/orders. */
 function employeeGrantedAdminItems(perms: Permissions): Item[] {
-  const blocked = ["/admin/settings", "/admin/export", "/admin/stores", "/admin/inventory/ordering"];
+  const blocked = ["/admin/settings", "/admin/export", "/admin/stores", "/admin/inventory/ordering", "/admin/reseller"];
   const isBlocked = (href: string) => {
     const path = href.split("?")[0];
     return blocked.some((h) => path === h || path.startsWith(`${h}/`));

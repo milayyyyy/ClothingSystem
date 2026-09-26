@@ -23,7 +23,7 @@ export default async function ResellerChatPage() {
         title="Reseller Chat"
         description={
           isResellerRole(user?.profile.role)
-            ? "Start a chat. Admin and manager can read and reply."
+            ? "Start a chat. Admin, manager, and employees can read and reply."
             : "Chats started by reseller accounts."
         }
       />

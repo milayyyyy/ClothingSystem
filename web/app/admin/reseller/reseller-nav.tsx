@@ -4,19 +4,22 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MessageCircle, Package, ShoppingBag } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useWorkspaceShellOptional } from "@/components/workspace-shell-context";
 
 const LINKS = [
-  { href: "/admin/reseller/products", label: "Reseller Product", icon: Package },
+  { href: "/admin/reseller/products", label: "Reseller Product", icon: Package, hideForEmployee: true },
   { href: "/admin/reseller/orders", label: "Reseller Order", icon: ShoppingBag },
   { href: "/admin/reseller/chat", label: "Reseller Chat", icon: MessageCircle },
 ] as const;
 
 export function ResellerNav() {
   const pathname = usePathname();
+  const role = useWorkspaceShellOptional()?.role;
+  const links = LINKS.filter((link) => !(role === "employee" && "hideForEmployee" in link && link.hideForEmployee));
 
   return (
     <nav className="flex gap-1 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {LINKS.map((link) => {
+      {links.map((link) => {
         const Icon = link.icon;
         const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
         return (
