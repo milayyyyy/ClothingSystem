@@ -128,82 +128,79 @@ export function emptyResellerDraft(id = newResellerId()): ResellerProduct {
 
 function asImages(value: unknown): ResellerImage[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const o = item as { url?: unknown; path?: unknown };
-      const url = typeof o.url === "string" ? o.url : "";
-      const path = typeof o.path === "string" ? o.path : "";
-      if (!url) return null;
-      return { url, path };
-    })
-    .filter((x): x is ResellerImage => Boolean(x));
+  const out: ResellerImage[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as { url?: unknown; path?: unknown };
+    const url = typeof o.url === "string" ? o.url : "";
+    const path = typeof o.path === "string" ? o.path : "";
+    if (!url) continue;
+    out.push({ url, path });
+  }
+  return out;
 }
 
 function asVariations(value: unknown): ResellerVariation[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const o = item as { id?: unknown; name?: unknown; options?: unknown };
-      const options = Array.isArray(o.options)
-        ? o.options
-            .map((opt) => {
-              if (!opt || typeof opt !== "object") return null;
-              const p = opt as { id?: unknown; label?: unknown; image_url?: unknown; image_path?: unknown };
-              const id = typeof p.id === "string" ? p.id : newResellerId();
-              return {
-                id,
-                label: typeof p.label === "string" ? p.label : "",
-                image_url: typeof p.image_url === "string" ? p.image_url : undefined,
-                image_path: typeof p.image_path === "string" ? p.image_path : undefined,
-              };
-            })
-            .filter((x): x is ResellerVariationOption => Boolean(x))
-        : [];
-      return {
-        id: typeof o.id === "string" ? o.id : newResellerId(),
-        name: typeof o.name === "string" ? o.name : "",
-        options,
-      };
-    })
-    .filter((x): x is ResellerVariation => Boolean(x));
+  const out: ResellerVariation[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as { id?: unknown; name?: unknown; options?: unknown };
+    const options: ResellerVariationOption[] = [];
+    if (Array.isArray(o.options)) {
+      for (const opt of o.options) {
+        if (!opt || typeof opt !== "object") continue;
+        const p = opt as { id?: unknown; label?: unknown; image_url?: unknown; image_path?: unknown };
+        const option: ResellerVariationOption = {
+          id: typeof p.id === "string" ? p.id : newResellerId(),
+          label: typeof p.label === "string" ? p.label : "",
+        };
+        if (typeof p.image_url === "string") option.image_url = p.image_url;
+        if (typeof p.image_path === "string") option.image_path = p.image_path;
+        options.push(option);
+      }
+    }
+    out.push({
+      id: typeof o.id === "string" ? o.id : newResellerId(),
+      name: typeof o.name === "string" ? o.name : "",
+      options,
+    });
+  }
+  return out;
 }
 
 function asSkus(value: unknown): ResellerSku[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const o = item as { option_ids?: unknown; price?: unknown; stock?: unknown; sku?: unknown };
-      const option_ids = Array.isArray(o.option_ids) ? o.option_ids.filter((id): id is string => typeof id === "string") : [];
-      return {
-        option_ids,
-        price: Number(o.price) || 0,
-        stock: Number(o.stock) || 0,
-        sku: typeof o.sku === "string" ? o.sku : "",
-      };
-    })
-    .filter((x): x is ResellerSku => Boolean(x));
+  const out: ResellerSku[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as { option_ids?: unknown; price?: unknown; stock?: unknown; sku?: unknown };
+    out.push({
+      option_ids: Array.isArray(o.option_ids) ? o.option_ids.filter((id): id is string => typeof id === "string") : [],
+      price: Number(o.price) || 0,
+      stock: Number(o.stock) || 0,
+      sku: typeof o.sku === "string" ? o.sku : "",
+    });
+  }
+  return out;
 }
 
 function asSizeChart(value: unknown): ResellerSizeChart {
   if (!value || typeof value !== "object") return emptySizeChart();
   const o = value as { name?: unknown; rows?: unknown };
-  const rows = Array.isArray(o.rows)
-    ? o.rows
-        .map((row) => {
-          if (!row || typeof row !== "object") return null;
-          const r = row as { size?: unknown; width?: unknown; top_length?: unknown; sleeve_length?: unknown };
-          return {
-            size: typeof r.size === "string" ? r.size : "",
-            width: typeof r.width === "string" ? r.width : String(r.width ?? ""),
-            top_length: typeof r.top_length === "string" ? r.top_length : String(r.top_length ?? ""),
-            sleeve_length: typeof r.sleeve_length === "string" ? r.sleeve_length : String(r.sleeve_length ?? ""),
-          };
-        })
-        .filter((x): x is ResellerSizeChartRow => Boolean(x))
-    : [];
+  const rows: ResellerSizeChartRow[] = [];
+  if (Array.isArray(o.rows)) {
+    for (const row of o.rows) {
+      if (!row || typeof row !== "object") continue;
+      const r = row as { size?: unknown; width?: unknown; top_length?: unknown; sleeve_length?: unknown };
+      rows.push({
+        size: typeof r.size === "string" ? r.size : "",
+        width: typeof r.width === "string" ? r.width : String(r.width ?? ""),
+        top_length: typeof r.top_length === "string" ? r.top_length : String(r.top_length ?? ""),
+        sleeve_length: typeof r.sleeve_length === "string" ? r.sleeve_length : String(r.sleeve_length ?? ""),
+      });
+    }
+  }
   return { name: typeof o.name === "string" ? o.name : "", rows };
 }
 
