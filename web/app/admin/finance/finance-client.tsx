@@ -14,6 +14,8 @@ import { FinanceCsvExportDialog } from "@/components/finance-csv-export-dialog";
 import { useConfirmAction } from "@/components/confirm-dialog";
 import { ArrowLeftRight, Copy, Check, Download } from "lucide-react";
 import { deleteSalariesLinkedToExpenses } from "@/lib/payroll-ledger";
+import { ONLINE_SHOP_FILTERS } from "@/lib/online-shops";
+import { orderTypeLabel, SALES_CHANNELS, type SalesChannel } from "@/lib/sales";
 
 type FinanceAccountRow = {
   id: string;
@@ -38,6 +40,7 @@ type FinanceTxRow = {
   description?: string | null;
   notes?: string | null;
   expense_id?: string | null;
+  manual_sale_id?: string | null;
   created_at?: string | null;
 };
 
@@ -167,14 +170,17 @@ function downloadAccountPng(account: {
 export function FinanceClient({
   accounts,
   transactions,
+  stores = [],
   error,
   flowDateFrom = "",
   flowDateTo = "",
   flowRangeActive = false,
+  flowAllTime = false,
   viewerRole = "manager",
 }: {
   accounts: FinanceAccountRow[];
   transactions: FinanceTxRow[];
+  stores?: { id: string; name: string; shop_type?: string | null }[];
   error: string | null;
   /** URL `from` for money-flow date filter (YYYY-MM-DD). */
   flowDateFrom?: string;
@@ -182,6 +188,8 @@ export function FinanceClient({
   flowDateTo?: string;
   /** True when both dates are valid and from <= to (server applied filter). */
   flowRangeActive?: boolean;
+  /** True when All time is selected (no date filter). */
+  flowAllTime?: boolean;
   /** Role of the current viewer — only admins can edit account balances. */
   viewerRole?: string;
 }) {
@@ -203,37 +211,100 @@ export function FinanceClient({
     setFlowToInput(flowDateTo);
   }, [flowDateFrom, flowDateTo]);
 
+  function pushFlowQuery(next: { from?: string; to?: string; all?: boolean }) {
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    params.delete("from");
+    params.delete("to");
+    params.delete("all");
+    if (next.all) {
+      params.set("all", "1");
+    } else if (next.from && next.to) {
+      params.set("from", next.from);
+      params.set("to", next.to);
+    }
+    const q = params.toString();
+    router.push(q ? `${pathname}?${q}` : pathname);
+  }
+
   function applyFlowDateFilter() {
-    const from = flowFromInput.trim().slice(0, 10);
-    const to = flowToInput.trim().slice(0, 10);
+    let from = flowFromInput.trim().slice(0, 10);
+    let to = flowToInput.trim().slice(0, 10);
     if (!from && !to) {
       clearFlowDateFilter();
       return;
     }
-    if (!from || !to) {
-      alert("Set both start date and end date, or clear both to see the latest recorded activity.");
-      return;
-    }
+    if (!from) from = to;
+    if (!to) to = from;
     if (from > to) {
-      alert("Start date must be on or before end date.");
-      return;
+      const swap = from;
+      from = to;
+      to = swap;
     }
-    const params = new URLSearchParams(searchParams?.toString() || "");
-    params.set("from", from);
-    params.set("to", to);
-    const q = params.toString();
-    router.push(q ? `${pathname}?${q}` : pathname);
+    setFlowFromInput(from);
+    setFlowToInput(to);
+    pushFlowQuery({ from, to });
   }
 
   function clearFlowDateFilter() {
     setFlowFromInput("");
     setFlowToInput("");
-    const params = new URLSearchParams(searchParams?.toString() || "");
-    params.delete("from");
-    params.delete("to");
-    const q = params.toString();
-    router.push(q ? `${pathname}?${q}` : pathname);
+    pushFlowQuery({});
   }
+
+  function applyFlowPreset(kind: "month" | "30" | "7" | "all") {
+    if (kind === "all") {
+      setFlowFromInput("");
+      setFlowToInput("");
+      pushFlowQuery({ all: true });
+      return;
+    }
+    const now = new Date();
+    const to = isoDate(now);
+    let from = to;
+    if (kind === "month") {
+      from = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
+    } else {
+      const start = new Date(now);
+      start.setDate(start.getDate() - ((kind === "30" ? 30 : 7) - 1));
+      from = isoDate(start);
+    }
+    setFlowFromInput(from);
+    setFlowToInput(to);
+    pushFlowQuery({ from, to });
+  }
+
+  const flowPreset = useMemo(() => {
+    if (flowAllTime) return "all" as const;
+    if (!flowRangeActive) return null;
+    const now = new Date();
+    const to = isoDate(now);
+    if (flowDateTo !== to) return null;
+    if (flowDateFrom === isoDate(new Date(now.getFullYear(), now.getMonth(), 1))) return "month" as const;
+    const d30 = new Date(now);
+    d30.setDate(d30.getDate() - 29);
+    if (flowDateFrom === isoDate(d30)) return "30" as const;
+    const d7 = new Date(now);
+    d7.setDate(d7.getDate() - 6);
+    if (flowDateFrom === isoDate(d7)) return "7" as const;
+    return null;
+  }, [flowAllTime, flowRangeActive, flowDateFrom, flowDateTo]);
+
+  const visibleTxs = useMemo(() => {
+    const key = (t: FinanceTxRow) => String(t.occurred_at || "").slice(0, 10);
+    let rows = [...(transactions || [])];
+    if (flowRangeActive) {
+      rows = rows.filter((t) => {
+        const d = key(t);
+        return d >= flowDateFrom && d <= flowDateTo;
+      });
+      rows.sort((a, b) => {
+        const byDate = key(b).localeCompare(key(a));
+        if (byDate) return byDate;
+        return String(b.created_at || "").localeCompare(String(a.created_at || ""));
+      });
+    }
+    return rows;
+  }, [transactions, flowRangeActive, flowDateFrom, flowDateTo]);
 
   const [accountOpen, setAccountOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<FinanceAccountRow | null>(null);
@@ -253,6 +324,11 @@ export function FinanceClient({
   const [txDir, setTxDir] = useState<"in" | "out">("in");
   const [txAmount, setTxAmount] = useState("");
   const [txDesc, setTxDesc] = useState("");
+  const [recordAsSale, setRecordAsSale] = useState(false);
+  const [saleDate, setSaleDate] = useState(isoDate(new Date()));
+  const [saleCustomer, setSaleCustomer] = useState("");
+  const [saleChannel, setSaleChannel] = useState<SalesChannel>("local");
+  const [saleStore, setSaleStore] = useState("");
 
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferFromId, setTransferFromId] = useState("");
@@ -289,6 +365,17 @@ export function FinanceClient({
     }
     return t;
   }, [liveAccounts]);
+
+  const storeOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const s of stores) {
+      if (s.name.trim()) names.add(s.name.trim());
+    }
+    for (const shop of ONLINE_SHOP_FILTERS) {
+      if (shop.key !== "all") names.add(shop.label);
+    }
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [stores]);
 
   function openCreateAccount() {
     setEditingAccount(null);
@@ -521,6 +608,14 @@ export function FinanceClient({
     router.refresh(); // sync with server in background
   }
 
+  function resetSaleFields(date = isoDate(new Date())) {
+    setRecordAsSale(false);
+    setSaleDate(date);
+    setSaleCustomer("");
+    setSaleChannel("local");
+    setSaleStore("");
+  }
+
   function openCreateTx() {
     setEditingTx(null);
     setTxDate(isoDate(new Date()));
@@ -528,16 +623,32 @@ export function FinanceClient({
     setTxAmount("");
     setTxDesc("");
     setTxAccountId(liveAccounts[0]?.id || "");
+    resetSaleFields();
     setTxOpen(true);
   }
 
-  function openEditTx(t: FinanceTxRow) {
+  async function openEditTx(t: FinanceTxRow) {
     setEditingTx(t);
     setTxDate(t.occurred_at);
     setTxAccountId(t.account_id);
     setTxDir((t.direction as any) || "in");
     setTxAmount(String(t.amount ?? ""));
     setTxDesc((t.description || "") ?? "");
+    resetSaleFields(t.occurred_at);
+    if (t.manual_sale_id) {
+      const { data } = await supabase
+        .from("manual_sales")
+        .select("id, sale_date, description, channel, revenue_channel, product_service")
+        .eq("id", t.manual_sale_id)
+        .maybeSingle();
+      if (data) {
+        setRecordAsSale(true);
+        setSaleDate(String(data.sale_date || t.occurred_at).slice(0, 10));
+        setSaleCustomer(String(data.product_service || ""));
+        setSaleChannel((data.channel as SalesChannel) || "local");
+        setSaleStore(String(data.revenue_channel || ""));
+      }
+    }
     setTxOpen(true);
   }
 
@@ -547,20 +658,95 @@ export function FinanceClient({
     if (Number.isNaN(amt) || amt < 0) return alert("Amount must be a valid number (>= 0).");
     if (!txDate) return alert("Date is required.");
 
-    const payload = {
-      occurred_at: txDate,
-      account_id: txAccountId,
-      direction: txDir,
-      amount: amt,
-      description: txDesc.trim(),
-    };
+    const asSale = txDir === "in" && recordAsSale;
+    if (asSale) {
+      if (!saleDate) return alert("Sale date is required.");
+      if (!saleCustomer.trim()) return alert("Customer is required.");
+      if (!saleStore.trim()) return alert("Store / platform is required.");
+    }
 
-    if (editingTx) {
-      const { error: e } = await supabase.from("finance_transactions").update(payload).eq("id", editingTx.id);
-      if (e) return alert(e.message);
-    } else {
-      const { error: e } = await supabase.from("finance_transactions").insert(payload);
-      if (e) return alert(e.message);
+    const salePayload = asSale
+      ? {
+          sale_date: saleDate,
+          amount: amt,
+          description: txDesc.trim() || saleCustomer.trim(),
+          channel: saleChannel,
+          revenue_channel: saleStore.trim(),
+          product_service: saleCustomer.trim(),
+        }
+      : null;
+
+    async function saveLinkedSale(existingId: string | null | undefined): Promise<string | null> {
+      if (!salePayload) {
+        if (existingId) {
+          await supabase.from("manual_sales").delete().eq("id", existingId);
+        }
+        return null;
+      }
+      if (existingId) {
+        const { error: upErr } = await supabase.from("manual_sales").update(salePayload).eq("id", existingId);
+        if (upErr) throw new Error(upErr.message);
+        return existingId;
+      }
+      const { data, error: insErr } = await supabase.from("manual_sales").insert(salePayload).select("id").single();
+      if (insErr) throw new Error(insErr.message);
+      return (data as { id: string }).id;
+    }
+
+    try {
+      const saleId = await saveLinkedSale(editingTx?.manual_sale_id);
+      const payload: Record<string, unknown> = {
+        occurred_at: txDate,
+        account_id: txAccountId,
+        direction: txDir,
+        amount: amt,
+        description: txDesc.trim() || (asSale ? `Sale — ${saleCustomer.trim()}` : ""),
+        manual_sale_id: saleId,
+      };
+
+      if (editingTx) {
+        const { error: e } = await supabase.from("finance_transactions").update(payload).eq("id", editingTx.id);
+        if (e) {
+          if (/manual_sale_id/i.test(e.message)) {
+            const { error: retry } = await supabase
+              .from("finance_transactions")
+              .update({
+                occurred_at: txDate,
+                account_id: txAccountId,
+                direction: txDir,
+                amount: amt,
+                description: payload.description,
+              })
+              .eq("id", editingTx.id);
+            if (retry) throw new Error(retry.message);
+          } else {
+            throw new Error(e.message);
+          }
+        }
+      } else {
+        const { error: e } = await supabase.from("finance_transactions").insert(payload);
+        if (e) {
+          if (/manual_sale_id/i.test(e.message)) {
+            const { error: retry } = await supabase.from("finance_transactions").insert({
+              occurred_at: txDate,
+              account_id: txAccountId,
+              direction: txDir,
+              amount: amt,
+              description: payload.description,
+            });
+            if (retry) {
+              if (saleId) await supabase.from("manual_sales").delete().eq("id", saleId);
+              throw new Error(retry.message);
+            }
+          } else {
+            if (saleId && !editingTx) await supabase.from("manual_sales").delete().eq("id", saleId);
+            throw new Error(e.message);
+          }
+        }
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not save money flow.");
+      return;
     }
 
     setTxOpen(false);
@@ -568,8 +754,8 @@ export function FinanceClient({
   }
 
   function deleteTx(t: FinanceTxRow) {
-    if (t.expense_id) {
-      // Transaction is linked to an expense record — ask what to delete
+    if (t.expense_id || t.manual_sale_id) {
+      // Transaction is linked to an expense or sales record — ask what to delete
       setLinkedExpenseTx(t);
     } else {
       ask({
@@ -594,7 +780,11 @@ export function FinanceClient({
         open={!!linkedExpenseTx}
         onClose={() => { if (!deletingLinked) setLinkedExpenseTx(null); }}
         title="Delete money flow entry"
-        description="This transaction is linked to a connected expense / sales record. Choose what to delete:"
+        description={
+          linkedExpenseTx?.manual_sale_id && !linkedExpenseTx?.expense_id
+            ? "This transaction is linked to a Sales list record. Choose what to delete:"
+            : "This transaction is linked to a connected expense / sales record. Choose what to delete:"
+        }
         size="md"
       >
         <div className="space-y-2 pb-2">
@@ -621,26 +811,53 @@ export function FinanceClient({
             type="button"
             disabled={deletingLinked}
             onClick={async () => {
-              if (!linkedExpenseTx?.expense_id) return;
+              if (!linkedExpenseTx) return;
               setDeletingLinked(true);
-              const payroll = await deleteSalariesLinkedToExpenses(supabase, [linkedExpenseTx.expense_id]);
-              if (payroll.error) {
+              if (linkedExpenseTx.expense_id) {
+                const payroll = await deleteSalariesLinkedToExpenses(supabase, [linkedExpenseTx.expense_id]);
+                if (payroll.error) {
+                  setDeletingLinked(false);
+                  alert(payroll.error);
+                  return;
+                }
+                const { error: e } = await supabase.from("expenses").delete().eq("id", linkedExpenseTx.expense_id);
                 setDeletingLinked(false);
-                alert(payroll.error);
-                return;
+                setLinkedExpenseTx(null);
+                if (e) { alert(e.message); return; }
+              } else {
+                const saleId = linkedExpenseTx.manual_sale_id;
+                const { error: e } = await supabase.from("finance_transactions").delete().eq("id", linkedExpenseTx.id);
+                if (e) {
+                  setDeletingLinked(false);
+                  setLinkedExpenseTx(null);
+                  alert(e.message);
+                  return;
+                }
+                if (saleId) {
+                  const { error: saleErr } = await supabase.from("manual_sales").delete().eq("id", saleId);
+                  if (saleErr) {
+                    setDeletingLinked(false);
+                    setLinkedExpenseTx(null);
+                    alert(saleErr.message);
+                    return;
+                  }
+                }
+                setDeletingLinked(false);
+                setLinkedExpenseTx(null);
               }
-              // Deleting the expense cascades and removes the transaction automatically
-              const { error: e } = await supabase.from("expenses").delete().eq("id", linkedExpenseTx.expense_id);
-              setDeletingLinked(false);
-              setLinkedExpenseTx(null);
-              if (e) { alert(e.message); return; }
               router.refresh();
             }}
             className="w-full rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-left text-sm hover:bg-destructive/10 transition-colors disabled:opacity-50"
           >
-            <span className="block font-medium text-destructive">Delete transaction + linked expense / sales record</span>
+            <span className="block font-medium text-destructive">
+              {linkedExpenseTx?.manual_sale_id && !linkedExpenseTx?.expense_id
+                ? "Delete transaction + Sales list record"
+                : "Delete transaction + linked expense / sales record"}
+            </span>
             <span className="block text-xs text-muted-foreground mt-0.5">
-              Permanently removes both this transaction and the connected expense or sales record. Linked payroll is also removed from Recorded payroll and My Salary. Cannot be undone.
+              {linkedExpenseTx?.manual_sale_id && !linkedExpenseTx?.expense_id
+                ? "Permanently removes this money flow entry and the matching row on Sales list."
+                : "Permanently removes both this transaction and the connected expense or sales record. Linked payroll is also removed from Recorded payroll and My Salary. Cannot be undone."}
             </span>
           </button>
           <div className="pt-1">
@@ -823,9 +1040,11 @@ export function FinanceClient({
           <div className="space-y-1">
             <CardTitle>Money flow (in / out)</CardTitle>
             <p className="text-xs text-muted-foreground">
-              {flowRangeActive
-                ? `Showing entries whose date is between ${flowDateFrom} and ${flowDateTo}, newest recorded first.`
-                : "Showing the most recently recorded activity first (not sorted by transaction date alone)."}
+              {flowAllTime
+                ? "Showing all money flow, newest date first."
+                : flowRangeActive
+                ? `Showing entries dated ${flowDateFrom} to ${flowDateTo}, newest date first.`
+                : "Showing the latest recorded activity. Pick a date range to filter by entry date."}
             </p>
           </div>
           <div className="flex shrink-0 self-end gap-2 sm:self-start">
@@ -836,26 +1055,61 @@ export function FinanceClient({
         </CardHeader>
         <CardContent className="space-y-4">
           {liveAccounts.length > 0 && (
-            <div className="flex flex-col gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-end">
-              <div className="grid gap-1 sm:min-w-[160px]">
-                <Label htmlFor="flow-from" className="text-xs">
-                  Start date
-                </Label>
-                <Input id="flow-from" type="date" value={flowFromInput} onChange={(e) => setFlowFromInput(e.target.value)} />
-              </div>
-              <div className="grid gap-1 sm:min-w-[160px]">
-                <Label htmlFor="flow-to" className="text-xs">
-                  End date
-                </Label>
-                <Input id="flow-to" type="date" value={flowToInput} onChange={(e) => setFlowToInput(e.target.value)} />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" onClick={() => void applyFlowDateFilter()}>
-                  Apply filter
+            <div className="flex flex-col gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">Quick range</span>
+                <Button type="button" size="sm" variant={flowPreset === "month" ? "default" : "outline"} onClick={() => applyFlowPreset("month")}>
+                  This month
                 </Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => void clearFlowDateFilter()} disabled={!flowRangeActive && !flowFromInput && !flowToInput}>
-                  Clear
+                <Button type="button" size="sm" variant={flowPreset === "30" ? "default" : "outline"} onClick={() => applyFlowPreset("30")}>
+                  30 days
                 </Button>
+                <Button type="button" size="sm" variant={flowPreset === "7" ? "default" : "outline"} onClick={() => applyFlowPreset("7")}>
+                  Last 7 days
+                </Button>
+                <Button type="button" size="sm" variant={flowPreset === "all" ? "default" : "outline"} onClick={() => applyFlowPreset("all")}>
+                  All time
+                </Button>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                <div className={cn("grid gap-1 sm:min-w-[160px]", flowAllTime && "pointer-events-none opacity-50")}>
+                  <Label htmlFor="flow-from" className="text-xs">
+                    Start date
+                  </Label>
+                  <Input
+                    id="flow-from"
+                    type="date"
+                    value={flowFromInput}
+                    disabled={flowAllTime}
+                    onChange={(e) => setFlowFromInput(e.target.value)}
+                  />
+                </div>
+                <div className={cn("grid gap-1 sm:min-w-[160px]", flowAllTime && "pointer-events-none opacity-50")}>
+                  <Label htmlFor="flow-to" className="text-xs">
+                    End date
+                  </Label>
+                  <Input
+                    id="flow-to"
+                    type="date"
+                    value={flowToInput}
+                    disabled={flowAllTime}
+                    onChange={(e) => setFlowToInput(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" onClick={() => void applyFlowDateFilter()} disabled={flowAllTime}>
+                    Apply filter
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void clearFlowDateFilter()}
+                    disabled={!flowRangeActive && !flowAllTime && !flowFromInput && !flowToInput}
+                  >
+                    Clear
+                  </Button>
+                </div>
               </div>
             </div>
           )}
@@ -879,14 +1133,14 @@ export function FinanceClient({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(transactions || []).length === 0 ? (
+                  {(visibleTxs || []).length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
-                        No money flow yet.
+                        {flowRangeActive || flowAllTime ? "No money flow in this range." : "No money flow yet."}
                       </TableCell>
                     </TableRow>
                   ) : (
-                    transactions.map((t) => {
+                    visibleTxs.map((t) => {
                       const a = byId.get(t.account_id);
                       const dir = t.direction === "out" ? "out" : "in";
                       const rec = t.created_at
@@ -920,7 +1174,7 @@ export function FinanceClient({
                             )}
                           </TableCell>
                           <TableCell className="text-right whitespace-nowrap">
-                            <Button type="button" size="sm" variant="outline" onClick={() => openEditTx(t)} className="mr-2">
+                            <Button type="button" size="sm" variant="outline" onClick={() => void openEditTx(t)} className="mr-2">
                               Edit
                             </Button>
                             <Button type="button" size="sm" variant="destructive" onClick={() => deleteTx(t)}>
@@ -1151,7 +1405,7 @@ export function FinanceClient({
         onClose={() => setTxOpen(false)}
         title={editingTx ? "Edit money flow" : "Add money flow"}
         description="Record money coming in or going out from a specific account."
-        size="md"
+        size={txDir === "in" && recordAsSale ? "lg" : "md"}
       >
         <form
           className="grid gap-3"
@@ -1185,7 +1439,11 @@ export function FinanceClient({
               id="tx-dir"
               className={uiSelectClassName()}
               value={txDir}
-              onChange={(e) => setTxDir(e.target.value as any)}
+              onChange={(e) => {
+                const next = e.target.value as "in" | "out";
+                setTxDir(next);
+                if (next !== "in") setRecordAsSale(false);
+              }}
             >
               <option value="in">Money IN</option>
               <option value="out">Money OUT</option>
@@ -1199,6 +1457,73 @@ export function FinanceClient({
             <Label htmlFor="tx-desc">Description</Label>
             <Input id="tx-desc" value={txDesc} onChange={(e) => setTxDesc(e.target.value)} placeholder="e.g. Customer payment, Supplier payment, Cash deposit" />
           </div>
+          {txDir === "in" && (
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg border bg-muted/20 p-3">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={recordAsSale}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setRecordAsSale(on);
+                  if (on) setSaleDate(txDate);
+                }}
+              />
+              <span>
+                <span className="block text-sm font-medium">Record in Sales list</span>
+                <span className="block text-xs text-muted-foreground">
+                  Also add this money in on Sales and Sales list.
+                </span>
+              </span>
+            </label>
+          )}
+          {txDir === "in" && recordAsSale && (
+            <div className="grid gap-3 rounded-lg border bg-muted/10 p-3">
+              <div className="grid gap-1">
+                <Label htmlFor="sale-date">Sale date</Label>
+                <Input id="sale-date" type="date" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} />
+              </div>
+              <div className="grid gap-1">
+                <Label htmlFor="sale-customer">Customer</Label>
+                <Input
+                  id="sale-customer"
+                  value={saleCustomer}
+                  onChange={(e) => setSaleCustomer(e.target.value)}
+                  placeholder="Customer name"
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label htmlFor="sale-channel">Channel</Label>
+                <select
+                  id="sale-channel"
+                  className={uiSelectClassName()}
+                  value={saleChannel}
+                  onChange={(e) => setSaleChannel(e.target.value as SalesChannel)}
+                >
+                  {SALES_CHANNELS.map((ch) => (
+                    <option key={ch} value={ch}>
+                      {orderTypeLabel(ch)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-1">
+                <Label htmlFor="sale-store">Store / platform</Label>
+                <Input
+                  id="sale-store"
+                  list="sale-store-options"
+                  value={saleStore}
+                  onChange={(e) => setSaleStore(e.target.value)}
+                  placeholder="e.g. Likha · Shopee, Walk-in shop"
+                />
+                <datalist id="sale-store-options">
+                  {storeOptions.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </div>
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="outline" onClick={() => setTxOpen(false)}>
               Cancel
