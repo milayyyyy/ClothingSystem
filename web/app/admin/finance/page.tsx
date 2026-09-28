@@ -90,7 +90,9 @@ export default async function FinancePage({ searchParams }: { searchParams?: { f
       fallback = fallback.limit(200);
     }
     const retry = await fallback;
-    txs = retry.data;
+    txs = retry.data
+      ? retry.data.map((row) => ({ ...row, manual_sale_id: null }))
+      : retry.data;
     txErr = retry.error;
   }
 
