@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { peso, cn } from "@/lib/utils";
-import { PackageX, RotateCcw, Search } from "lucide-react";
+import { PackageX, RotateCcw, Search, Copy, ExternalLink, Eye, EyeOff } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
 import { BigSellerReturnExcelImportButton } from "@/components/bigseller-return-excel-import-button";
 import { parseStoredReturnImport, RETURN_ORDER_SELECT, type BigSellerReturnExcelRow } from "@/lib/bigseller-return-excel";
@@ -155,6 +155,101 @@ function FilterChip({
         </span>
       )}
     </button>
+  );
+}
+
+const RETURNS_BS_URL = "returns_bigseller_url";
+const RETURNS_BS_USER = "returns_bigseller_username";
+const RETURNS_BS_PASS = "returns_bigseller_password";
+
+function bigsellerHref(raw: string | null | undefined): string | null {
+  const t = (raw ?? "").trim();
+  if (!t) return null;
+  if (/^https?:\/\//i.test(t)) return t;
+  return `https://${t}`;
+}
+
+function CopyableField({
+  label,
+  value,
+  secret = false,
+  href,
+}: {
+  label: string;
+  value: string;
+  secret?: boolean;
+  href?: string | null;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [reveal, setReveal] = useState(false);
+  const shown = secret && !reveal ? (value ? "••••••••" : "") : value;
+
+  async function copy() {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      alert("Could not copy");
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <Label className="text-[11px] text-muted-foreground">{label}</Label>
+      <div className="flex items-center gap-1.5">
+        <div className="min-w-0 flex-1 truncate rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-sm">
+          {value ? (
+            href ? (
+              <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">
+                {shown}
+              </a>
+            ) : (
+              <span className="font-mono text-[13px]">{shown}</span>
+            )
+          ) : (
+            <span className="text-muted-foreground">Not set</span>
+          )}
+        </div>
+        {secret && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 w-9 shrink-0 px-0"
+            disabled={!value}
+            onClick={() => setReveal((v) => !v)}
+            aria-label={reveal ? "Hide password" : "Show password"}
+          >
+            {reveal ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </Button>
+        )}
+        {href && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 w-9 shrink-0 px-0"
+            onClick={() => window.open(href, "_blank", "noopener,noreferrer")}
+            aria-label="Open BigSeller"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9 shrink-0 px-2.5"
+          disabled={!value}
+          onClick={() => void copy()}
+        >
+          <Copy className="mr-1 h-3.5 w-3.5" />
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -769,6 +864,11 @@ export function ReturnsClient({
   const [newReturnOpen, setNewReturnOpen] = useState(false);
   const [restockOrder, setRestockOrder] = useState<Order | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [bsUrl, setBsUrl] = useState("");
+  const [bsUser, setBsUser] = useState("");
+  const [bsPass, setBsPass] = useState("");
+  const [showBsPass, setShowBsPass] = useState(false);
+  const [bsSaving, setBsSaving] = useState(false);
 
   // Re-fetch on mount so navigating back always shows the latest persisted state
   useEffect(() => {
@@ -789,6 +889,16 @@ export function ReturnsClient({
       ]);
       if (ro) setReturnOrders(ro as Order[]);
       if (co) setCompletedOrders(co as Order[]);
+      const { data: settings } = await supabase
+        .from("app_settings")
+        .select("key,value")
+        .in("key", [RETURNS_BS_URL, RETURNS_BS_USER, RETURNS_BS_PASS]);
+      if (settings) {
+        const map = new Map((settings as { key: string; value: string }[]).map((r) => [r.key, r.value ?? ""]));
+        setBsUrl(map.get(RETURNS_BS_URL) ?? "");
+        setBsUser(map.get(RETURNS_BS_USER) ?? "");
+        setBsPass(map.get(RETURNS_BS_PASS) ?? "");
+      }
     }
     void refresh();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -895,6 +1005,24 @@ export function ReturnsClient({
     setCompletedOrders((prev) => [{ ...order, return_status: null, return_reason: null }, ...prev]);
   }
 
+  async function saveBsSetting(key: string, raw: string) {
+    const value = raw.trim();
+    setBsSaving(true);
+    try {
+      const { error } = await supabase
+        .from("app_settings")
+        .upsert({ key, value, updated_at: new Date().toISOString() });
+      if (error) throw error;
+      if (key === RETURNS_BS_URL) setBsUrl(value);
+      if (key === RETURNS_BS_USER) setBsUser(value);
+      if (key === RETURNS_BS_PASS) setBsPass(value);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not save BigSeller login");
+    } finally {
+      setBsSaving(false);
+    }
+  }
+
   return (
     <>
       {newReturnOpen && (
@@ -975,6 +1103,103 @@ export function ReturnsClient({
           )}
         </div>
       </div>
+
+      <details open className="mb-4 rounded-lg border bg-card px-3 py-2 text-sm">
+        <summary className="cursor-pointer list-none font-medium text-foreground [&::-webkit-details-marker]:hidden">
+          <span className="flex items-center justify-between gap-2">
+            <span>BigSeller login</span>
+            <span className="text-[11px] font-normal text-muted-foreground">
+              Open BigSeller to check return details
+            </span>
+          </span>
+        </summary>
+        <div className="mt-2 space-y-2.5 border-t border-border/50 pt-2">
+          <CopyableField label="Link" value={bsUrl} href={bigsellerHref(bsUrl)} />
+          <div className="grid gap-2 sm:grid-cols-2">
+            <CopyableField label="Username" value={bsUser} />
+            <CopyableField label="Password" value={bsPass} secret />
+          </div>
+          {canEdit && (
+            <div className="grid gap-2 border-t border-border/50 pt-2 sm:grid-cols-2">
+              <p className="text-[11px] text-muted-foreground sm:col-span-2">Edit login</p>
+              <div className="flex flex-col gap-1 sm:col-span-2">
+                <Label htmlFor="returns-bs-url" className="text-[11px] text-muted-foreground">
+                  Link
+                </Label>
+                <Input
+                  id="returns-bs-url"
+                  type="url"
+                  disabled={bsSaving}
+                  className="h-10 sm:h-8"
+                  key={`bsurl:${bsUrl}`}
+                  defaultValue={bsUrl}
+                  placeholder="https://www.bigseller.com/"
+                  onBlur={(e) => {
+                    const next = e.target.value.trim();
+                    if (next === bsUrl.trim()) return;
+                    void saveBsSetting(RETURNS_BS_URL, e.target.value);
+                  }}
+                  aria-label="BigSeller link"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="returns-bs-user" className="text-[11px] text-muted-foreground">
+                  Username
+                </Label>
+                <Input
+                  id="returns-bs-user"
+                  type="text"
+                  autoComplete="off"
+                  disabled={bsSaving}
+                  className="h-10 sm:h-8"
+                  key={`bsuser:${bsUser}`}
+                  defaultValue={bsUser}
+                  placeholder="BigSeller username"
+                  onBlur={(e) => {
+                    const next = e.target.value.trim();
+                    if (next === bsUser.trim()) return;
+                    void saveBsSetting(RETURNS_BS_USER, e.target.value);
+                  }}
+                  aria-label="BigSeller username"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="returns-bs-pass" className="text-[11px] text-muted-foreground">
+                  Password
+                </Label>
+                <div className="flex items-center gap-1">
+                  <Input
+                    id="returns-bs-pass"
+                    type={showBsPass ? "text" : "password"}
+                    autoComplete="new-password"
+                    disabled={bsSaving}
+                    className="h-10 sm:h-8"
+                    key={`bspass:${bsPass}`}
+                    defaultValue={bsPass}
+                    placeholder="BigSeller password"
+                    onBlur={(e) => {
+                      const next = e.target.value.trim();
+                      if (next === bsPass.trim()) return;
+                      void saveBsSetting(RETURNS_BS_PASS, e.target.value);
+                    }}
+                    aria-label="BigSeller password"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-10 w-10 shrink-0 px-0 sm:h-8 sm:w-8"
+                    onClick={() => setShowBsPass((v) => !v)}
+                    aria-label={showBsPass ? "Hide password" : "Show password"}
+                  >
+                    {showBsPass ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </details>
 
       <div className="mb-4 space-y-2.5 rounded-lg border bg-card px-3 py-3">
         <div className="flex flex-wrap gap-1 border-b border-border/60 pb-1">
