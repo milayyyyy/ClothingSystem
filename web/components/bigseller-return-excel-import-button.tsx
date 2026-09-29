@@ -83,7 +83,7 @@ async function fetchMatchOrders(
         .select(MATCH_SELECT_BASE)
         .or("sku_code.not.is.null,external_order_no.not.is.null,waybill_no.not.is.null")
         .range(from, from + pageSize - 1);
-      data = fb.data;
+      data = fb.data as typeof data;
       error = fb.error;
     }
     if (error) return { orders: [], error: error.message };
@@ -282,7 +282,7 @@ export function BigSellerReturnExcelImportButton({
         if (ie && /return_import/i.test(ie.message)) {
           const { return_import: _omit, ...without } = payload;
           const retry = await supabase.from("orders").insert(without).select("id").single();
-          created = retry.data;
+          created = retry.data as typeof created;
           ie = retry.error;
         }
         if (ie) throw ie;
@@ -303,7 +303,7 @@ export function BigSellerReturnExcelImportButton({
       let { data: loaded, error: le } = await supabase.from("orders").select(RETURN_ORDER_SELECT).in("id", uniqueIds);
       if (le && /return_import/i.test(le.message)) {
         const fb = await supabase.from("orders").select(RETURN_ORDER_SELECT_BASE).in("id", uniqueIds);
-        loaded = fb.data;
+        loaded = fb.data as typeof loaded;
         le = fb.error;
       }
       if (le) throw le;

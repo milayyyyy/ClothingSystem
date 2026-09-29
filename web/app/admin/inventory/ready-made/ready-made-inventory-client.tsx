@@ -227,7 +227,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
       supabase.from("ready_made_boards").select(BOARD_SELECT_FULL).order("sort_order"),
     ]);
     if (ge) console.error(ge);
-    let boardsData = bdata;
+    let boardsData: Board[] | null = (bdata as Board[]) || null;
     if (be) {
       const { data: fallback, error: fe } = await supabase
         .from("ready_made_boards")
@@ -235,7 +235,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
         .order("sort_order");
       if (fe) console.error(fe);
       else console.error(be);
-      boardsData = fallback;
+      boardsData = (fallback as Board[]) || null;
     }
     setGroups(((gdata as Group[]) || []).filter(Boolean));
     const bl = (boardsData as Board[]) || [];
