@@ -107,6 +107,13 @@ function orderBsReturnStatus(o: Order): string {
   return (primaryImport(o)?.returnStatus || "").trim();
 }
 
+function restockTabStatus(o: Order): "returning" | "returned" {
+  const excel = orderBsReturnStatus(o).toLowerCase();
+  if (excel.includes("returned")) return "returned";
+  if (excel.includes("returning")) return "returning";
+  return o.return_status === "returned" ? "returned" : "returning";
+}
+
 function storesForPlatform(platform: string, extra: string[]): string[] {
   const known = BIGSELLER_KNOWN_STORE_NAMES.filter((n) => {
     if (platform === "Shopee") return /shopee/i.test(n);
@@ -904,8 +911,8 @@ export function ReturnsClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const returning = useMemo(() => returnOrders.filter((o) => o.return_status === "returning"), [returnOrders]);
-  const returned = useMemo(() => returnOrders.filter((o) => o.return_status === "returned"), [returnOrders]);
+  const returning = useMemo(() => returnOrders.filter((o) => restockTabStatus(o) === "returning"), [returnOrders]);
+  const returned = useMemo(() => returnOrders.filter((o) => restockTabStatus(o) === "returned"), [returnOrders]);
   const tabList = tab === "returning" ? returning : returned;
 
   const platformCounts = useMemo(() => {
@@ -1353,10 +1360,10 @@ export function ReturnsClient({
                         <span className="font-semibold">#{o.order_no}</span>
                         <span className="text-sm font-medium">{o.customer_name}</span>
                         <Badge variant="outline" className="text-xs">{orderKindLabel(o)}</Badge>
-                        {o.return_status === "returning" && (
+                        {restockTabStatus(o) === "returning" && (
                           <Badge variant="amber" className="text-xs">Returning to seller</Badge>
                         )}
-                        {o.return_status === "returned" && (
+                        {restockTabStatus(o) === "returned" && (
                           <Badge variant="green" className="text-xs">Returned ✓</Badge>
                         )}
                       </div>
@@ -1388,7 +1395,7 @@ export function ReturnsClient({
                         )}
                       </div>
 
-                      {o.return_status === "returning" && canEdit && (
+                      {restockTabStatus(o) === "returning" && canEdit && (
                         <>
                           <Button
                             size="sm"

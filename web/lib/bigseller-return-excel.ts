@@ -73,17 +73,10 @@ export function pickBigSellerReturnSheetName(wb: XLSX.WorkBook): string | null {
 
 export function mapExcelReturnStatus(
   returnStatus: string,
-  stockInStatus: string,
+  _stockInStatus?: string,
 ): "returning" | "returned" {
-  const stock = stockInStatus.toLowerCase();
   const st = returnStatus.toLowerCase();
-  const pendingStock =
-    !stock ||
-    stock.includes("pending") ||
-    stock.includes("not stock") ||
-    stock.includes("await");
-  if (st.includes("returning")) return "returning";
-  if (st.includes("returned") && !pendingStock) return "returned";
+  if (st.includes("returned")) return "returned";
   return "returning";
 }
 
