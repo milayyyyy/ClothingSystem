@@ -7,11 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
-import { peso } from "@/lib/utils";
+import { peso, cn } from "@/lib/utils";
 import { PackageX, RotateCcw, Search } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
 import { BigSellerReturnExcelImportButton } from "@/components/bigseller-return-excel-import-button";
 import { parseStoredReturnImport, RETURN_ORDER_SELECT, type BigSellerReturnExcelRow } from "@/lib/bigseller-return-excel";
+import { BIGSELLER_KNOWN_STORE_NAMES } from "@/lib/bigseller-store-labels";
 
 type Order = {
   id: string;
@@ -61,6 +62,100 @@ function orderKindLabel(o: Order) {
 function formatDate(s?: string | null) {
   if (!s) return "—";
   return new Date(s).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+}
+
+const RETURN_PLATFORMS = ["Shopee", "TikTok", "Lazada", "BigShop", "Manual After-Sales Order"] as const;
+const AFTER_SALES_TYPES = ["Return and Refund", "Refund Only", "Abnormal Return"] as const;
+const BS_RETURN_STATUSES = [
+  "To Return",
+  "Returning",
+  "Returned",
+  "Return Failed",
+  "Lost",
+  "Not Pickup",
+  "Other",
+] as const;
+
+function normFilter(s: string) {
+  return s.trim().toLowerCase();
+}
+
+function primaryImport(o: Order): BigSellerReturnExcelRow | null {
+  return parseStoredReturnImport(o.return_import)?.rows[0] ?? null;
+}
+
+function orderPlatform(o: Order): string {
+  const p = (primaryImport(o)?.platform || "").trim();
+  if (!p) return "Manual After-Sales Order";
+  const n = p.toLowerCase();
+  if (n.includes("tiktok")) return "TikTok";
+  if (n.includes("shopee")) return "Shopee";
+  if (n.includes("lazada")) return "Lazada";
+  if (n.includes("bigshop") || n.includes("big shop")) return "BigShop";
+  return p;
+}
+
+function orderStore(o: Order): string {
+  return (primaryImport(o)?.bigsellerStore || "").trim();
+}
+
+function orderAfterSalesType(o: Order): string {
+  return (primaryImport(o)?.afterSalesType || "").trim();
+}
+
+function orderBsReturnStatus(o: Order): string {
+  return (primaryImport(o)?.returnStatus || "").trim();
+}
+
+function storesForPlatform(platform: string, extra: string[]): string[] {
+  const known = BIGSELLER_KNOWN_STORE_NAMES.filter((n) => {
+    if (platform === "Shopee") return /shopee/i.test(n);
+    if (platform === "TikTok") return /tiktok/i.test(n);
+    if (platform === "Lazada") return /lazada/i.test(n);
+    if (platform === "BigShop") return /bigshop/i.test(n);
+    return false;
+  });
+  const seen = new Set(known.map(normFilter));
+  const out = [...known];
+  for (const s of extra) {
+    const t = s.trim();
+    if (!t || seen.has(normFilter(t))) continue;
+    seen.add(normFilter(t));
+    out.push(t);
+  }
+  return out;
+}
+
+function FilterChip({
+  label,
+  count,
+  selected,
+  onClick,
+}: {
+  label: string;
+  count?: number;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center rounded-md px-2 py-1 text-sm transition-colors",
+        selected
+          ? "bg-primary/15 font-medium text-primary"
+          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+      )}
+    >
+      {label}
+      {count != null && (
+        <span className={cn("ml-0.5", selected ? "text-primary" : "text-muted-foreground")}>
+          ({count})
+        </span>
+      )}
+    </button>
+  );
 }
 
 const RETURN_IMPORT_FIELDS: { label: string; value: (r: BigSellerReturnExcelRow) => string }[] = [
@@ -667,6 +762,10 @@ export function ReturnsClient({
   const [returnOrders, setReturnOrders] = useState<Order[]>(initialReturnOrders);
   const [completedOrders, setCompletedOrders] = useState<Order[]>(initialCompleted);
   const [tab, setTab] = useState<"returning" | "returned">("returning");
+  const [platform, setPlatform] = useState<string>("Shopee");
+  const [store, setStore] = useState<string>("all");
+  const [afterType, setAfterType] = useState<string>("all");
+  const [bsStatus, setBsStatus] = useState<string>("all");
   const [newReturnOpen, setNewReturnOpen] = useState(false);
   const [restockOrder, setRestockOrder] = useState<Order | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -697,6 +796,68 @@ export function ReturnsClient({
 
   const returning = useMemo(() => returnOrders.filter((o) => o.return_status === "returning"), [returnOrders]);
   const returned = useMemo(() => returnOrders.filter((o) => o.return_status === "returned"), [returnOrders]);
+  const tabList = tab === "returning" ? returning : returned;
+
+  const platformCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const o of tabList) m.set(orderPlatform(o), (m.get(orderPlatform(o)) || 0) + 1);
+    return m;
+  }, [tabList]);
+
+  const platformList = useMemo(
+    () => tabList.filter((o) => orderPlatform(o) === platform),
+    [tabList, platform],
+  );
+
+  const storeNames = useMemo(() => {
+    const extra = platformList.map(orderStore).filter(Boolean);
+    return storesForPlatform(platform, extra);
+  }, [platform, platformList]);
+
+  const storeCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const o of platformList) {
+      const s = orderStore(o);
+      if (!s) continue;
+      m.set(normFilter(s), (m.get(normFilter(s)) || 0) + 1);
+    }
+    return m;
+  }, [platformList]);
+
+  const afterStoreList = useMemo(() => {
+    if (store === "all") return platformList;
+    return platformList.filter((o) => normFilter(orderStore(o)) === normFilter(store));
+  }, [platformList, store]);
+
+  const afterTypeCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const o of afterStoreList) {
+      const t = orderAfterSalesType(o);
+      if (!t) continue;
+      m.set(normFilter(t), (m.get(normFilter(t)) || 0) + 1);
+    }
+    return m;
+  }, [afterStoreList]);
+
+  const afterTypeList = useMemo(() => {
+    if (afterType === "all") return afterStoreList;
+    return afterStoreList.filter((o) => normFilter(orderAfterSalesType(o)) === normFilter(afterType));
+  }, [afterStoreList, afterType]);
+
+  const bsStatusCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const o of afterTypeList) {
+      const s = orderBsReturnStatus(o);
+      if (!s) continue;
+      m.set(normFilter(s), (m.get(normFilter(s)) || 0) + 1);
+    }
+    return m;
+  }, [afterTypeList]);
+
+  const displayList = useMemo(() => {
+    if (bsStatus === "all") return afterTypeList;
+    return afterTypeList.filter((o) => normFilter(orderBsReturnStatus(o)) === normFilter(bsStatus));
+  }, [afterTypeList, bsStatus]);
 
   function handleNewReturn(updated: Order) {
     setReturnOrders((prev) => [updated, ...prev]);
@@ -733,8 +894,6 @@ export function ReturnsClient({
     setReturnOrders((prev) => prev.filter((o) => o.id !== order.id));
     setCompletedOrders((prev) => [{ ...order, return_status: null, return_reason: null }, ...prev]);
   }
-
-  const displayList = tab === "returning" ? returning : returned;
 
   return (
     <>
@@ -817,6 +976,96 @@ export function ReturnsClient({
         </div>
       </div>
 
+      <div className="mb-4 space-y-2.5 rounded-lg border bg-card px-3 py-3">
+        <div className="flex flex-wrap gap-1 border-b border-border/60 pb-1">
+          {RETURN_PLATFORMS.map((p) => {
+            const count = platformCounts.get(p) || 0;
+            const selected = platform === p;
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => {
+                  setPlatform(p);
+                  setStore("all");
+                  setAfterType("all");
+                  setBsStatus("all");
+                }}
+                className={cn(
+                  "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+                  selected
+                    ? "border-primary font-medium text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {p}
+                <span className="ml-1 text-muted-foreground">({count})</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="w-32 shrink-0 text-sm text-muted-foreground">Store</span>
+          <div className="flex min-w-0 flex-wrap gap-1">
+            <FilterChip
+              label="All"
+              selected={store === "all"}
+              onClick={() => { setStore("all"); setAfterType("all"); setBsStatus("all"); }}
+            />
+            {storeNames.map((name) => (
+              <FilterChip
+                key={name}
+                label={name}
+                count={storeCounts.get(normFilter(name)) || 0}
+                selected={normFilter(store) === normFilter(name)}
+                onClick={() => { setStore(name); setAfterType("all"); setBsStatus("all"); }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="w-32 shrink-0 text-sm text-muted-foreground">After Sales Type</span>
+          <div className="flex min-w-0 flex-wrap gap-1">
+            <FilterChip
+              label="All"
+              selected={afterType === "all"}
+              onClick={() => { setAfterType("all"); setBsStatus("all"); }}
+            />
+            {AFTER_SALES_TYPES.map((t) => (
+              <FilterChip
+                key={t}
+                label={t}
+                count={afterTypeCounts.get(normFilter(t)) || 0}
+                selected={normFilter(afterType) === normFilter(t)}
+                onClick={() => { setAfterType(t); setBsStatus("all"); }}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="w-32 shrink-0 text-sm text-muted-foreground">Return Status</span>
+          <div className="flex min-w-0 flex-wrap gap-1">
+            <FilterChip
+              label="All"
+              selected={bsStatus === "all"}
+              onClick={() => setBsStatus("all")}
+            />
+            {BS_RETURN_STATUSES.map((s) => (
+              <FilterChip
+                key={s}
+                label={s}
+                count={bsStatusCounts.get(normFilter(s)) || 0}
+                selected={normFilter(bsStatus) === normFilter(s)}
+                onClick={() => setBsStatus(s)}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
       {err && (
         <div className="mb-3 rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">{err}</div>
       )}
@@ -856,9 +1105,11 @@ export function ReturnsClient({
           <CardContent className="py-14 text-center">
             <PackageX className="mx-auto h-10 w-10 text-muted-foreground/30" />
             <p className="mt-3 text-sm text-muted-foreground">
-              {tab === "returning"
-                ? "No orders currently returning. Click \"New return\" to start one."
-                : "No orders marked as returned yet."}
+              {tabList.length === 0
+                ? tab === "returning"
+                  ? "No orders currently returning. Click \"New return\" to start one."
+                  : "No orders marked as returned yet."
+                : "No returns match these filters."}
             </p>
           </CardContent>
         </Card>
