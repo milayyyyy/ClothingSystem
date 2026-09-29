@@ -10,6 +10,8 @@ import { Dialog } from "@/components/ui/dialog";
 import { peso } from "@/lib/utils";
 import { PackageX, RotateCcw, Search } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
+import { BigSellerReturnExcelImportButton } from "@/components/bigseller-return-excel-import-button";
+import { parseStoredReturnImport, RETURN_ORDER_SELECT, type BigSellerReturnExcelRow } from "@/lib/bigseller-return-excel";
 
 type Order = {
   id: string;
@@ -26,6 +28,7 @@ type Order = {
   return_reason?: string | null;
   return_inventory_type?: "inventory" | "ready_made" | null;
   return_inventory_ref?: Record<string, unknown> | null;
+  return_import?: unknown;
   notes?: string | null;
   waybill_no?: string | null;
   external_order_no?: string | null;
@@ -58,6 +61,58 @@ function orderKindLabel(o: Order) {
 function formatDate(s?: string | null) {
   if (!s) return "—";
   return new Date(s).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+}
+
+const RETURN_IMPORT_FIELDS: { label: string; value: (r: BigSellerReturnExcelRow) => string }[] = [
+  { label: "Platform", value: (r) => r.platform },
+  { label: "BigSeller Store", value: (r) => r.bigsellerStore },
+  { label: "After Sales Type", value: (r) => r.afterSalesType },
+  { label: "Package No", value: (r) => r.packageNo },
+  { label: "Order No", value: (r) => r.orderNo },
+  { label: "After-sales ID", value: (r) => r.afterSalesId },
+  { label: "Refunds", value: (r) => (r.refunds ? peso(r.refunds) : "") },
+  { label: "Product Name", value: (r) => r.productName },
+  { label: "Selling. Price", value: (r) => (r.sellingPrice ? peso(r.sellingPrice) : "") },
+  { label: "Qty", value: (r) => (r.qty ? String(r.qty) : "") },
+  { label: "Stock-in Status", value: (r) => r.stockInStatus },
+  { label: "Logistics", value: (r) => r.logistics },
+  { label: "Order Status", value: (r) => r.orderStatus },
+  { label: "Tracking No", value: (r) => r.trackingNo },
+  { label: "Shipping logistics status", value: (r) => r.shippingLogisticsStatus },
+  { label: "After Sales Status", value: (r) => r.afterSalesStatus },
+  { label: "Return Reason", value: (r) => r.returnReason },
+  { label: "Return Tracking No", value: (r) => r.returnTrackingNo },
+  { label: "Return Status", value: (r) => r.returnStatus },
+  { label: "Order Time", value: (r) => r.orderTime },
+  { label: "After Sales Requesting Time", value: (r) => r.afterSalesRequestingTime },
+  { label: "Due Time", value: (r) => r.dueTime },
+  { label: "Shipping Time", value: (r) => r.shippingTime },
+];
+
+function ReturnImportDetails({ raw }: { raw: unknown }) {
+  const stored = parseStoredReturnImport(raw);
+  if (!stored) return null;
+  return (
+    <div className="mt-2 space-y-2">
+      {stored.rows.map((row, i) => (
+        <dl
+          key={row.afterSalesId || `${row.orderNo}:${i}`}
+          className="grid grid-cols-1 gap-x-4 gap-y-1 rounded-md border border-border/50 bg-muted/20 px-3 py-2 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          {RETURN_IMPORT_FIELDS.map((f) => {
+            const v = f.value(row).trim();
+            if (!v) return null;
+            return (
+              <div key={f.label} className="min-w-0">
+                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{f.label}</dt>
+                <dd className="truncate text-xs text-foreground" title={v}>{v}</dd>
+              </div>
+            );
+          })}
+        </dl>
+      ))}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +153,7 @@ function NewReturnDialog({
       .from("orders")
       .update({ return_status: "returning", return_reason: reason.trim() || null, updated_at: new Date().toISOString() })
       .eq("id", selected.id)
-      .select("id,order_no,customer_name,kind,order_type,source,stage,status,total,down_payment,return_status,return_reason,return_inventory_type,return_inventory_ref,updated_at,created_at")
+      .select(RETURN_ORDER_SELECT)
       .single();
     if (error) { setErr(error.message); setSaving(false); return; }
     onCreated(data as Order);
@@ -293,7 +348,7 @@ function RestockDialog({
         updated_at: new Date().toISOString(),
       })
       .eq("id", order.id)
-      .select("id,order_no,customer_name,kind,order_type,source,stage,status,total,down_payment,return_status,return_reason,return_inventory_type,return_inventory_ref,updated_at,created_at")
+      .select(RETURN_ORDER_SELECT)
       .single();
     if (oe) { setErr(oe.message); setSaving(false); return; }
     onRestocked(data as Order);
@@ -352,7 +407,7 @@ function RestockDialog({
         updated_at: new Date().toISOString(),
       })
       .eq("id", order.id)
-      .select("id,order_no,customer_name,kind,order_type,source,stage,status,total,down_payment,return_status,return_reason,return_inventory_type,return_inventory_ref,updated_at,created_at")
+      .select(RETURN_ORDER_SELECT)
       .single();
     if (oe) { setErr(oe.message); setSaving(false); return; }
     onRestocked(data as Order);
@@ -622,7 +677,7 @@ export function ReturnsClient({
       const [{ data: ro }, { data: co }] = await Promise.all([
         supabase
           .from("orders")
-          .select("id,order_no,customer_name,kind,order_type,source,stage,status,total,down_payment,return_status,return_reason,return_inventory_type,return_inventory_ref,updated_at,created_at")
+          .select(RETURN_ORDER_SELECT)
           .in("return_status", ["returning", "returned"])
           .order("updated_at", { ascending: false }),
         supabase
@@ -652,6 +707,20 @@ export function ReturnsClient({
   function handleRestocked(updated: Order) {
     setReturnOrders((prev) => prev.map((o) => o.id === updated.id ? updated : o));
     setRestockOrder(null);
+  }
+
+  function handleImported(rows: Record<string, unknown>[]) {
+    const incoming = rows as Order[];
+    if (!incoming.length) return;
+    setReturnOrders((prev) => {
+      const map = new Map(prev.map((o) => [o.id, o]));
+      for (const o of incoming) {
+        if (o.return_status === "returning" || o.return_status === "returned") map.set(o.id, o);
+        else map.delete(o.id);
+      }
+      return [...map.values()].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+    });
+    setCompletedOrders((prev) => prev.filter((o) => !incoming.some((x) => x.id === o.id)));
   }
 
   async function revertToCompleted(order: Order) {
@@ -716,6 +785,7 @@ export function ReturnsClient({
           })}
         </div>
         <div className="flex gap-2">
+          <BigSellerReturnExcelImportButton canEdit={canEdit} onImported={handleImported} />
           <CsvExportDialog
             label="Export CSV"
             filename="returns"
@@ -819,6 +889,7 @@ export function ReturnsClient({
                           Reason: {o.return_reason}
                         </div>
                       )}
+                      <ReturnImportDetails raw={o.return_import} />
                       {ref && (
                         <div className="mt-1 text-xs text-muted-foreground">
                           Restocked to:{" "}

@@ -155,6 +155,9 @@ const FIELD_LABELS: Record<string, string> = {
   // Ready-made cell fields
   value: "Stock",
   description: "Description",
+  bigseller_stock_prompt_enabled: "BigSeller reminder",
+  bigseller_url: "BigSeller link",
+  bigseller_username: "BigSeller username",
 };
 
 const HIDDEN_ON_INSERT = new Set([
@@ -169,6 +172,8 @@ const HIDDEN_ON_INSERT = new Set([
   "board_name_cache",
   "row_label_cache",
   "col_header_cache",
+  "bigseller_password",
+  "return_import",
 ]);
 
 const MAX_VALUE_LEN = 120;
@@ -300,6 +305,8 @@ const HIDDEN_IN_CHANGES = new Set([
   "board_name_cache",
   "row_label_cache",
   "col_header_cache",
+  "bigseller_password",
+  "return_import",
 ]);
 
 export function formatActivityLog(row: ActivityLogRow, forPdf = false): ActivityFormatted {

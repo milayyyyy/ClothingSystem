@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
-import { ChevronRight, Copy, Plus, Search, Tag, Trash2 } from "lucide-react";
+import { ChevronRight, Copy, ExternalLink, Eye, EyeOff, Plus, Search, Tag, Trash2 } from "lucide-react";
 import { InventoryFullStockExportButton } from "@/components/inventory-full-stock-export-button";
 import { computeReadyMadeLowStockRows } from "@/lib/ready-made-low-stock";
 import { fetchReadyMadeLowStockRowsForBoard } from "@/lib/ready-made-board-low-stock-fetch";
@@ -24,7 +24,119 @@ type Board = {
   low_stock_minimum_enabled?: boolean | null;
   /** Rows are low stock when any column’s numeric cell is strictly below this value (all columns scanned). */
   low_stock_sheet_minimum?: number | null;
+  /** When true, editing a cell value shows BigSeller login details for this sheet. */
+  bigseller_stock_prompt_enabled?: boolean | null;
+  bigseller_url?: string | null;
+  bigseller_username?: string | null;
+  bigseller_password?: string | null;
 };
+
+const BOARD_SELECT_FULL =
+  "id,name,sort_order,group_id,low_stock_minimum_enabled,low_stock_sheet_minimum,bigseller_stock_prompt_enabled,bigseller_url,bigseller_username,bigseller_password";
+const BOARD_SELECT_BASE =
+  "id,name,sort_order,group_id,low_stock_minimum_enabled,low_stock_sheet_minimum";
+
+function bigsellerHref(raw: string | null | undefined): string | null {
+  const t = (raw ?? "").trim();
+  if (!t) return null;
+  if (/^https?:\/\//i.test(t)) return t;
+  return `https://${t}`;
+}
+
+type BigsellerPrompt = {
+  sheetName: string;
+  rowLabel: string;
+  colHeader: string;
+  value: string;
+  url: string;
+  username: string;
+  password: string;
+};
+
+function CopyableField({
+  label,
+  value,
+  secret = false,
+  href,
+}: {
+  label: string;
+  value: string;
+  secret?: boolean;
+  href?: string | null;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [reveal, setReveal] = useState(false);
+  const shown = secret && !reveal ? (value ? "••••••••" : "") : value;
+
+  async function copy() {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      alert("Could not copy");
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <Label className="text-[11px] text-muted-foreground">{label}</Label>
+      <div className="flex items-center gap-1.5">
+        <div className="min-w-0 flex-1 truncate rounded-md border border-border/60 bg-muted/20 px-2.5 py-2 text-sm">
+          {value ? (
+            href ? (
+              <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">
+                {shown}
+              </a>
+            ) : (
+              <span className="font-mono text-[13px]">{shown}</span>
+            )
+          ) : (
+            <span className="text-muted-foreground">Not set</span>
+          )}
+        </div>
+        {secret && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 w-9 shrink-0 px-0"
+            disabled={!value}
+            onClick={() => setReveal((v) => !v)}
+            aria-label={reveal ? "Hide password" : "Show password"}
+          >
+            {reveal ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          </Button>
+        )}
+        {href && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 w-9 shrink-0 px-0"
+            onClick={() => window.open(href, "_blank", "noopener,noreferrer")}
+            aria-label="Open BigSeller"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9 shrink-0 px-2.5"
+          disabled={!value}
+          onClick={() => void copy()}
+        >
+          <Copy className="mr-1 h-3.5 w-3.5" />
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 type Col = { id: string; board_id: string; header_name: string; sort_order: number; description?: string | null };
 type Row = { id: string; board_id: string; row_label: string; sort_order: number };
 type Cell = {
@@ -94,6 +206,8 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   const [allSheetsLowStockTotal, setAllSheetsLowStockTotal] = useState(0);
   const [allSheetsLowStockLoading, setAllSheetsLowStockLoading] = useState(false);
   const [boardLowStockCounts, setBoardLowStockCounts] = useState<Record<string, number>>({});
+  const [bigsellerPrompt, setBigsellerPrompt] = useState<BigsellerPrompt | null>(null);
+  const [showSheetBigsellerPassword, setShowSheetBigsellerPassword] = useState(false);
 
   const cellByPair = useMemo(() => {
     const m = new Map<string, string>();
@@ -110,15 +224,21 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   const refreshCatalog = useCallback(async () => {
     const [{ data: gdata, error: ge }, { data: bdata, error: be }] = await Promise.all([
       supabase.from("ready_made_sheet_groups").select("id,name,sort_order").order("sort_order"),
-      supabase
-        .from("ready_made_boards")
-        .select("id,name,sort_order,group_id,low_stock_minimum_enabled,low_stock_sheet_minimum")
-        .order("sort_order"),
+      supabase.from("ready_made_boards").select(BOARD_SELECT_FULL).order("sort_order"),
     ]);
     if (ge) console.error(ge);
-    if (be) console.error(be);
+    let boardsData = bdata;
+    if (be) {
+      const { data: fallback, error: fe } = await supabase
+        .from("ready_made_boards")
+        .select(BOARD_SELECT_BASE)
+        .order("sort_order");
+      if (fe) console.error(fe);
+      else console.error(be);
+      boardsData = fallback;
+    }
     setGroups(((gdata as Group[]) || []).filter(Boolean));
-    const bl = (bdata as Board[]) || [];
+    const bl = (boardsData as Board[]) || [];
     setBoards(bl);
     return bl;
   }, [supabase]);
@@ -181,6 +301,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
     }
     setGridSearch("");
     setLowStockOnly(false);
+    setShowSheetBigsellerPassword(false);
     void loadGrid(activeId);
   }, [activeId, loadGrid]);
 
@@ -339,7 +460,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
       const baseName = (source.name || "Untitled").trim() || "Untitled";
       const copyName = `${baseName} (copy)`;
 
-      const { data: created, error: boardErr } = await supabase
+      const { data: createdFull, error: boardErrFull } = await supabase
         .from("ready_made_boards")
         .insert({
           name: copyName,
@@ -347,9 +468,30 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
           group_id: source.group_id,
           low_stock_minimum_enabled: source.low_stock_minimum_enabled ?? true,
           low_stock_sheet_minimum: source.low_stock_sheet_minimum ?? null,
+          bigseller_stock_prompt_enabled: source.bigseller_stock_prompt_enabled ?? false,
+          bigseller_url: source.bigseller_url ?? null,
+          bigseller_username: source.bigseller_username ?? null,
+          bigseller_password: source.bigseller_password ?? null,
         })
         .select("id")
         .single();
+      let created: { id: string } | null = createdFull as { id: string } | null;
+      let boardErr = boardErrFull;
+      if (boardErr || !created) {
+        const retry = await supabase
+          .from("ready_made_boards")
+          .insert({
+            name: copyName,
+            sort_order: maxSo + 1,
+            group_id: source.group_id,
+            low_stock_minimum_enabled: source.low_stock_minimum_enabled ?? true,
+            low_stock_sheet_minimum: source.low_stock_sheet_minimum ?? null,
+          })
+          .select("id")
+          .single();
+        created = retry.data as { id: string } | null;
+        boardErr = retry.error;
+      }
       if (boardErr || !created) throw boardErr ?? new Error("Could not duplicate sheet");
 
       const newBoardId = (created as { id: string }).id;
@@ -478,6 +620,48 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
     }
   }
 
+  async function setBoardBigsellerPromptEnabled(boardId: string, enabled: boolean) {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("ready_made_boards")
+        .update({ bigseller_stock_prompt_enabled: enabled })
+        .eq("id", boardId);
+      if (error) throw error;
+      setBoards((prev) =>
+        prev.map((b) => (b.id === boardId ? { ...b, bigseller_stock_prompt_enabled: enabled } : b)),
+      );
+    } catch (e) {
+      console.error(e);
+      alert(e instanceof Error ? e.message : "Could not update BigSeller reminder");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function setBoardBigsellerText(
+    boardId: string,
+    field: "bigseller_url" | "bigseller_username" | "bigseller_password",
+    raw: string,
+  ) {
+    const value = raw.trim() || null;
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("ready_made_boards")
+        .update({ [field]: value })
+        .eq("id", boardId);
+      if (error) throw error;
+      setBoards((prev) => prev.map((b) => (b.id === boardId ? { ...b, [field]: value } : b)));
+    } catch (e) {
+      console.error(e);
+      alert(e instanceof Error ? e.message : "Could not save BigSeller login");
+      await refreshCatalog();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function updateColumnHeader(col: Col, header_name: string) {
     await supabase.from("ready_made_columns").update({ header_name }).eq("id", col.id);
     setCols((prev) => prev.map((c) => (c.id === col.id ? { ...c, header_name } : c)));
@@ -536,6 +720,18 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
         setCells((prev) => [...prev.filter((c) => !(c.row_id === rowId && c.column_id === columnId)), inserted as Cell]);
       }
       setLowStockScanKey((k) => k + 1);
+    }
+
+    if (activeBoard?.bigseller_stock_prompt_enabled) {
+      setBigsellerPrompt({
+        sheetName: activeBoard.name,
+        rowLabel: row?.row_label ?? "",
+        colHeader: col?.header_name ?? "",
+        value,
+        url: (activeBoard.bigseller_url ?? "").trim(),
+        username: (activeBoard.bigseller_username ?? "").trim(),
+        password: (activeBoard.bigseller_password ?? "").trim(),
+      });
     }
   }
 
@@ -1249,6 +1445,116 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                   </div>
                 </details>
 
+                <details className="rounded-md border border-border/60 bg-muted/15 px-3 py-2 text-xs">
+                  <summary className="cursor-pointer list-none font-medium text-foreground [&::-webkit-details-marker]:hidden">
+                    <span className="flex items-center justify-between gap-2">
+                      <span>BigSeller stock reminder</span>
+                      <span className="text-[11px] font-normal text-muted-foreground">
+                        {activeBoard.bigseller_stock_prompt_enabled ? "On" : "Off"}
+                      </span>
+                    </span>
+                  </summary>
+                  <div className="mt-2 space-y-2.5 border-t border-border/50 pt-2">
+                    <label className="flex cursor-pointer items-center gap-2.5">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 shrink-0 rounded border-input accent-primary"
+                        checked={!!activeBoard.bigseller_stock_prompt_enabled}
+                        onChange={(e) => {
+                          if (canEdit) void setBoardBigsellerPromptEnabled(activeBoard.id, e.target.checked);
+                        }}
+                        disabled={saving || !canEdit}
+                        aria-label="Show BigSeller login after editing a value"
+                      />
+                      <span className="text-[11px] text-muted-foreground">
+                        After a value on this sheet is edited, show the BigSeller link, username, and password.
+                      </span>
+                    </label>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="flex flex-col gap-1 sm:col-span-2">
+                        <Label htmlFor="board-bigseller-url" className="text-[11px] text-muted-foreground">
+                          Link
+                        </Label>
+                        <Input
+                          id="board-bigseller-url"
+                          type="url"
+                          disabled={saving || !canEdit}
+                          readOnly={!canEdit}
+                          className="h-10 sm:h-8"
+                          key={`${activeBoard.id}:bsurl:${activeBoard.bigseller_url ?? ""}`}
+                          defaultValue={activeBoard.bigseller_url ?? ""}
+                          placeholder="https://www.bigseller.com/"
+                          onBlur={(e) => {
+                            const next = e.target.value.trim();
+                            const cur = (activeBoard.bigseller_url ?? "").trim();
+                            if (next === cur) return;
+                            void setBoardBigsellerText(activeBoard.id, "bigseller_url", e.target.value);
+                          }}
+                          aria-label="BigSeller login or stock page link"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <Label htmlFor="board-bigseller-user" className="text-[11px] text-muted-foreground">
+                          Username
+                        </Label>
+                        <Input
+                          id="board-bigseller-user"
+                          type="text"
+                          autoComplete="off"
+                          disabled={saving || !canEdit}
+                          readOnly={!canEdit}
+                          className="h-10 sm:h-8"
+                          key={`${activeBoard.id}:bsuser:${activeBoard.bigseller_username ?? ""}`}
+                          defaultValue={activeBoard.bigseller_username ?? ""}
+                          placeholder="BigSeller username"
+                          onBlur={(e) => {
+                            const next = e.target.value.trim();
+                            const cur = (activeBoard.bigseller_username ?? "").trim();
+                            if (next === cur) return;
+                            void setBoardBigsellerText(activeBoard.id, "bigseller_username", e.target.value);
+                          }}
+                          aria-label="BigSeller username"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <Label htmlFor="board-bigseller-pass" className="text-[11px] text-muted-foreground">
+                          Password
+                        </Label>
+                        <div className="flex items-center gap-1">
+                          <Input
+                            id="board-bigseller-pass"
+                            type={showSheetBigsellerPassword ? "text" : "password"}
+                            autoComplete="new-password"
+                            disabled={saving || !canEdit}
+                            readOnly={!canEdit}
+                            className="h-10 sm:h-8"
+                            key={`${activeBoard.id}:bspass:${activeBoard.bigseller_password ?? ""}`}
+                            defaultValue={activeBoard.bigseller_password ?? ""}
+                            placeholder="BigSeller password"
+                            onBlur={(e) => {
+                              const next = e.target.value.trim();
+                              const cur = (activeBoard.bigseller_password ?? "").trim();
+                              if (next === cur) return;
+                              void setBoardBigsellerText(activeBoard.id, "bigseller_password", e.target.value);
+                            }}
+                            aria-label="BigSeller password"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-10 w-10 shrink-0 px-0 sm:h-8 sm:w-8"
+                            onClick={() => setShowSheetBigsellerPassword((v) => !v)}
+                            aria-label={showSheetBigsellerPassword ? "Hide password" : "Show password"}
+                          >
+                            {showSheetBigsellerPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
                 <div className="relative max-w-md">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
                   <Label htmlFor="rm-grid-search" className="sr-only">
@@ -1555,6 +1861,37 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
             </Button>
           </div>
         </div>
+      </Dialog>
+
+      <Dialog
+        open={!!bigsellerPrompt}
+        onClose={() => setBigsellerPrompt(null)}
+        title="Update BigSeller stock"
+        description="Log in to BigSeller and match this sheet’s new quantity."
+        size="md"
+      >
+        {bigsellerPrompt && (
+          <div className="space-y-3">
+            <p className="text-sm text-foreground">
+              <span className="font-medium">{bigsellerPrompt.sheetName}</span>
+              {bigsellerPrompt.rowLabel ? ` · ${bigsellerPrompt.rowLabel}` : ""}
+              {bigsellerPrompt.colHeader ? ` · ${bigsellerPrompt.colHeader}` : ""}
+              {bigsellerPrompt.value !== "" ? ` → ${bigsellerPrompt.value}` : ""}
+            </p>
+            <CopyableField
+              label="Link"
+              value={bigsellerPrompt.url}
+              href={bigsellerHref(bigsellerPrompt.url)}
+            />
+            <CopyableField label="Username" value={bigsellerPrompt.username} />
+            <CopyableField label="Password" value={bigsellerPrompt.password} secret />
+            <div className="flex justify-end pt-1">
+              <Button type="button" onClick={() => setBigsellerPrompt(null)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        )}
       </Dialog>
     </div>
   );

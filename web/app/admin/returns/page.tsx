@@ -1,6 +1,7 @@
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/page-header";
 import { ReturnsClient } from "./returns-client";
+import { RETURN_ORDER_SELECT } from "@/lib/bigseller-return-excel";
 
 export const dynamic = "force-dynamic";
 
@@ -9,20 +10,30 @@ export default async function ReturnsPage() {
   const user = await getSessionUser();
   const canEdit = user?.profile?.role === "admin" || user?.profile?.role === "manager";
 
+  const returnOrdersRes = await supabase
+    .from("orders")
+    .select(RETURN_ORDER_SELECT)
+    .in("return_status", ["returning", "returned"])
+    .order("updated_at", { ascending: false });
+  const returnOrders =
+    returnOrdersRes.error
+      ? (
+          await supabase
+            .from("orders")
+            .select(
+              "id,order_no,customer_name,kind,order_type,source,stage,status,total,down_payment,return_status,return_reason,return_inventory_type,return_inventory_ref,waybill_no,external_order_no,sku_code,updated_at,created_at",
+            )
+            .in("return_status", ["returning", "returned"])
+            .order("updated_at", { ascending: false })
+        ).data
+      : returnOrdersRes.data;
+
   const [
-    { data: returnOrders },
     { data: completedOrders },
     { data: invItems },
     { data: rmGroups },
     { data: rmBoards },
   ] = await Promise.all([
-    // Orders already in a return state
-    supabase
-      .from("orders")
-      .select("id,order_no,customer_name,kind,order_type,source,stage,status,total,down_payment,return_status,return_reason,return_inventory_type,return_inventory_ref,updated_at,created_at")
-      .in("return_status", ["returning", "returned"])
-      .order("updated_at", { ascending: false }),
-
     // Completed orders not yet in return flow
     supabase
       .from("orders")
