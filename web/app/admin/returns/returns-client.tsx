@@ -116,7 +116,7 @@ function storesForPlatform(platform: string, extra: string[]): string[] {
     return false;
   });
   const seen = new Set(known.map(normFilter));
-  const out = [...known];
+  const out: string[] = [...known];
   for (const s of extra) {
     const t = s.trim();
     if (!t || seen.has(normFilter(t))) continue;
