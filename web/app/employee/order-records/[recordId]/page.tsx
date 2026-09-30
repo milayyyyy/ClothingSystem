@@ -1,6 +1,6 @@
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { OrderRecordEditor } from "@/components/order-record-editor";
-import { parseUsageSheets, type OrderRecordRow } from "@/lib/order-records";
+import { parseDriverReturns, parseUsageSheets, type OrderRecordRow } from "@/lib/order-records";
 import { redirect, notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +36,7 @@ export default async function EmployeeOrderRecordPage({
     notes: row.notes,
     status: row.status,
     stock_lines: parseUsageSheets(row.stock_lines),
+    driver_returns: parseDriverReturns(row.driver_returns),
     reviewed_by: row.reviewed_by,
     reviewed_at: row.reviewed_at,
     rejection_reason: row.rejection_reason,

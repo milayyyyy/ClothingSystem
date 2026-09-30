@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  parseDriverReturns,
   parseUsageSheets,
   usageSheetsSummary,
   type OrderRecordAttachment,
@@ -175,6 +176,7 @@ export function OrderRecordsClient({
           {filtered.map((r) => {
             const atts = attByRecord.get(r.id) || [];
             const name = r.submitter?.full_name || r.submitter?.email || (mode === "employee" ? "You" : "Employee");
+            const returnsCount = parseDriverReturns(r.driver_returns).length;
             const href = recordHref(r);
             const isDeleting = deletingId === r.id;
             const canDelete = isAdmin && mode === "admin";
@@ -196,6 +198,7 @@ export function OrderRecordsClient({
                     {fmtDate(r.record_date)}
                     {mode === "admin" && ` · ${name}`}
                     {` · ${usageSheetsSummary(parseUsageSheets(r.stock_lines))}`}
+                    {returnsCount > 0 && ` · ${returnsCount} return(s)`}
                     {atts.length > 0 && ` · ${atts.length} file(s)`}
                   </div>
                 </Link>

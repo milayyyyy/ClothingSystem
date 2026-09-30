@@ -13,6 +13,16 @@ export type ManualUsageSheet = {
   rows: ManualSheetRow[];
 };
 
+export type DriverReturnPick = {
+  orderId: string;
+  orderNo: string;
+  trackingNo: string;
+  productName: string;
+  customerName: string;
+  from: string;
+  to: string;
+};
+
 export type OrderRecordRow = {
   id: string;
   submitted_by: string;
@@ -22,6 +32,7 @@ export type OrderRecordRow = {
   status: OrderRecordStatus;
   source?: "manual" | "pos" | null;
   stock_lines: ManualUsageSheet[];
+  driver_returns?: DriverReturnPick[];
   reviewed_by: string | null;
   reviewed_at: string | null;
   rejection_reason: string | null;
@@ -103,6 +114,27 @@ export function usageSheetsSummary(sheets: ManualUsageSheet[]): string {
   if (!sheets.length) return "0 sheets";
   const rows = sheets.reduce((n, s) => n + s.rows.length, 0);
   return `${sheets.length} sheet(s), ${rows} row(s)`;
+}
+
+export function parseDriverReturns(raw: unknown): DriverReturnPick[] {
+  if (!Array.isArray(raw)) return [];
+  const out: DriverReturnPick[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const orderId = typeof o.orderId === "string" ? o.orderId : "";
+    if (!orderId) continue;
+    out.push({
+      orderId,
+      orderNo: typeof o.orderNo === "string" ? o.orderNo : "",
+      trackingNo: typeof o.trackingNo === "string" ? o.trackingNo : "",
+      productName: typeof o.productName === "string" ? o.productName : "",
+      customerName: typeof o.customerName === "string" ? o.customerName : "",
+      from: typeof o.from === "string" ? o.from : "",
+      to: typeof o.to === "string" ? o.to : "",
+    });
+  }
+  return out;
 }
 
 export function attachmentKind(file: File): "pdf" | "photo" | null {

@@ -291,6 +291,14 @@ export function pendingReturnStatusChange(raw: unknown): ReturnStatusChange | nu
   return sc;
 }
 
+/** Courier/driver marked this tracking number Returned — still waiting to be checked. */
+export function driverMarkedReturnedChange(raw: unknown): ReturnStatusChange | null {
+  const sc = pendingReturnStatusChange(raw);
+  if (!sc) return null;
+  if (!/returned/i.test(sc.to)) return null;
+  return sc;
+}
+
 export function markReturnStatusChecked(existing: unknown): StoredReturnImport | null {
   const prev = parseStoredReturnImport(existing);
   if (!prev) return null;

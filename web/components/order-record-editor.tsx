@@ -12,13 +12,16 @@ import {
   ORDER_RECORD_BUCKET,
   attachmentKind,
   emptyUsageSheet,
+  parseDriverReturns,
   parseUsageSheets,
+  type DriverReturnPick,
   type ManualUsageSheet,
   type OrderRecordAttachment,
   type OrderRecordRow,
 } from "@/lib/order-records";
 import { OrderRecordAttachments } from "@/components/order-record-attachments";
 import { OrderRecordBigSellerImport } from "@/components/order-record-bigseller-import";
+import { OrderRecordDriverReturns } from "@/components/order-record-driver-returns";
 import { prepareStorageUpload } from "@/lib/compress-image";
 import { ArrowLeft, CheckCircle2, Loader2, XCircle } from "lucide-react";
 
@@ -67,6 +70,9 @@ export function OrderRecordEditor({
     const sheets = initialRecord ? parseUsageSheets(initialRecord.stock_lines) : [];
     return sheets.length > 0 ? sheets : [emptyUsageSheet()];
   });
+  const [driverReturns, setDriverReturns] = useState<DriverReturnPick[]>(
+    () => parseDriverReturns(initialRecord?.driver_returns),
+  );
 
   const employeeCanEdit =
     !record || ((record.status === "draft" || record.status === "rejected") && record.submitted_by === userId);
@@ -87,6 +93,7 @@ export function OrderRecordEditor({
       title: title.trim() || null,
       notes: notes.trim() || null,
       stock_lines: usageSheets,
+      driver_returns: driverReturns,
       updated_at: new Date().toISOString(),
     };
     if (mode !== "admin") {
@@ -94,16 +101,14 @@ export function OrderRecordEditor({
     }
 
     if (record) {
-      const { data, error } = await supabase
-        .from("order_records")
-        .update(payload)
-        .eq("id", record.id)
-        .select("*")
-        .single();
+      const updated = await writeRecord("update", payload, record.id);
       setBusy(false);
-      if (error) { setErr(error.message); return null; }
-      const row = mapRecord(data);
+      if (!updated) return null;
+      const row = mapRecord(updated);
       setRecord(row);
+      if ("driver_returns" in updated) {
+        setDriverReturns(parseDriverReturns(updated.driver_returns));
+      }
       onSaved?.(row);
       if (layout === "page" && mode === "admin") {
         router.refresh();
@@ -114,20 +119,45 @@ export function OrderRecordEditor({
       return row;
     }
 
-    const { data, error } = await supabase
-      .from("order_records")
-      .insert({ ...payload, submitted_by: userId })
-      .select("*")
-      .single();
+    const inserted = await writeRecord("insert", { ...payload, submitted_by: userId });
     setBusy(false);
-    if (error) { setErr(error.message); return null; }
-    const row = mapRecord(data);
+    if (!inserted) return null;
+    const row = mapRecord(inserted);
     setRecord(row);
+    if ("driver_returns" in inserted) {
+      setDriverReturns(parseDriverReturns(inserted.driver_returns));
+    }
     onSaved?.(row);
     if (layout === "page" && mode === "employee") {
       router.replace(`/employee/order-records/${row.id}`);
     }
     return row;
+  };
+
+  const writeRecord = async (
+    kind: "update" | "insert",
+    payload: Record<string, unknown>,
+    recordId?: string,
+  ): Promise<Record<string, unknown> | null> => {
+    const attempt = async (body: Record<string, unknown>) => {
+      if (kind === "update" && recordId) {
+        return supabase.from("order_records").update(body).eq("id", recordId).select("*").single();
+      }
+      return supabase.from("order_records").insert(body).select("*").single();
+    };
+    let { data, error } = await attempt(payload);
+    if (error && /driver_returns/i.test(error.message)) {
+      const { driver_returns: _omit, ...rest } = payload;
+      ({ data, error } = await attempt(rest));
+      if (!error) {
+        setErr("Returns were not saved. Apply the latest database migration, then save again.");
+      }
+    }
+    if (error) {
+      setErr(error.message);
+      return null;
+    }
+    return data as Record<string, unknown>;
   };
 
   const submitRecord = async () => {
@@ -293,6 +323,12 @@ export function OrderRecordEditor({
           uploading={uploading}
         />
 
+        <OrderRecordDriverReturns
+          selected={driverReturns}
+          onChange={setDriverReturns}
+          readOnly={!canEditForm}
+        />
+
         {canEditForm && (
           <OrderRecordBigSellerImport
             disabled={busy || uploading}
@@ -325,11 +361,25 @@ export function OrderRecordEditor({
               <Button variant="outline" className="gap-1.5 text-destructive" disabled={busy} onClick={() => onReject(record.id)}>
                 <XCircle className="h-4 w-4" /> Reject
               </Button>
-              <Button className="gap-1.5" disabled={busy} onClick={() => onApprove(record.id)}>
+              <Button
+                className="gap-1.5"
+                disabled={busy}
+                onClick={() => {
+                  void (async () => {
+                    const saved = await saveDraft();
+                    if (saved) onApprove(saved.id);
+                  })();
+                }}
+              >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 Mark approved
               </Button>
             </>
+          )}
+          {mode === "admin" && record?.status === "submitted" && driverReturns.length > 0 && (
+            <p className="w-full text-right text-xs text-muted-foreground">
+              Approving will move {driverReturns.length} return(s) to Returned to seller.
+            </p>
           )}
 
           {canEditForm && mode === "admin" && (
@@ -362,6 +412,7 @@ function mapRecord(data: Record<string, unknown>): OrderRecordRow {
     notes: (data.notes as string) || null,
     status: data.status as OrderRecordRow["status"],
     stock_lines: parseUsageSheets(data.stock_lines),
+    driver_returns: parseDriverReturns(data.driver_returns),
     reviewed_by: (data.reviewed_by as string) || null,
     reviewed_at: (data.reviewed_at as string) || null,
     rejection_reason: (data.rejection_reason as string) || null,
