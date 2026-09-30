@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { peso, cn } from "@/lib/utils";
-import { PackageX, RotateCcw, Search, Copy, ExternalLink, Eye, EyeOff, ShoppingBag, Music2, Heart, Calendar, CircleAlert } from "lucide-react";
+import { PackageX, RotateCcw, Search, Copy, ExternalLink, Eye, EyeOff, ShoppingBag, Music2, Heart, Calendar } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
 import { BigSellerReturnExcelImportButton } from "@/components/bigseller-return-excel-import-button";
 import { markReturnStatusChecked, parseStoredReturnImport, pendingReturnStatusChange, RETURN_ORDER_SELECT, type BigSellerReturnExcelRow } from "@/lib/bigseller-return-excel";
@@ -1048,9 +1048,6 @@ function RestockDialog({
 export function ReturnsClient({
   returnOrders: initialReturnOrders,
   completedOrders: initialCompleted,
-  invItems,
-  rmGroups,
-  rmBoards,
   canEdit = true,
 }: {
   returnOrders: Order[];
@@ -1063,13 +1060,12 @@ export function ReturnsClient({
   const supabase = createClient();
   const [returnOrders, setReturnOrders] = useState<Order[]>(initialReturnOrders);
   const [completedOrders, setCompletedOrders] = useState<Order[]>(initialCompleted);
-  const [tab, setTab] = useState<"returning" | "returned">("returning");
+  const [tab, setTab] = useState<"returning" | "to_check" | "returned">("returning");
   const [platform, setPlatform] = useState<string>("Shopee");
   const [store, setStore] = useState<string>("all");
   const [afterType, setAfterType] = useState<string>("all");
   const [bsStatus, setBsStatus] = useState<string>("all");
   const [newReturnOpen, setNewReturnOpen] = useState(false);
-  const [restockOrder, setRestockOrder] = useState<Order | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [bsUrl, setBsUrl] = useState("");
   const [bsUser, setBsUser] = useState("");
@@ -1111,20 +1107,36 @@ export function ReturnsClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const returning = useMemo(() => returnOrders.filter((o) => restockTabStatus(o) === "returning"), [returnOrders]);
-  const returned = useMemo(() => returnOrders.filter((o) => restockTabStatus(o) === "returned"), [returnOrders]);
-  const tabList = tab === "returning" ? returning : returned;
+  const toCheck = useMemo(
+    () => returnOrders.filter((o) => pendingReturnStatusChange(o.return_import)),
+    [returnOrders],
+  );
+  const returning = useMemo(
+    () =>
+      returnOrders.filter(
+        (o) => !pendingReturnStatusChange(o.return_import) && restockTabStatus(o) === "returning",
+      ),
+    [returnOrders],
+  );
+  const returned = useMemo(
+    () =>
+      returnOrders.filter(
+        (o) => !pendingReturnStatusChange(o.return_import) && restockTabStatus(o) === "returned",
+      ),
+    [returnOrders],
+  );
+  const tabList = tab === "to_check" ? toCheck : tab === "returning" ? returning : returned;
 
   const platformCounts = useMemo(() => {
     const m = new Map<string, number>();
-    for (const o of returnOrders) m.set(orderPlatform(o), (m.get(orderPlatform(o)) || 0) + 1);
+    for (const o of tabList) m.set(orderPlatform(o), (m.get(orderPlatform(o)) || 0) + 1);
     return m;
-  }, [returnOrders]);
+  }, [tabList]);
 
-  const platformList = useMemo(() => {
-    const source = platform === "Manual After-Sales Order" ? tabList : returnOrders;
-    return source.filter((o) => orderPlatform(o) === platform);
-  }, [returnOrders, tabList, platform]);
+  const platformList = useMemo(
+    () => tabList.filter((o) => orderPlatform(o) === platform),
+    [tabList, platform],
+  );
 
   const storeNames = useMemo(() => {
     const extra = platformList.map(orderStore).filter(Boolean);
@@ -1182,31 +1194,14 @@ export function ReturnsClient({
   }, [platform, afterTypeList]);
 
   const displayList = useMemo(() => {
-    const base =
-      bsStatus === "all"
-        ? afterTypeList
-        : afterTypeList.filter((o) => normFilter(orderBsReturnStatus(o)) === normFilter(bsStatus));
-    return [...base].sort((a, b) => {
-      const ac = pendingReturnStatusChange(a.return_import) ? 0 : 1;
-      const bc = pendingReturnStatusChange(b.return_import) ? 0 : 1;
-      return ac - bc;
-    });
+    if (bsStatus === "all") return afterTypeList;
+    return afterTypeList.filter((o) => normFilter(orderBsReturnStatus(o)) === normFilter(bsStatus));
   }, [afterTypeList, bsStatus]);
-
-  const needsCheckCount = useMemo(
-    () => returnOrders.filter((o) => pendingReturnStatusChange(o.return_import)).length,
-    [returnOrders],
-  );
 
   function handleNewReturn(updated: Order) {
     setReturnOrders((prev) => [updated, ...prev]);
     setCompletedOrders((prev) => prev.filter((o) => o.id !== updated.id));
     setNewReturnOpen(false);
-  }
-
-  function handleRestocked(updated: Order) {
-    setReturnOrders((prev) => prev.map((o) => o.id === updated.id ? updated : o));
-    setRestockOrder(null);
   }
 
   function handleImported(rows: Record<string, unknown>[]) {
@@ -1221,6 +1216,7 @@ export function ReturnsClient({
       return [...map.values()].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
     });
     setCompletedOrders((prev) => prev.filter((o) => !incoming.some((x) => x.id === o.id)));
+    if (incoming.some((o) => pendingReturnStatusChange(o.return_import))) setTab("to_check");
   }
 
   async function revertToCompleted(order: Order) {
@@ -1274,43 +1270,33 @@ export function ReturnsClient({
         />
       )}
 
-      {restockOrder && (
-        <RestockDialog
-          order={restockOrder}
-          invItems={invItems}
-          rmGroups={rmGroups}
-          rmBoards={rmBoards}
-          onClose={() => setRestockOrder(null)}
-          onRestocked={handleRestocked}
-        />
-      )}
-
       {/* Header actions + tabs */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 rounded-lg border bg-muted/30 p-1">
-          {(["returning", "returned"] as const).map((t) => {
-            const count = t === "returning" ? returning.length : returned.length;
-            return (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                  tab === t
-                    ? "bg-background shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {t === "returning" ? "Returning to seller" : "Returned to seller"}
-                {count > 0 && (
-                  <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${
-                    tab === t ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
-                  }`}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {([
+            { id: "returning" as const, label: "Returning to seller", count: returning.length },
+            { id: "to_check" as const, label: "To be checked", count: toCheck.length },
+            { id: "returned" as const, label: "Returned to seller", count: returned.length },
+          ]).map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                tab === t.id
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t.label}
+              {t.count > 0 && (
+                <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${
+                  tab === t.id ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                }`}>
+                  {t.count}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
         <div className="flex gap-2">
           <BigSellerReturnExcelImportButton canEdit={canEdit} onImported={handleImported} />
@@ -1541,26 +1527,20 @@ export function ReturnsClient({
         <div className="mb-3 rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">{err}</div>
       )}
 
-      {needsCheckCount > 0 && (
-        <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            <strong>{needsCheckCount}</strong> return{needsCheckCount === 1 ? "" : "s"} to check — return status
-            changed on the tracking number. Confirm whether the item really arrived.
-          </span>
-        </div>
-      )}
-
-      {/* Tab description */}
       {tab === "returning" && (
         <p className="mb-3 text-sm text-muted-foreground">
           These orders are in transit back to you. Their sales are excluded from totals until resolved.
-          Once the item physically arrives, click <strong>Mark as returned</strong> to restock it.
+        </p>
+      )}
+      {tab === "to_check" && (
+        <p className="mb-3 text-sm text-muted-foreground">
+          Same tracking number, but return status changed since the last BigSeller import (for example the courier
+          marked it Returned). Ask staff if the item really arrived. If it did not, report it to the courier.
         </p>
       )}
       {tab === "returned" && (
         <p className="mb-3 text-sm text-muted-foreground">
-          These orders have been received back and restocked into inventory.
+          These orders have been received back.
         </p>
       )}
 
@@ -1589,7 +1569,9 @@ export function ReturnsClient({
               {tabList.length === 0
                 ? tab === "returning"
                   ? "No orders currently returning. Click \"New return\" to start one."
-                  : "No orders marked as returned yet."
+                  : tab === "to_check"
+                    ? "No returns to check. Re-import BigSeller Excel when a tracking number's return status changes."
+                    : "No orders marked as returned yet."
                 : "No returns match these filters."}
             </p>
           </CardContent>
@@ -1601,7 +1583,6 @@ export function ReturnsClient({
             const paid = Number(o.down_payment || 0);
             const ref = o.return_inventory_ref as Record<string, unknown> | null;
             const statusChange = pendingReturnStatusChange(o.return_import);
-            const showRestock = (restockTabStatus(o) === "returning" || (!!statusChange && !ref)) && canEdit;
             return (
               <Card key={o.id} className={statusChange ? "border-amber-400 dark:border-amber-700" : undefined}>
                 <CardContent className="p-4">
@@ -1611,15 +1592,15 @@ export function ReturnsClient({
                         <span className="font-semibold">#{o.order_no}</span>
                         <span className="text-sm font-medium">{o.customer_name}</span>
                         <Badge variant="outline" className="text-xs">{orderKindLabel(o)}</Badge>
-                        {restockTabStatus(o) === "returning" && (
+                        {tab !== "to_check" && restockTabStatus(o) === "returning" && (
                           <Badge variant="amber" className="text-xs">Returning to seller</Badge>
                         )}
-                        {restockTabStatus(o) === "returned" && (
+                        {tab !== "to_check" && restockTabStatus(o) === "returned" && (
                           <Badge variant="green" className="text-xs">Returned ✓</Badge>
                         )}
                         {statusChange && (
                           <Badge variant="amber" className="text-xs">
-                            Check: {statusChange.to}
+                            To be checked: {statusChange.to}
                           </Badge>
                         )}
                       </div>
@@ -1627,7 +1608,8 @@ export function ReturnsClient({
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-800 dark:bg-amber-900/20">
                           <div className="min-w-0 text-amber-950 dark:text-amber-100">
                             <div className="font-medium">
-                              Return status changed to {statusChange.to}. Check if the item really arrived.
+                              Return status changed to {statusChange.to} on this tracking number. Confirm with staff
+                              if it really arrived. If the courier marked it returned but it did not, report it.
                             </div>
                             <div className="mt-0.5 text-amber-800 dark:text-amber-200">
                               {statusChange.from} → {statusChange.to}
@@ -1674,25 +1656,15 @@ export function ReturnsClient({
                         )}
                       </div>
 
-                      {showRestock && (
-                        <>
-                          <Button
-                            size="sm"
-                            className="h-8 gap-1 text-xs"
-                            onClick={() => setRestockOrder(o)}
-                          >
-                            <PackageX className="h-3.5 w-3.5" />
-                            Mark as returned
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 text-xs text-muted-foreground"
-                            onClick={() => revertToCompleted(o)}
-                          >
-                            Undo
-                          </Button>
-                        </>
+                      {tab === "returning" && canEdit && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 text-xs text-muted-foreground"
+                          onClick={() => revertToCompleted(o)}
+                        >
+                          Undo
+                        </Button>
                       )}
                     </div>
                   </div>
