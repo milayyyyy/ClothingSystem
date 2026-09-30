@@ -13,7 +13,7 @@ export default async function AdminReportsPage() {
     <div>
       <PageHeader
         title="Reports"
-        description="Financial overview — filter by date, view sales, expenses, payroll, and net profit."
+        description="Sales, expenses, and net profit — with charts. Payroll paid as an expense is counted once."
       />
       <ReportsClient {...raw} />
     </div>

@@ -43,6 +43,7 @@ export type ReportSalaryRow = {
   period_start: string;
   period_end: string;
   paid: boolean;
+  expense_id: string | null;
 };
 
 export type ReportManualSaleRow = {
@@ -59,6 +60,7 @@ export type MonthlyReportRow = {
   manualRevenue: number;
   expenses: number;
   payroll: number;
+  unlinkedPayroll: number;
   net: number;
 };
 
@@ -72,6 +74,8 @@ export type ReportSummary = {
   downPaymentsInPeriod: number;
   expenses: number;
   payroll: number;
+  payrollInExpenses: number;
+  unlinkedPayroll: number;
   netProfit: number;
   profitMarginPct: number;
   orderCountCompleted: number;
@@ -221,6 +225,7 @@ export function normalizeReportSalaries(raw: Record<string, unknown>[]): ReportS
     period_start: String(s.period_start || "").slice(0, 10),
     period_end: String(s.period_end || "").slice(0, 10),
     paid: Boolean(s.paid),
+    expense_id: s.expense_id ? String(s.expense_id) : null,
   }));
 }
 
@@ -270,7 +275,17 @@ export function computeReportSummary(
 
   const expensesTotal = expensesInRange.reduce((s, e) => s + e.amount, 0);
   const payrollTotal = salariesInRange.reduce((s, x) => s + x.net_pay, 0);
-  const netProfit = totalCompletedSales - expensesTotal - payrollTotal;
+  const linkedExpenseIds = new Set(
+    salaries.map((s) => s.expense_id).filter((id): id is string => Boolean(id)),
+  );
+  const payrollInExpenses = expensesInRange
+    .filter((e) => linkedExpenseIds.has(e.id))
+    .reduce((s, e) => s + e.amount, 0);
+  const unlinkedPayroll = salariesInRange
+    .filter((s) => !s.expense_id)
+    .reduce((s, x) => s + x.net_pay, 0);
+  /** Payroll paid through Expenses is already in expensesTotal — do not subtract it again. */
+  const netProfit = totalCompletedSales - expensesTotal - unlinkedPayroll;
   const profitMarginPct =
     totalCompletedSales > 0 ? (netProfit / totalCompletedSales) * 100 : 0;
 
@@ -284,6 +299,8 @@ export function computeReportSummary(
     downPaymentsInPeriod,
     expenses: expensesTotal,
     payroll: payrollTotal,
+    payrollInExpenses,
+    unlinkedPayroll,
     netProfit,
     profitMarginPct,
     orderCountCompleted:
@@ -313,6 +330,7 @@ export function computeMonthlyBreakdown(
         manualRevenue: 0,
         expenses: 0,
         payroll: 0,
+        unlinkedPayroll: 0,
         net: 0,
       };
     }
@@ -335,24 +353,33 @@ export function computeMonthlyBreakdown(
     ensure(m).manualRevenue += ms.amount;
   }
 
+  const linkedExpenseIds = new Set(
+    salaries.map((s) => s.expense_id).filter((id): id is string => Boolean(id)),
+  );
+
   for (const e of expenses) {
     if (!inReportDateRange(e.expense_date, range.from, range.to, range.allTime)) continue;
     const m = monthBucket(e.expense_date);
     if (!m) continue;
-    ensure(m).expenses += e.amount;
+    const row = ensure(m);
+    row.expenses += e.amount;
+    if (linkedExpenseIds.has(e.id)) row.payroll += e.amount;
   }
 
   for (const s of salaries) {
+    if (s.expense_id) continue;
     if (!inReportDateRange(s.period_end, range.from, range.to, range.allTime)) continue;
     const m = monthBucket(s.period_end);
     if (!m) continue;
-    ensure(m).payroll += s.net_pay;
+    const row = ensure(m);
+    row.payroll += s.net_pay;
+    row.unlinkedPayroll += s.net_pay;
   }
 
   return Object.values(byMonth)
     .map((row) => {
       const revenue = row.sales + row.manualRevenue;
-      return { ...row, net: revenue - row.expenses - row.payroll };
+      return { ...row, net: revenue - row.expenses - row.unlinkedPayroll };
     })
     .sort((a, b) => (a.month < b.month ? 1 : -1));
 }

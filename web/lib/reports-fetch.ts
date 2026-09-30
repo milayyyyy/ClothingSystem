@@ -46,10 +46,15 @@ export async function fetchReportsRawData(
 ): Promise<ReportsRawData> {
   const loadErrors: string[] = [];
 
-  const [ordersRes, expensesRes, salariesRes, manualRes] = await Promise.all([
+  const [ordersRes, expensesRes, salariesResRaw, manualRes] = await Promise.all([
     fetchAllRows(supabase, "orders", ORDER_SELECT, "created_at"),
     fetchAllRows(supabase, "expenses", "id, amount, expense_date, category", "expense_date"),
-    fetchAllRows(supabase, "salaries", "id, net_pay, gross_pay, period_start, period_end, paid", "period_end"),
+    fetchAllRows(
+      supabase,
+      "salaries",
+      "id, net_pay, gross_pay, period_start, period_end, paid, expense_id",
+      "period_end",
+    ),
     fetchAllRows(
       supabase,
       "manual_sales",
@@ -57,6 +62,22 @@ export async function fetchReportsRawData(
       "sale_date",
     ),
   ]);
+
+  let salariesRes = salariesResRaw;
+  if (salariesRes.error && /expense_id/i.test(salariesRes.error)) {
+    salariesRes = await fetchAllRows(
+      supabase,
+      "salaries",
+      "id, net_pay, gross_pay, period_start, period_end, paid",
+      "period_end",
+    );
+    if (!salariesRes.error) {
+      salariesRes = {
+        ...salariesRes,
+        data: salariesRes.data.map((row) => ({ ...row, expense_id: "assumed-in-expenses" })),
+      };
+    }
+  }
 
   if (ordersRes.error) loadErrors.push(`Orders: ${ordersRes.error}`);
   if (expensesRes.error) loadErrors.push(`Expenses: ${expensesRes.error}`);

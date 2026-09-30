@@ -15,6 +15,7 @@ import {
   normalizeReportSalaries,
   resolveReportDateRange,
   topExpenseCategories,
+  type MonthlyReportRow,
   type ReportDatePreset,
 } from "@/lib/reports-data";
 import type { ReportsRawData } from "@/lib/reports-fetch";
@@ -173,24 +174,53 @@ export function ReportsClient(props: ReportsRawData) {
         <StatCard
           label="Expenses"
           value={peso(summary.expenses)}
-          hint={`${summary.expenseCount} expense entries`}
+          hint={
+            summary.payrollInExpenses > 0
+              ? `${summary.expenseCount} entries · includes ${peso(summary.payrollInExpenses)} salary`
+              : `${summary.expenseCount} expense entries`
+          }
           icon={Receipt}
           accent="warning"
         />
         <StatCard
           label="Payroll"
           value={peso(summary.payroll)}
-          hint={`${summary.payrollCount} salary records (by period end)`}
+          hint={
+            summary.payrollInExpenses > 0
+              ? "Paid salary is already in expenses — not subtracted twice"
+              : `${summary.payrollCount} salary records (by period end)`
+          }
           icon={Users}
           accent="muted"
         />
         <StatCard
           label="Net profit"
           value={peso(summary.netProfit)}
-          hint={`Margin ${pct(summary.profitMarginPct)} on completed sales`}
+          hint={`Margin ${pct(summary.profitMarginPct)} · sales − expenses${summary.unlinkedPayroll > 0 ? " − unlinked payroll" : ""}`}
           icon={PiggyBank}
           accent={summary.netProfit >= 0 ? "success" : "danger"}
         />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">This period</CardTitle>
+            <CardDescription>Sales, expenses, and net profit</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PeriodBars sales={summary.totalCompletedSales} expenses={summary.expenses} net={summary.netProfit} />
+          </CardContent>
+        </Card>
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base">Monthly trend</CardTitle>
+            <CardDescription>Sales, expenses, and net by month</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MonthlyTrendChart rows={monthly} />
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -253,7 +283,7 @@ export function ReportsClient(props: ReportsRawData) {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Monthly summary</CardTitle>
-            <CardDescription>Net uses Sales list revenue only</CardDescription>
+            <CardDescription>Net = sales − expenses. Linked payroll is already in expenses.</CardDescription>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto">
             <table className="w-full min-w-[520px] text-sm">
@@ -346,7 +376,8 @@ export function ReportsClient(props: ReportsRawData) {
 
       <p className="text-xs text-muted-foreground">
         Sales totals match the Sales list: completed shop orders plus bookkeeping imports. Marketplace import orders are
-        excluded from sales, net profit, and tax estimate. Cancelled and returned orders are excluded.
+        excluded from sales, net profit, and tax estimate. Cancelled and returned orders are excluded. Net profit is
+        sales minus expenses; salary paid through Expenses is not subtracted again as payroll.
       </p>
     </div>
   );
@@ -397,6 +428,123 @@ function BreakdownRow({ label, value }: { label: string; value: number }) {
     <div className="flex justify-between gap-4">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium tabular-nums shrink-0">{peso(value)}</span>
+    </div>
+  );
+}
+
+function PeriodBars({ sales, expenses, net }: { sales: number; expenses: number; net: number }) {
+  const max = Math.max(Math.abs(sales), Math.abs(expenses), Math.abs(net), 1);
+  const items = [
+    { label: "Sales", value: sales, bar: "bg-primary" },
+    { label: "Expenses", value: expenses, bar: "bg-amber-500" },
+    { label: "Net profit", value: net, bar: net >= 0 ? "bg-emerald-500" : "bg-destructive" },
+  ];
+  return (
+    <div className="flex h-52 items-end gap-4" role="img" aria-label="Sales, expenses, and net profit for this period">
+      {items.map((it) => (
+        <div key={it.label} className="flex min-w-0 flex-1 flex-col items-center gap-2">
+          <span className="text-center text-[11px] font-medium tabular-nums leading-tight">{peso(it.value)}</span>
+          <div className="flex h-36 w-full items-end justify-center">
+            <div
+              className={`w-10 max-w-[70%] rounded-t-md ${it.bar}`}
+              style={{ height: `${Math.max(6, (Math.abs(it.value) / max) * 100)}%` }}
+            />
+          </div>
+          <span className="text-xs text-muted-foreground">{it.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function shortMonth(ym: string) {
+  const [y, m] = ym.split("-");
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-PH", { month: "short", year: "2-digit" });
+}
+
+function MonthlyTrendChart({ rows }: { rows: MonthlyReportRow[] }) {
+  const data = [...rows].reverse();
+  if (data.length === 0) {
+    return <p className="py-10 text-center text-sm text-muted-foreground">No data in this period.</p>;
+  }
+
+  const w = 720;
+  const h = 240;
+  const pad = { l: 52, r: 16, t: 20, b: 40 };
+  const innerW = w - pad.l - pad.r;
+  const innerH = h - pad.t - pad.b;
+  const values = data.flatMap((r) => [r.sales + r.manualRevenue, r.expenses, r.net]);
+  const min = Math.min(0, ...values);
+  const max = Math.max(0, ...values);
+  const span = max - min || 1;
+  const xAt = (i: number) => pad.l + (data.length <= 1 ? innerW / 2 : (i / (data.length - 1)) * innerW);
+  const yAt = (v: number) => pad.t + ((max - v) / span) * innerH;
+
+  function line(pick: (r: MonthlyReportRow) => number) {
+    return data.map((r, i) => `${xAt(i).toFixed(1)},${yAt(pick(r)).toFixed(1)}`).join(" ");
+  }
+
+  const zeroY = yAt(0);
+  const yTicks = [max, (max + min) / 2, min];
+
+  return (
+    <div className="space-y-3">
+      <svg
+        viewBox={`0 0 ${w} ${h}`}
+        className="h-56 w-full"
+        role="img"
+        aria-label="Monthly sales, expenses, and net profit"
+      >
+        {yTicks.map((t) => (
+          <g key={t}>
+            <line
+              x1={pad.l}
+              x2={w - pad.r}
+              y1={yAt(t)}
+              y2={yAt(t)}
+              className="stroke-border"
+              strokeWidth="1"
+            />
+            <text x={pad.l - 8} y={yAt(t) + 4} textAnchor="end" className="fill-muted-foreground" fontSize="10">
+              {Math.abs(t) >= 1000 ? `${Math.round(t / 1000)}k` : Math.round(t)}
+            </text>
+          </g>
+        ))}
+        <line x1={pad.l} x2={w - pad.r} y1={zeroY} y2={zeroY} className="stroke-muted-foreground/50" strokeWidth="1" />
+        <polyline fill="none" stroke="hsl(var(--primary))" strokeWidth="2.5" points={line((r) => r.sales + r.manualRevenue)} />
+        <polyline fill="none" stroke="#f59e0b" strokeWidth="2.5" points={line((r) => r.expenses)} />
+        <polyline fill="none" stroke="#10b981" strokeWidth="2.5" points={line((r) => r.net)} />
+        {data.map((r, i) => (
+          <g key={r.month}>
+            <circle cx={xAt(i)} cy={yAt(r.sales + r.manualRevenue)} r="3" fill="hsl(var(--primary))" />
+            <circle cx={xAt(i)} cy={yAt(r.expenses)} r="3" fill="#f59e0b" />
+            <circle cx={xAt(i)} cy={yAt(r.net)} r="3" fill="#10b981" />
+          </g>
+        ))}
+        {data.map((r, i) => (
+          <text
+            key={r.month}
+            x={xAt(i)}
+            y={h - 12}
+            textAnchor="middle"
+            className="fill-muted-foreground"
+            fontSize="10"
+          >
+            {shortMonth(r.month)}
+          </text>
+        ))}
+      </svg>
+      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-4 rounded-sm bg-primary" /> Sales
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-4 rounded-sm bg-amber-500" /> Expenses
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-4 rounded-sm bg-emerald-500" /> Net profit
+        </span>
+      </div>
     </div>
   );
 }
