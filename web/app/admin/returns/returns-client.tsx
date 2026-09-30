@@ -8,11 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog } from "@/components/ui/dialog";
 import { peso, cn } from "@/lib/utils";
-import { PackageX, RotateCcw, Search, Copy, ExternalLink, Eye, EyeOff } from "lucide-react";
+import { PackageX, RotateCcw, Search, Copy, ExternalLink, Eye, EyeOff, ShoppingBag, Music2, Heart, Calendar, CircleAlert } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
 import { BigSellerReturnExcelImportButton } from "@/components/bigseller-return-excel-import-button";
-import { parseStoredReturnImport, RETURN_ORDER_SELECT, type BigSellerReturnExcelRow } from "@/lib/bigseller-return-excel";
-import { BIGSELLER_KNOWN_STORE_NAMES } from "@/lib/bigseller-store-labels";
+import { markReturnStatusChecked, parseStoredReturnImport, pendingReturnStatusChange, RETURN_ORDER_SELECT, type BigSellerReturnExcelRow } from "@/lib/bigseller-return-excel";
+import { parseBigSellerDateTimeLabel } from "@/lib/bigseller-datetime";
+import { BIGSELLER_KNOWN_STORE_NAMES, normalizeBigSellerStoreName } from "@/lib/bigseller-store-labels";
 
 type Order = {
   id: string;
@@ -65,8 +66,9 @@ function formatDate(s?: string | null) {
 }
 
 const RETURN_PLATFORMS = ["Shopee", "TikTok", "Lazada", "BigShop", "Manual After-Sales Order"] as const;
-const AFTER_SALES_TYPES = ["Return and Refund", "Refund Only", "Abnormal Return"] as const;
-const BS_RETURN_STATUSES = [
+const SHOPEE_AFTER_SALES_TYPES = ["Return and Refund", "Refund Only", "Abnormal Return"] as const;
+const TIKTOK_AFTER_SALES_TYPES = ["Return and Refund", "Refund Only", "Exchange", "Abnormal Return"] as const;
+const SHOPEE_RETURN_STATUSES = [
   "To Return",
   "Returning",
   "Returned",
@@ -75,9 +77,41 @@ const BS_RETURN_STATUSES = [
   "Not Pickup",
   "Other",
 ] as const;
+const TIKTOK_RETURN_STATUSES = [
+  "To Return",
+  "Returning",
+  "Returned",
+  "Return Failed",
+  "No Need to Return",
+  "Lost",
+  "Not Pickup",
+  "Other",
+] as const;
+
+function afterSalesTypesForPlatform(platform: string): string[] {
+  if (platform === "TikTok") return [...TIKTOK_AFTER_SALES_TYPES];
+  return [...SHOPEE_AFTER_SALES_TYPES];
+}
+
+function returnStatusesForPlatform(platform: string): string[] {
+  if (platform === "TikTok") return [...TIKTOK_RETURN_STATUSES];
+  return [...SHOPEE_RETURN_STATUSES];
+}
 
 function normFilter(s: string) {
   return s.trim().toLowerCase();
+}
+
+function mergeFilterOptions(base: string[], extra: string[]): string[] {
+  const seen = new Set(base.map(normFilter));
+  const out = [...base];
+  for (const s of extra) {
+    const t = s.trim();
+    if (!t || seen.has(normFilter(t))) continue;
+    seen.add(normFilter(t));
+    out.push(t);
+  }
+  return out;
 }
 
 function primaryImport(o: Order): BigSellerReturnExcelRow | null {
@@ -96,7 +130,7 @@ function orderPlatform(o: Order): string {
 }
 
 function orderStore(o: Order): string {
-  return (primaryImport(o)?.bigsellerStore || "").trim();
+  return normalizeBigSellerStoreName(primaryImport(o)?.bigsellerStore || "");
 }
 
 function orderAfterSalesType(o: Order): string {
@@ -149,20 +183,57 @@ function FilterChip({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center rounded-md px-2 py-1 text-sm transition-colors",
+        "inline-flex items-center rounded-md px-2 py-0.5 text-sm transition-colors",
         selected
-          ? "bg-primary/15 font-medium text-primary"
-          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+          ? "bg-violet-100 font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+          : "text-foreground hover:bg-muted/60",
       )}
     >
       {label}
       {count != null && (
-        <span className={cn("ml-0.5", selected ? "text-primary" : "text-muted-foreground")}>
+        <span className={cn(selected ? "text-violet-700 dark:text-violet-300" : "text-muted-foreground")}>
           ({count})
         </span>
       )}
     </button>
   );
+}
+
+function PlatformGlyph({ platform }: { platform: string }) {
+  if (platform === "Shopee") return <ShoppingBag className="h-3.5 w-3.5 text-orange-500" />;
+  if (platform === "TikTok") return <Music2 className="h-3.5 w-3.5" />;
+  if (platform === "Lazada") return <Heart className="h-3.5 w-3.5 text-pink-500" />;
+  return null;
+}
+
+function MetaLine({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value?: string | null;
+  valueClassName?: string;
+}) {
+  const v = (value || "").trim();
+  if (!v) return null;
+  return (
+    <div className="min-w-0 text-xs leading-5">
+      <span className="text-muted-foreground">{label}</span>
+      <div className={cn("break-all text-foreground", valueClassName)}>{v}</div>
+    </div>
+  );
+}
+
+function daysUntilDue(dueTime: string): number | null {
+  const iso = parseBigSellerDateTimeLabel(dueTime);
+  if (!iso) return null;
+  const due = new Date(iso);
+  if (Number.isNaN(due.getTime())) return null;
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  due.setHours(0, 0, 0, 0);
+  return Math.round((due.getTime() - start.getTime()) / 86_400_000);
 }
 
 const RETURNS_BS_URL = "returns_bigseller_url";
@@ -260,54 +331,179 @@ function CopyableField({
   );
 }
 
-const RETURN_IMPORT_FIELDS: { label: string; value: (r: BigSellerReturnExcelRow) => string }[] = [
-  { label: "Platform", value: (r) => r.platform },
-  { label: "BigSeller Store", value: (r) => r.bigsellerStore },
-  { label: "After Sales Type", value: (r) => r.afterSalesType },
-  { label: "Package No", value: (r) => r.packageNo },
-  { label: "Order No", value: (r) => r.orderNo },
-  { label: "After-sales ID", value: (r) => r.afterSalesId },
-  { label: "Refunds", value: (r) => (r.refunds ? peso(r.refunds) : "") },
-  { label: "Product Name", value: (r) => r.productName },
-  { label: "Selling. Price", value: (r) => (r.sellingPrice ? peso(r.sellingPrice) : "") },
-  { label: "Qty", value: (r) => (r.qty ? String(r.qty) : "") },
-  { label: "Stock-in Status", value: (r) => r.stockInStatus },
-  { label: "Logistics", value: (r) => r.logistics },
-  { label: "Order Status", value: (r) => r.orderStatus },
-  { label: "Tracking No", value: (r) => r.trackingNo },
-  { label: "Shipping logistics status", value: (r) => r.shippingLogisticsStatus },
-  { label: "After Sales Status", value: (r) => r.afterSalesStatus },
-  { label: "Return Reason", value: (r) => r.returnReason },
-  { label: "Return Tracking No", value: (r) => r.returnTrackingNo },
-  { label: "Return Status", value: (r) => r.returnStatus },
-  { label: "Order Time", value: (r) => r.orderTime },
-  { label: "After Sales Requesting Time", value: (r) => r.afterSalesRequestingTime },
-  { label: "Due Time", value: (r) => r.dueTime },
-  { label: "Shipping Time", value: (r) => r.shippingTime },
-];
-
 function ReturnImportDetails({ raw }: { raw: unknown }) {
   const stored = parseStoredReturnImport(raw);
   if (!stored) return null;
+  const changedTo = pendingReturnStatusChange(raw)?.to;
   return (
     <div className="mt-2 space-y-2">
       {stored.rows.map((row, i) => (
-        <dl
+        <BigSellerReturnProductInfo
           key={row.afterSalesId || `${row.orderNo}:${i}`}
-          className="grid grid-cols-1 gap-x-4 gap-y-1 rounded-md border border-border/50 bg-muted/20 px-3 py-2 sm:grid-cols-2 lg:grid-cols-3"
-        >
-          {RETURN_IMPORT_FIELDS.map((f) => {
-            const v = f.value(row).trim();
-            if (!v) return null;
-            return (
-              <div key={f.label} className="min-w-0">
-                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{f.label}</dt>
-                <dd className="truncate text-xs text-foreground" title={v}>{v}</dd>
-              </div>
-            );
-          })}
-        </dl>
+          row={row}
+          changedTo={changedTo}
+        />
       ))}
+    </div>
+  );
+}
+
+function BigSellerReturnProductInfo({
+  row,
+  changedTo,
+}: {
+  row: BigSellerReturnExcelRow;
+  changedTo?: string;
+}) {
+  const pendingStock = /pending/i.test(row.stockInStatus);
+  const refund = row.refunds > 0 ? row.refunds : 0;
+  const price = row.sellingPrice > 0 ? row.sellingPrice : 0;
+  const qty = row.qty || 1;
+  const orderValue =
+    row.orderValue && row.orderValue > 0 ? row.orderValue : price > 0 ? price * qty : 0;
+  const pay = (row.paymentMethod || "").trim();
+  const title = (row.productName || "").trim() || (row.variation || "").trim() || "—";
+  const subtitle =
+    row.variation && row.variation.trim() && row.variation.trim() !== (row.productName || "").trim()
+      ? row.variation.trim()
+      : "";
+  const returning = /returning/i.test(row.returnStatus);
+  const daysLeft = returning && row.dueTime ? daysUntilDue(row.dueTime) : null;
+
+  return (
+    <div className="overflow-hidden rounded-md border border-border/60">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/60 bg-muted/30 px-3 py-2 text-xs">
+        {row.orderNo && (
+          <span>
+            <span className="text-muted-foreground">Order No:</span>
+            <span className="font-medium">{row.orderNo}</span>
+          </span>
+        )}
+        {row.stockInStatus && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+              pendingStock
+                ? "bg-red-500/15 text-red-600 dark:text-red-400"
+                : "bg-muted text-muted-foreground",
+            )}
+          >
+            {pendingStock && <span className="h-1.5 w-1.5 rounded-full bg-red-500" />}
+            {row.stockInStatus}
+          </span>
+        )}
+        {row.packageNo && (
+          <span>
+            <span className="text-muted-foreground">Package No:</span>
+            {row.packageNo}
+          </span>
+        )}
+        {row.afterSalesId && (
+          <span>
+            <span className="text-muted-foreground">After Sales ID:</span>
+            {row.afterSalesId}
+          </span>
+        )}
+        {row.dueTime && (
+          <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground">
+            <Calendar className="h-3.5 w-3.5" />
+            Deadline: <span className="text-foreground">{row.dueTime}</span>
+          </span>
+        )}
+      </div>
+
+      <div className="hidden border-b border-border/60 px-3 py-1.5 text-[11px] font-medium text-muted-foreground lg:grid lg:grid-cols-6 lg:gap-3">
+        <div>Product Information</div>
+        <div>Value</div>
+        <div>After Sales</div>
+        <div>Status</div>
+        <div>Return</div>
+        <div>Orders</div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 px-3 py-3 sm:grid-cols-2 lg:grid-cols-6 lg:gap-3">
+        <div className="min-w-0">
+          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">Product Information</div>
+          <div className="truncate text-sm font-medium" title={title}>
+            {title}
+          </div>
+          {subtitle && (
+            <div className="truncate text-xs text-muted-foreground" title={subtitle}>
+              {subtitle}
+            </div>
+          )}
+          {price > 0 && (
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              {peso(price)} <span className="text-orange-500">× {qty}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="min-w-0">
+          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">Value</div>
+          {refund > 0 ? (
+            <>
+              <div className="text-[11px] text-muted-foreground">Refund Value:</div>
+              <div className="text-sm font-medium">{peso(refund)}</div>
+            </>
+          ) : orderValue > 0 ? (
+            <>
+              <div className="text-[11px] text-muted-foreground">Order Value:</div>
+              <div className="text-sm font-medium">{peso(orderValue)}</div>
+            </>
+          ) : null}
+          {pay && (
+            <span className="mt-1 inline-block rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+              {pay}
+            </span>
+          )}
+        </div>
+
+        <div className="min-w-0">
+          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">After Sales</div>
+          <div className="text-sm">{row.afterSalesType || "—"}</div>
+          {daysLeft != null && daysLeft > 0 && (
+            <div className="mt-1 text-sm font-medium text-red-500">{daysLeft} Days</div>
+          )}
+        </div>
+
+        <div className="min-w-0 space-y-1.5">
+          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">Status</div>
+          <MetaLine label="Order Status:" value={row.orderStatus} />
+          <MetaLine label="After Sales Status:" value={row.afterSalesStatus} />
+          <MetaLine
+            label="Return Status:"
+            value={row.returnStatus}
+            valueClassName={
+              changedTo && normFilter(row.returnStatus) === normFilter(changedTo)
+                ? "font-semibold text-amber-700 dark:text-amber-300"
+                : undefined
+            }
+          />
+        </div>
+
+        <div className="min-w-0 space-y-1.5">
+          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">Return</div>
+          <MetaLine label="After Sales Application:" value={row.afterSalesRequestingTime} />
+          <MetaLine label="Warehouse Arrival:" value={row.warehouseArrival} />
+          <MetaLine label="Return Tracking No:" value={row.returnTrackingNo} valueClassName="text-primary" />
+          <MetaLine label="Return Logistics Status:" value={row.returnLogisticsStatus} />
+        </div>
+
+        <div className="min-w-0 space-y-1.5">
+          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">Orders</div>
+          <MetaLine label="Order:" value={row.orderTime} />
+          <MetaLine label="Ship:" value={row.shippingTime} />
+          <MetaLine label="Tracking No.:" value={row.trackingNo} valueClassName="text-primary" />
+          <MetaLine label="Shipping Logistics Status:" value={row.shippingLogisticsStatus} />
+        </div>
+      </div>
+
+      {row.returnReason && (
+        <div className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
+          Return Reason: <span className="text-foreground">{row.returnReason}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -536,6 +732,7 @@ function RestockDialog({
 
     // Update order
     const ref = { item_id: selectedItem.id, item_name: selectedItem.name, quantity: qty };
+    const checkedImport = markReturnStatusChecked(order.return_import);
     const { data, error: oe } = await supabase
       .from("orders")
       .update({
@@ -543,6 +740,7 @@ function RestockDialog({
         return_inventory_type: "inventory",
         return_inventory_ref: ref,
         updated_at: new Date().toISOString(),
+        ...(checkedImport ? { return_import: checkedImport } : {}),
       })
       .eq("id", order.id)
       .select(RETURN_ORDER_SELECT)
@@ -595,6 +793,7 @@ function RestockDialog({
       quantity: qty,
     };
 
+    const checkedImport = markReturnStatusChecked(order.return_import);
     const { data, error: oe } = await supabase
       .from("orders")
       .update({
@@ -602,6 +801,7 @@ function RestockDialog({
         return_inventory_type: "ready_made",
         return_inventory_ref: ref,
         updated_at: new Date().toISOString(),
+        ...(checkedImport ? { return_import: checkedImport } : {}),
       })
       .eq("id", order.id)
       .select(RETURN_ORDER_SELECT)
@@ -917,14 +1117,14 @@ export function ReturnsClient({
 
   const platformCounts = useMemo(() => {
     const m = new Map<string, number>();
-    for (const o of tabList) m.set(orderPlatform(o), (m.get(orderPlatform(o)) || 0) + 1);
+    for (const o of returnOrders) m.set(orderPlatform(o), (m.get(orderPlatform(o)) || 0) + 1);
     return m;
-  }, [tabList]);
+  }, [returnOrders]);
 
-  const platformList = useMemo(
-    () => tabList.filter((o) => orderPlatform(o) === platform),
-    [tabList, platform],
-  );
+  const platformList = useMemo(() => {
+    const source = platform === "Manual After-Sales Order" ? tabList : returnOrders;
+    return source.filter((o) => orderPlatform(o) === platform);
+  }, [returnOrders, tabList, platform]);
 
   const storeNames = useMemo(() => {
     const extra = platformList.map(orderStore).filter(Boolean);
@@ -956,6 +1156,11 @@ export function ReturnsClient({
     return m;
   }, [afterStoreList]);
 
+  const afterTypeNames = useMemo(() => {
+    const extra = afterStoreList.map(orderAfterSalesType).filter(Boolean);
+    return mergeFilterOptions(afterSalesTypesForPlatform(platform), extra);
+  }, [platform, afterStoreList]);
+
   const afterTypeList = useMemo(() => {
     if (afterType === "all") return afterStoreList;
     return afterStoreList.filter((o) => normFilter(orderAfterSalesType(o)) === normFilter(afterType));
@@ -971,10 +1176,27 @@ export function ReturnsClient({
     return m;
   }, [afterTypeList]);
 
+  const bsStatusNames = useMemo(() => {
+    const extra = afterTypeList.map(orderBsReturnStatus).filter(Boolean);
+    return mergeFilterOptions(returnStatusesForPlatform(platform), extra);
+  }, [platform, afterTypeList]);
+
   const displayList = useMemo(() => {
-    if (bsStatus === "all") return afterTypeList;
-    return afterTypeList.filter((o) => normFilter(orderBsReturnStatus(o)) === normFilter(bsStatus));
+    const base =
+      bsStatus === "all"
+        ? afterTypeList
+        : afterTypeList.filter((o) => normFilter(orderBsReturnStatus(o)) === normFilter(bsStatus));
+    return [...base].sort((a, b) => {
+      const ac = pendingReturnStatusChange(a.return_import) ? 0 : 1;
+      const bc = pendingReturnStatusChange(b.return_import) ? 0 : 1;
+      return ac - bc;
+    });
   }, [afterTypeList, bsStatus]);
+
+  const needsCheckCount = useMemo(
+    () => returnOrders.filter((o) => pendingReturnStatusChange(o.return_import)).length,
+    [returnOrders],
+  );
 
   function handleNewReturn(updated: Order) {
     setReturnOrders((prev) => [updated, ...prev]);
@@ -1010,6 +1232,18 @@ export function ReturnsClient({
     if (error) { setErr(error.message); return; }
     setReturnOrders((prev) => prev.filter((o) => o.id !== order.id));
     setCompletedOrders((prev) => [{ ...order, return_status: null, return_reason: null }, ...prev]);
+  }
+
+  async function markStatusChecked(order: Order) {
+    const next = markReturnStatusChecked(order.return_import);
+    if (!next) return;
+    setErr(null);
+    const { error } = await supabase
+      .from("orders")
+      .update({ return_import: next, updated_at: new Date().toISOString() })
+      .eq("id", order.id);
+    if (error) { setErr(error.message); return; }
+    setReturnOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, return_import: next } : o)));
   }
 
   async function saveBsSetting(key: string, raw: string) {
@@ -1224,19 +1458,22 @@ export function ReturnsClient({
                   setBsStatus("all");
                 }}
                 className={cn(
-                  "-mb-px border-b-2 px-3 py-2 text-sm transition-colors",
+                  "-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm transition-colors",
                   selected
                     ? "border-primary font-medium text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground",
                 )}
               >
+                <PlatformGlyph platform={p} />
                 {p}
-                <span className="ml-1 text-muted-foreground">({count})</span>
+                <span className="text-muted-foreground">({count})</span>
               </button>
             );
           })}
         </div>
 
+        {platform !== "Manual After-Sales Order" && (
+        <>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span className="w-32 shrink-0 text-sm text-muted-foreground">Store</span>
           <div className="flex min-w-0 flex-wrap gap-1">
@@ -1265,7 +1502,7 @@ export function ReturnsClient({
               selected={afterType === "all"}
               onClick={() => { setAfterType("all"); setBsStatus("all"); }}
             />
-            {AFTER_SALES_TYPES.map((t) => (
+            {afterTypeNames.map((t) => (
               <FilterChip
                 key={t}
                 label={t}
@@ -1285,7 +1522,7 @@ export function ReturnsClient({
               selected={bsStatus === "all"}
               onClick={() => setBsStatus("all")}
             />
-            {BS_RETURN_STATUSES.map((s) => (
+            {bsStatusNames.map((s) => (
               <FilterChip
                 key={s}
                 label={s}
@@ -1296,10 +1533,22 @@ export function ReturnsClient({
             ))}
           </div>
         </div>
+        </>
+        )}
       </div>
 
       {err && (
         <div className="mb-3 rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">{err}</div>
+      )}
+
+      {needsCheckCount > 0 && (
+        <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+          <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            <strong>{needsCheckCount}</strong> return{needsCheckCount === 1 ? "" : "s"} to check — return status
+            changed on the tracking number. Confirm whether the item really arrived.
+          </span>
+        </div>
       )}
 
       {/* Tab description */}
@@ -1351,8 +1600,10 @@ export function ReturnsClient({
             const total = Number(o.total || 0);
             const paid = Number(o.down_payment || 0);
             const ref = o.return_inventory_ref as Record<string, unknown> | null;
+            const statusChange = pendingReturnStatusChange(o.return_import);
+            const showRestock = (restockTabStatus(o) === "returning" || (!!statusChange && !ref)) && canEdit;
             return (
-              <Card key={o.id}>
+              <Card key={o.id} className={statusChange ? "border-amber-400 dark:border-amber-700" : undefined}>
                 <CardContent className="p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -1366,8 +1617,36 @@ export function ReturnsClient({
                         {restockTabStatus(o) === "returned" && (
                           <Badge variant="green" className="text-xs">Returned ✓</Badge>
                         )}
+                        {statusChange && (
+                          <Badge variant="amber" className="text-xs">
+                            Check: {statusChange.to}
+                          </Badge>
+                        )}
                       </div>
-                      {o.return_reason && (
+                      {statusChange && (
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-800 dark:bg-amber-900/20">
+                          <div className="min-w-0 text-amber-950 dark:text-amber-100">
+                            <div className="font-medium">
+                              Return status changed to {statusChange.to}. Check if the item really arrived.
+                            </div>
+                            <div className="mt-0.5 text-amber-800 dark:text-amber-200">
+                              {statusChange.from} → {statusChange.to}
+                              {statusChange.trackingNo ? ` · Tracking ${statusChange.trackingNo}` : ""}
+                            </div>
+                          </div>
+                          {canEdit && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 shrink-0 text-xs"
+                              onClick={() => void markStatusChecked(o)}
+                            >
+                              Mark as checked
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                      {o.return_reason && !primaryImport(o) && (
                         <div className="mt-1 text-xs text-muted-foreground">
                           Reason: {o.return_reason}
                         </div>
@@ -1395,7 +1674,7 @@ export function ReturnsClient({
                         )}
                       </div>
 
-                      {restockTabStatus(o) === "returning" && canEdit && (
+                      {showRestock && (
                         <>
                           <Button
                             size="sm"

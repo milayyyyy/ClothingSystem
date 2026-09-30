@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import { formatExcelCellString } from "@/lib/bigseller-excel-import";
 import { parseBigSellerDateTimeLabel } from "@/lib/bigseller-datetime";
 import { normalizeImportDedupeKey } from "@/lib/bigseller-import-dedupe";
+import { normalizeBigSellerStoreName } from "@/lib/bigseller-store-labels";
 
 export type BigSellerReturnExcelRow = {
   platform: string;
@@ -28,6 +29,11 @@ export type BigSellerReturnExcelRow = {
   dueTime: string;
   shippingTime: string;
   buyer: string;
+  variation?: string;
+  warehouseArrival?: string;
+  returnLogisticsStatus?: string;
+  paymentMethod?: string;
+  orderValue?: number;
 };
 
 export type BigSellerReturnExcelParseResult = {
@@ -115,9 +121,10 @@ export function parseBigSellerReturnExcelRows(
   const kPackage = col("Package No", "Package No.");
   const kOrderNo = col("Order No", "Order No.", "Order ID", "Order Id");
   const kAfterSalesId = col("After-sales ID", "After Sales ID", "After-sales Id");
-  const kRefunds = col("Refunds");
-  const kProduct = col("Product Name");
-  const kPrice = col("Selling Price", "Selling. Price", "Selling.Price");
+  const kRefunds = col("Refunds", "Refund Value", "Refund Amount");
+  const kOrderValue = col("Order Value", "Order Amount", "Order. Value");
+  const kProduct = col("Product Name", "Item Name");
+  const kPrice = col("Selling Price", "Selling. Price", "Selling.Price", "Unit Price");
   const kQty = col("Qty", "Quantity");
   const kStockIn = col("Stock-in Status", "Stock-In Status", "Stock in Status");
   const kLogistics = col("Logistics");
@@ -131,9 +138,13 @@ export function parseBigSellerReturnExcelRows(
   const kReturnStatus = col("Return Status");
   const kOrderTime = col("Order Time");
   const kRequestTime = col("After Sales Requesting Time", "After-sales Requesting Time");
-  const kDue = col("Due Time");
+  const kDue = col("Due Time", "Deadline");
   const kShipTime = col("Shipping Time");
   const kBuyer = col("Buyer", "Buyer Username", "Receiver Name");
+  const kVariation = col("Variation", "Variation Name", "SKU Name", "Specification");
+  const kWarehouse = col("Warehouse Arrival", "Warehouse Arrival Time");
+  const kReturnLog = col("Return Logistics Status", "Return logistics status");
+  const kPay = col("Payment Method", "Pay Method", "Payment Type", "Pay Type", "COD");
 
   const rows: BigSellerReturnExcelRow[] = [];
   let skippedRows = 0;
@@ -159,9 +170,20 @@ export function parseBigSellerReturnExcelRows(
       ? `${reason} — ${details}`
       : reason || details;
 
+    const payRaw = cellStr(raw, kPay);
+    const payLower = payRaw.toLowerCase();
+    const paymentMethod =
+      payLower === "true" || payLower === "1" || payLower === "yes" || payLower === "cod"
+        ? "COD"
+        : payLower.includes("prepaid")
+          ? "Prepaid"
+          : payLower.includes("cod")
+            ? "COD"
+            : payRaw;
+
     rows.push({
       platform: cellStr(raw, kPlatform),
-      bigsellerStore: cellStr(raw, kStore),
+      bigsellerStore: normalizeBigSellerStoreName(cellStr(raw, kStore)),
       afterSalesType: cellStr(raw, kType),
       packageNo,
       orderNo,
@@ -184,27 +206,96 @@ export function parseBigSellerReturnExcelRows(
       dueTime: cellStr(raw, kDue),
       shippingTime: cellStr(raw, kShipTime),
       buyer: cellStr(raw, kBuyer),
+      variation: cellStr(raw, kVariation),
+      warehouseArrival: cellStr(raw, kWarehouse),
+      returnLogisticsStatus: cellStr(raw, kReturnLog),
+      paymentMethod,
+      orderValue: cellNum(raw, kOrderValue),
     });
   }
 
   return { rows, skippedRows, skipReasons, sheetRows: rawRows.length };
 }
 
+export type ReturnStatusChange = {
+  from: string;
+  to: string;
+  trackingNo: string;
+  changedAt: string;
+  checked: boolean;
+};
+
 export type StoredReturnImport = {
   fileName?: string;
   importedAt?: string;
   rows: BigSellerReturnExcelRow[];
+  statusChange?: ReturnStatusChange | null;
 };
+
+function asStatusChange(raw: unknown): ReturnStatusChange | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.to !== "string" || typeof o.from !== "string") return null;
+  return {
+    from: o.from,
+    to: o.to,
+    trackingNo: typeof o.trackingNo === "string" ? o.trackingNo : "",
+    changedAt: typeof o.changedAt === "string" ? o.changedAt : "",
+    checked: o.checked === true,
+  };
+}
+
+function normReturnStatusLabel(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function returnRowTrackingKeys(
+  row: Pick<BigSellerReturnExcelRow, "trackingNo" | "returnTrackingNo">,
+): string[] {
+  return [row.returnTrackingNo, row.trackingNo].map(normalizeImportDedupeKey).filter(Boolean);
+}
+
+export function storedReturnTrackingKeys(raw: unknown): string[] {
+  const stored = parseStoredReturnImport(raw);
+  if (!stored) return [];
+  const keys: string[] = [];
+  for (const r of stored.rows) keys.push(...returnRowTrackingKeys(r));
+  return keys;
+}
+
+function sameReturnRow(a: BigSellerReturnExcelRow, b: BigSellerReturnExcelRow): boolean {
+  const aid = normalizeImportDedupeKey(a.afterSalesId);
+  const bid = normalizeImportDedupeKey(b.afterSalesId);
+  if (aid && bid && aid === bid) return true;
+  const aKeys = returnRowTrackingKeys(a);
+  const bKeys = returnRowTrackingKeys(b);
+  if (!aKeys.length || !bKeys.length) return false;
+  return aKeys.some((k) => bKeys.includes(k));
+}
 
 export function parseStoredReturnImport(raw: unknown): StoredReturnImport | null {
   if (!raw || typeof raw !== "object") return null;
-  const o = raw as { rows?: unknown; fileName?: unknown; importedAt?: unknown };
+  const o = raw as { rows?: unknown; fileName?: unknown; importedAt?: unknown; statusChange?: unknown };
   if (!Array.isArray(o.rows) || o.rows.length === 0) return null;
   return {
     fileName: typeof o.fileName === "string" ? o.fileName : undefined,
     importedAt: typeof o.importedAt === "string" ? o.importedAt : undefined,
     rows: o.rows as BigSellerReturnExcelRow[],
+    statusChange: asStatusChange(o.statusChange),
   };
+}
+
+export function pendingReturnStatusChange(raw: unknown): ReturnStatusChange | null {
+  const sc = parseStoredReturnImport(raw)?.statusChange;
+  if (!sc || sc.checked) return null;
+  return sc;
+}
+
+export function markReturnStatusChecked(existing: unknown): StoredReturnImport | null {
+  const prev = parseStoredReturnImport(existing);
+  if (!prev) return null;
+  if (!prev.statusChange) return prev;
+  return { ...prev, statusChange: { ...prev.statusChange, checked: true } };
 }
 
 export function afterSalesIdsFromImport(raw: unknown): string[] {
@@ -213,24 +304,73 @@ export function afterSalesIdsFromImport(raw: unknown): string[] {
   return stored.rows.map((r) => normalizeImportDedupeKey(r.afterSalesId)).filter(Boolean);
 }
 
+export function matchReturnImportToOrder<
+  T extends {
+    sku_code?: string | null;
+    external_order_no?: string | null;
+    waybill_no?: string | null;
+    return_import?: unknown;
+  },
+>(row: BigSellerReturnExcelRow, orders: T[]): T | null {
+  const trackKeys = new Set(returnRowTrackingKeys(row));
+  if (trackKeys.size) {
+    const hit = orders.find((o) => {
+      const way = normalizeImportDedupeKey(o.waybill_no);
+      if (way && trackKeys.has(way)) return true;
+      return storedReturnTrackingKeys(o.return_import).some((k) => trackKeys.has(k));
+    });
+    if (hit) return hit;
+  }
+  const pkg = normalizeImportDedupeKey(row.packageNo);
+  if (pkg) {
+    const hit = orders.find((o) => normalizeImportDedupeKey(o.sku_code) === pkg);
+    if (hit) return hit;
+  }
+  const ext = normalizeImportDedupeKey(row.orderNo);
+  if (ext) {
+    const hit = orders.find((o) => normalizeImportDedupeKey(o.external_order_no) === ext);
+    if (hit) return hit;
+  }
+  const aid = normalizeImportDedupeKey(row.afterSalesId);
+  if (aid) {
+    const hit = orders.find((o) => afterSalesIdsFromImport(o.return_import).includes(aid));
+    if (hit) return hit;
+  }
+  return null;
+}
+
 export function mergeReturnImport(
   existing: unknown,
   incoming: BigSellerReturnExcelRow[],
   fileName: string,
 ): StoredReturnImport {
   const prev = parseStoredReturnImport(existing);
-  const seen = new Set(afterSalesIdsFromImport(existing));
   const rows = [...(prev?.rows ?? [])];
+  let statusChange = prev?.statusChange ?? null;
   for (const row of incoming) {
-    const id = normalizeImportDedupeKey(row.afterSalesId);
-    if (id && seen.has(id)) continue;
-    if (id) seen.add(id);
-    rows.push(row);
+    const idx = rows.findIndex((r) => sameReturnRow(r, row));
+    if (idx >= 0) {
+      const oldStatus = rows[idx].returnStatus || "";
+      const newStatus = row.returnStatus || "";
+      if (oldStatus && newStatus && normReturnStatusLabel(oldStatus) !== normReturnStatusLabel(newStatus)) {
+        statusChange = {
+          from: oldStatus,
+          to: newStatus,
+          trackingNo: row.returnTrackingNo || row.trackingNo || returnRowTrackingKeys(rows[idx])[0] || "",
+          changedAt: new Date().toISOString(),
+          checked: false,
+        };
+      }
+      rows[idx] = { ...rows[idx], ...row };
+    } else {
+      rows.push(row);
+    }
   }
   return {
     fileName: fileName || prev?.fileName,
     importedAt: new Date().toISOString(),
     rows,
+    statusChange,
   };
 }
 

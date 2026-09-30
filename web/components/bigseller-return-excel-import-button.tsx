@@ -11,11 +11,12 @@ import { FileSpreadsheet } from "lucide-react";
 import { normalizeImportDedupeKey } from "@/lib/bigseller-import-dedupe";
 import { resolveStoreId, type StoreOption } from "@/lib/bigseller-store-resolve";
 import {
-  afterSalesIdsFromImport,
   mapExcelReturnStatus,
+  matchReturnImportToOrder,
   mergeReturnImport,
   orderTimeIsoFromReturn,
   parseBigSellerReturnExcelRows,
+  parseStoredReturnImport,
   pickBigSellerReturnSheetName,
   RETURN_ORDER_SELECT,
   RETURN_ORDER_SELECT_BASE,
@@ -37,31 +38,11 @@ type MatchOrder = {
   return_status?: string | null;
   return_reason?: string | null;
   return_import?: unknown;
+  return_inventory_ref?: unknown;
 };
 
 function matchOrder(row: BigSellerReturnExcelRow, orders: MatchOrder[]): MatchOrder | null {
-  const pkg = normalizeImportDedupeKey(row.packageNo);
-  const ext = normalizeImportDedupeKey(row.orderNo);
-  const track = normalizeImportDedupeKey(row.trackingNo);
-  const retTrack = normalizeImportDedupeKey(row.returnTrackingNo);
-
-  if (pkg) {
-    const hit = orders.find((o) => normalizeImportDedupeKey(o.sku_code) === pkg);
-    if (hit) return hit;
-  }
-  if (ext) {
-    const hit = orders.find((o) => normalizeImportDedupeKey(o.external_order_no) === ext);
-    if (hit) return hit;
-  }
-  if (track) {
-    const hit = orders.find((o) => normalizeImportDedupeKey(o.waybill_no) === track);
-    if (hit) return hit;
-  }
-  if (retTrack) {
-    const hit = orders.find((o) => normalizeImportDedupeKey(o.waybill_no) === retTrack);
-    if (hit) return hit;
-  }
-  return null;
+  return matchReturnImportToOrder(row, orders);
 }
 
 async function fetchMatchOrders(
@@ -116,7 +97,7 @@ export function BigSellerReturnExcelImportButton({
   const [existing, setExisting] = useState<MatchOrder[]>([]);
   const [duplicateCount, setDuplicateCount] = useState(0);
   const [matchedCount, setMatchedCount] = useState(0);
-  const [newCount, setNewCount] = useState(0);
+  const [statusChangeCount, setStatusChangeCount] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -146,29 +127,46 @@ export function BigSellerReturnExcelImportButton({
     setDuplicateCount(0);
     setMatchedCount(0);
     setNewCount(0);
+    setStatusChangeCount(0);
   }, [open]);
 
   function classify(parsed: BigSellerReturnExcelRow[], orders: MatchOrder[]) {
-    const seenAfter = new Set<string>();
-    for (const o of orders) {
-      for (const id of afterSalesIdsFromImport(o.return_import)) seenAfter.add(id);
-    }
+    const seenInFile = new Set<string>();
     let dup = 0;
     let matched = 0;
     let fresh = 0;
+    let statusChanges = 0;
     const toImport: BigSellerReturnExcelRow[] = [];
     for (const row of parsed) {
       const aid = normalizeImportDedupeKey(row.afterSalesId);
-      if (aid && seenAfter.has(aid)) {
+      const fileKey =
+        aid ||
+        [row.returnTrackingNo, row.trackingNo, row.orderNo, row.packageNo]
+          .map(normalizeImportDedupeKey)
+          .filter(Boolean)
+          .join(":");
+      if (fileKey && seenInFile.has(fileKey)) {
         dup += 1;
         continue;
       }
-      if (aid) seenAfter.add(aid);
+      if (fileKey) seenInFile.add(fileKey);
       toImport.push(row);
-      if (matchOrder(row, orders)) matched += 1;
-      else fresh += 1;
+      const hit = matchOrder(row, orders);
+      if (hit) {
+        matched += 1;
+        const prev = parseStoredReturnImport(hit.return_import)?.rows.find((r) => {
+          const pid = normalizeImportDedupeKey(r.afterSalesId);
+          if (aid && pid && aid === pid) return true;
+          return false;
+        }) ?? parseStoredReturnImport(hit.return_import)?.rows[0];
+        const oldStatus = (prev?.returnStatus || "").trim().toLowerCase().replace(/\s+/g, " ");
+        const newStatus = (row.returnStatus || "").trim().toLowerCase().replace(/\s+/g, " ");
+        if (oldStatus && newStatus && oldStatus !== newStatus) statusChanges += 1;
+      } else {
+        fresh += 1;
+      }
     }
-    return { toImport, dup, matched, fresh };
+    return { toImport, dup, matched, fresh, statusChanges };
   }
 
   async function parseFile(file: File) {
@@ -193,11 +191,12 @@ export function BigSellerReturnExcelImportButton({
       setSheetRows(result.sheetRows);
       setSkippedRows(result.skippedRows);
       setSkipReasons(result.skipReasons);
-      const { toImport, dup, matched, fresh } = classify(result.rows, orders);
+      const { toImport, dup, matched, fresh, statusChanges } = classify(result.rows, orders);
       setRows(toImport);
       setDuplicateCount(dup);
       setMatchedCount(matched);
       setNewCount(fresh);
+      setStatusChangeCount(statusChanges);
       if (result.rows.length === 0 && result.skipReasons[0]) setError(result.skipReasons[0]);
     } catch (e: unknown) {
       setError(formatSupabaseError(e));
@@ -228,14 +227,14 @@ export function BigSellerReturnExcelImportButton({
         const hit = matchOrder(row, working);
 
         if (hit) {
-          const alreadyReturned = hit.return_status === "returned";
+          const alreadyRestocked = !!hit.return_inventory_ref;
           const merged = mergeReturnImport(hit.return_import, [row], fileName);
           const patch: Record<string, unknown> = {
             return_import: merged,
             return_reason: reason || hit.return_reason,
             updated_at: new Date().toISOString(),
           };
-          if (!alreadyReturned) patch.return_status = mappedStatus;
+          if (!alreadyRestocked) patch.return_status = mappedStatus;
           if (!hit.waybill_no && (row.trackingNo || row.returnTrackingNo)) {
             patch.waybill_no = row.trackingNo || row.returnTrackingNo;
           }
@@ -247,7 +246,7 @@ export function BigSellerReturnExcelImportButton({
           }
           if (ue) throw ue;
           hit.return_import = merged;
-          hit.return_status = alreadyReturned ? hit.return_status : mappedStatus;
+          hit.return_status = alreadyRestocked ? hit.return_status : mappedStatus;
           hit.return_reason = (reason || hit.return_reason) as string | null;
           updatedIds.push(hit.id);
           continue;
@@ -327,7 +326,7 @@ export function BigSellerReturnExcelImportButton({
         open={open}
         onClose={() => setOpen(false)}
         title="Import BigSeller returns"
-        description="Upload a BigSeller Order-Return export. Rows match existing orders by package no., order no., or tracking no."
+        description="Upload a BigSeller Order-Return export. Rows match by tracking no., package no., or order no. If return status changed on the same tracking number, the return is marked to check."
         size="xl"
       >
         <div className="space-y-4">
@@ -355,10 +354,11 @@ export function BigSellerReturnExcelImportButton({
               <p className="text-sm text-muted-foreground">
                 {sheetRows} row(s) in file
                 {skippedRows ? ` · ${skippedRows} skipped` : ""}
-                {duplicateCount ? ` · ${duplicateCount} already imported` : ""}
+                {duplicateCount ? ` · ${duplicateCount} duplicate row(s) in file` : ""}
                 {" · "}
                 {matchedCount} match existing order(s)
                 {newCount ? ` · ${newCount} new` : ""}
+                {statusChangeCount ? ` · ${statusChangeCount} return status change(s) to check` : ""}
               </p>
               {skipReasons[0] && <p className="text-xs text-muted-foreground">{skipReasons[0]}</p>}
               <div className="max-h-72 overflow-auto rounded-md border">
