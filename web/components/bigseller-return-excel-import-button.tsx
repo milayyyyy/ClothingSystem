@@ -97,6 +97,7 @@ export function BigSellerReturnExcelImportButton({
   const [existing, setExisting] = useState<MatchOrder[]>([]);
   const [duplicateCount, setDuplicateCount] = useState(0);
   const [matchedCount, setMatchedCount] = useState(0);
+  const [newCount, setNewCount] = useState(0);
   const [statusChangeCount, setStatusChangeCount] = useState(0);
 
   useEffect(() => {
