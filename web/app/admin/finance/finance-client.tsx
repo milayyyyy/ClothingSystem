@@ -255,7 +255,7 @@ export function FinanceClient({
     if (kind === "all") {
       setFlowFromInput("");
       setFlowToInput("");
-      pushFlowQuery({ all: true });
+      pushFlowQuery({});
       return;
     }
     const now = new Date();
@@ -1040,11 +1040,9 @@ export function FinanceClient({
           <div className="space-y-1">
             <CardTitle>Money flow (in / out)</CardTitle>
             <p className="text-xs text-muted-foreground">
-              {flowAllTime
-                ? "Showing all money flow, newest date first."
-                : flowRangeActive
+              {flowRangeActive
                 ? `Showing entries dated ${flowDateFrom} to ${flowDateTo}, newest date first.`
-                : "Showing the latest recorded activity. Pick a date range to filter by entry date."}
+                : "Showing all money flow, newest date first. Use a date range only if you want to narrow it."}
             </p>
           </div>
           <div className="flex shrink-0 self-end gap-2 sm:self-start">

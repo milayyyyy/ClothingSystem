@@ -6,9 +6,15 @@ import { FinanceClient } from "./finance-client";
 export const dynamic = "force-dynamic";
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
+const ACCOUNT_SELECT_FULL =
+  "id,name,kind,balance,description,notes,opening_balance,account_name,account_number,qr_code_url,updated_at";
+const ACCOUNT_SELECT_BASE = "id,name,kind,balance,notes,updated_at";
+const TX_SELECT_FULL =
+  "id,occurred_at,account_id,direction,amount,description,notes,expense_id,manual_sale_id,created_at";
+const TX_SELECT_BASE =
+  "id,occurred_at,account_id,direction,amount,description,notes,expense_id,created_at";
 
 function parseFlowRange(searchParams?: { from?: string; to?: string; all?: string }) {
-  const allTime = searchParams?.all === "1" || searchParams?.all === "true";
   let from = typeof searchParams?.from === "string" ? searchParams.from.trim().slice(0, 10) : "";
   let to = typeof searchParams?.to === "string" ? searchParams.to.trim().slice(0, 10) : "";
   if (from && !YMD.test(from)) from = "";
@@ -18,7 +24,9 @@ function parseFlowRange(searchParams?: { from?: string; to?: string; all?: strin
     from = to;
     to = swap;
   }
-  const valid = Boolean(!allTime && from && to);
+  const valid = Boolean(from && to);
+  // No date params → show every money-flow row (not only this month).
+  const allTime = !valid;
   return { from, to, valid, allTime };
 }
 
@@ -26,72 +34,59 @@ export default async function FinancePage({ searchParams }: { searchParams?: { f
   const supabase = createClient();
   const { from: flowFrom, to: flowTo, valid: flowRangeActive, allTime: flowAllTime } = parseFlowRange(searchParams);
 
-  // Fetch viewer role so the client can restrict balance editing to admins only
   const { data: { user } } = await supabase.auth.getUser();
   const { data: profile } = user
     ? await supabase.from("profiles").select("role").eq("id", user.id).single()
     : { data: null };
   const viewerRole = (profile?.role as string | null) ?? "employee";
 
-  let txQuery = supabase
-    .from("finance_transactions")
-    .select("id,occurred_at,account_id,direction,amount,description,notes,expense_id,manual_sale_id,created_at");
-
-  if (flowRangeActive || flowAllTime) {
-    txQuery = txQuery
+  function applyTxRange(q: any) {
+    let next = q
       .order("occurred_at", { ascending: false })
       .order("created_at", { ascending: false })
       .order("id", { ascending: false });
-  } else {
-    txQuery = txQuery
-      .order("created_at", { ascending: false })
-      .order("occurred_at", { ascending: false })
-      .order("id", { ascending: false });
+    if (flowRangeActive) {
+      next = next.gte("occurred_at", flowFrom).lte("occurred_at", flowTo).limit(5000);
+    } else {
+      next = next.limit(5000);
+    }
+    return next;
   }
 
-  if (flowRangeActive) {
-    txQuery = txQuery.gte("occurred_at", flowFrom).lte("occurred_at", flowTo).limit(2000);
-  } else if (flowAllTime) {
-    txQuery = txQuery.limit(5000);
-  } else {
-    txQuery = txQuery.limit(200);
-  }
-
-  let [{ data: accounts, error: accountsErr }, { data: txs, error: txErr }, { data: stores }] = await Promise.all([
+  const [accRes, txRes, storeRes] = await Promise.all([
     supabase
       .from("finance_accounts")
-      .select("id,name,kind,balance,description,notes,opening_balance,account_name,account_number,qr_code_url,updated_at")
+      .select(ACCOUNT_SELECT_FULL)
       .order("kind", { ascending: true })
       .order("name", { ascending: true }),
-    txQuery,
+    applyTxRange(supabase.from("finance_transactions").select(TX_SELECT_FULL)),
     supabase.from("stores").select("id,name,shop_type").order("name", { ascending: true }),
   ]);
 
-  if (txErr?.message && /manual_sale_id/i.test(txErr.message)) {
-    let fallback = supabase
-      .from("finance_transactions")
-      .select("id,occurred_at,account_id,direction,amount,description,notes,expense_id,created_at");
-    if (flowRangeActive || flowAllTime) {
-      fallback = fallback
-        .order("occurred_at", { ascending: false })
-        .order("created_at", { ascending: false })
-        .order("id", { ascending: false });
+  let accounts: Record<string, unknown>[] | null = (accRes.data || null) as Record<string, unknown>[] | null;
+  let accountsErr = accRes.error;
+  let txs = txRes.data;
+  let txErr = txRes.error;
+  const stores = storeRes.data;
+
+  if (accountsErr) {
+    const retry = await supabase
+      .from("finance_accounts")
+      .select(ACCOUNT_SELECT_BASE)
+      .order("kind", { ascending: true })
+      .order("name", { ascending: true });
+    if (!retry.error) {
+      accounts = (retry.data || []) as Record<string, unknown>[];
+      accountsErr = null;
     } else {
-      fallback = fallback
-        .order("created_at", { ascending: false })
-        .order("occurred_at", { ascending: false })
-        .order("id", { ascending: false });
+      accountsErr = retry.error;
     }
-    if (flowRangeActive) {
-      fallback = fallback.gte("occurred_at", flowFrom).lte("occurred_at", flowTo).limit(2000);
-    } else if (flowAllTime) {
-      fallback = fallback.limit(5000);
-    } else {
-      fallback = fallback.limit(200);
-    }
-    const retry = await fallback;
+  }
+
+  if (txErr) {
+    const retry = await applyTxRange(supabase.from("finance_transactions").select(TX_SELECT_BASE));
     txs = retry.data
-      ? retry.data.map((row) => ({ ...row, manual_sale_id: null }))
+      ? retry.data.map((row: Record<string, unknown>) => ({ ...row, manual_sale_id: null }))
       : retry.data;
     txErr = retry.error;
   }
@@ -118,4 +113,3 @@ export default async function FinancePage({ searchParams }: { searchParams?: { f
     </div>
   );
 }
-
