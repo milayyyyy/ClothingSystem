@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
-import { markReturnStatusChecked } from "@/lib/bigseller-return-excel";
 import { parseDriverReturns } from "@/lib/order-records";
+import { markOrdersReturnedToSeller } from "@/lib/order-record-returns";
 import { getSessionUser, isStaff } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -13,7 +13,7 @@ function serviceSupabase() {
   return createServiceClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
-/** Approve record — selected driver returns move to Returned to seller. Stock is deducted manually. */
+/** Approve record — selected returns move to Returned to seller. Stock is deducted manually. */
 export async function POST(
   _req: NextRequest,
   { params }: { params: { recordId: string } },
@@ -68,25 +68,11 @@ export async function POST(
 
   const picks = parseDriverReturns(record.driver_returns);
   const now = new Date().toISOString();
-  for (const pick of picks) {
-    const { data: order, error: orderErr } = await admin
-      .from("orders")
-      .select("id, return_import")
-      .eq("id", pick.orderId)
-      .maybeSingle();
-    if (orderErr) return NextResponse.json({ error: orderErr.message }, { status: 500 });
-    if (!order) continue;
-    const checkedImport = markReturnStatusChecked(order.return_import);
-    const { error: moveErr } = await admin
-      .from("orders")
-      .update({
-        return_status: "returned",
-        updated_at: now,
-        ...(checkedImport ? { return_import: checkedImport } : {}),
-      })
-      .eq("id", order.id);
-    if (moveErr) return NextResponse.json({ error: moveErr.message }, { status: 500 });
-  }
+  const { error: moveErr } = await markOrdersReturnedToSeller(
+    admin,
+    picks.map((p) => p.orderId),
+  );
+  if (moveErr) return NextResponse.json({ error: moveErr }, { status: 500 });
 
   const { error: upErr } = await admin
     .from("order_records")

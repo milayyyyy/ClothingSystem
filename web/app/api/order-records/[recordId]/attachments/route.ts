@@ -48,8 +48,8 @@ export async function POST(
     if (access.record.submitted_by !== me.id) {
       return NextResponse.json({ error: "Only the submitter can upload files." }, { status: 403 });
     }
-    if (!["draft", "rejected"].includes(access.record.status)) {
-      return NextResponse.json({ error: "Cannot add files after submission." }, { status: 400 });
+    if (access.record.status === "approved") {
+      return NextResponse.json({ error: "Cannot add files after the record is approved." }, { status: 400 });
     }
   }
 
@@ -121,8 +121,8 @@ export async function DELETE(
   if (!isAdmin && access.record.submitted_by !== me.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
-  if (!isAdmin && !["draft", "rejected"].includes(access.record.status)) {
-    return NextResponse.json({ error: "Cannot remove files after submission." }, { status: 400 });
+  if (!isAdmin && access.record.status === "approved") {
+    return NextResponse.json({ error: "Cannot remove files after the record is approved." }, { status: 400 });
   }
 
   const admin = serviceSupabase();

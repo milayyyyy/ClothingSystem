@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  employeeCanEditOrderRecord,
   parseDriverReturns,
   parseUsageSheets,
   usageSheetsSummary,
@@ -96,7 +97,7 @@ export function OrderRecordsClient({
   }, [records, filter, mode, userId]);
 
   const canEditRecord = (r: OrderRecordRow) =>
-    (r.status === "draft" || r.status === "rejected") && r.submitted_by === userId;
+    employeeCanEditOrderRecord(r.status, r.submitted_by, userId);
 
   const recordHref = (r: OrderRecordRow) =>
     mode === "employee"
@@ -146,14 +147,12 @@ export function OrderRecordsClient({
             Submitted records and POS sales for stock review. Admin reviews and deducts stock.
           </p>
         )}
-        {mode === "employee" && (
-          <Link
-            href="/employee/order-records/new"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            <Plus className="h-4 w-4" /> New record
-          </Link>
-        )}
+        <Link
+          href={mode === "employee" ? "/employee/order-records/new" : "/admin/order-records/new"}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          <Plus className="h-4 w-4" /> New record
+        </Link>
       </div>
 
       {filtered.length === 0 ? (
@@ -161,14 +160,12 @@ export function OrderRecordsClient({
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
             <ClipboardList className="h-10 w-10 opacity-30" />
             <p className="text-sm">No order records yet.</p>
-            {mode === "employee" && (
-              <Link
-                href="/employee/order-records/new"
-                className="inline-flex h-8 items-center rounded-md border px-3 text-sm font-medium hover:bg-muted"
-              >
-                Create your first record
-              </Link>
-            )}
+            <Link
+              href={mode === "employee" ? "/employee/order-records/new" : "/admin/order-records/new"}
+              className="inline-flex h-8 items-center rounded-md border px-3 text-sm font-medium hover:bg-muted"
+            >
+              Create your first record
+            </Link>
           </CardContent>
         </Card>
       ) : (

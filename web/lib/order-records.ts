@@ -1,6 +1,10 @@
+import type { ReturnListTab } from "@/lib/bigseller-return-excel";
+
 export const ORDER_RECORD_BUCKET = "order-record-attachments";
 
 export type OrderRecordStatus = "draft" | "submitted" | "approved" | "rejected";
+
+export type { ReturnListTab } from "@/lib/bigseller-return-excel";
 
 export type ManualSheetColumn = { id: string; label: string };
 export type ManualSheetRow = { id: string; cells: Record<string, string> };
@@ -21,6 +25,9 @@ export type DriverReturnPick = {
   customerName: string;
   from: string;
   to: string;
+  tab?: ReturnListTab;
+  packageNo?: string;
+  externalOrderNo?: string;
 };
 
 export type OrderRecordRow = {
@@ -116,6 +123,12 @@ export function usageSheetsSummary(sheets: ManualUsageSheet[]): string {
   return `${sheets.length} sheet(s), ${rows} row(s)`;
 }
 
+const RETURN_TABS: ReturnListTab[] = ["returning", "to_check", "returned"];
+
+function asReturnTab(v: unknown): ReturnListTab | undefined {
+  return typeof v === "string" && (RETURN_TABS as string[]).includes(v) ? (v as ReturnListTab) : undefined;
+}
+
 export function parseDriverReturns(raw: unknown): DriverReturnPick[] {
   if (!Array.isArray(raw)) return [];
   const out: DriverReturnPick[] = [];
@@ -132,9 +145,21 @@ export function parseDriverReturns(raw: unknown): DriverReturnPick[] {
       customerName: typeof o.customerName === "string" ? o.customerName : "",
       from: typeof o.from === "string" ? o.from : "",
       to: typeof o.to === "string" ? o.to : "",
+      tab: asReturnTab(o.tab),
+      packageNo: typeof o.packageNo === "string" ? o.packageNo : "",
+      externalOrderNo: typeof o.externalOrderNo === "string" ? o.externalOrderNo : "",
     });
   }
   return out;
+}
+
+/** Employees can edit their own record until it is approved. */
+export function employeeCanEditOrderRecord(
+  status: OrderRecordStatus,
+  submittedBy: string,
+  userId: string,
+) {
+  return submittedBy === userId && status !== "approved";
 }
 
 export function attachmentKind(file: File): "pdf" | "photo" | null {

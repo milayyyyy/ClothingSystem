@@ -45,7 +45,7 @@ export default async function EmployeeOrderRecordPage({
     submitter: { full_name: me.profile.full_name, email: me.email ?? "" },
   };
 
-  const readOnly = record.status !== "draft" && record.status !== "rejected";
+  const readOnly = record.status === "approved";
 
   return (
     <OrderRecordEditor

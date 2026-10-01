@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient, getSessionUser } from "@/lib/supabase/server";
 import { canEdit, getPermissionsForRole } from "@/lib/role-permissions";
+import { isStaffRole } from "@/lib/roles";
 import { PageHeader } from "@/components/page-header";
 import { InventoryFullStockExportButton } from "@/components/inventory-full-stock-export-button";
 import { ReadyMadeInventoryClient } from "./ready-made-inventory-client";
@@ -36,7 +37,7 @@ export default async function ReadyMadeInventoryPage() {
           </div>
         }
       />
-      <ReadyMadeInventoryClient canEdit={canEditReadyMade} />
+      <ReadyMadeInventoryClient canEdit={canEditReadyMade} isStaff={isStaffRole(user?.profile.role)} />
     </div>
   );
 }

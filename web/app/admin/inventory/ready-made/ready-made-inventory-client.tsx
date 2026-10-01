@@ -169,7 +169,13 @@ function useIsPhoneUi() {
   return isPhone;
 }
 
-export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean }) {
+export function ReadyMadeInventoryClient({
+  canEdit = true,
+  isStaff = false,
+}: {
+  canEdit?: boolean;
+  isStaff?: boolean;
+}) {
   const supabase = createClient();
   const isPhoneUi = useIsPhoneUi();
   const { ask, dialog: confirmDialog } = useConfirmAction();
@@ -224,7 +230,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
   const refreshCatalog = useCallback(async () => {
     const [{ data: gdata, error: ge }, { data: bdata, error: be }] = await Promise.all([
       supabase.from("ready_made_sheet_groups").select("id,name,sort_order").order("sort_order"),
-      supabase.from("ready_made_boards").select(BOARD_SELECT_FULL).order("sort_order"),
+      supabase.from("ready_made_boards").select(isStaff ? BOARD_SELECT_FULL : BOARD_SELECT_BASE).order("sort_order"),
     ]);
     if (ge) console.error(ge);
     let boardsData: Board[] | null = (bdata as Board[]) || null;
@@ -241,7 +247,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
     const bl = (boardsData as Board[]) || [];
     setBoards(bl);
     return bl;
-  }, [supabase]);
+  }, [isStaff, supabase]);
 
   const loadGrid = useCallback(async (boardId: string) => {
     const { data: c } = await supabase.from("ready_made_columns").select("*").eq("board_id", boardId).order("sort_order");
@@ -722,7 +728,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
       setLowStockScanKey((k) => k + 1);
     }
 
-    if (activeBoard?.bigseller_stock_prompt_enabled) {
+    if (isStaff && activeBoard?.bigseller_stock_prompt_enabled) {
       setBigsellerPrompt({
         sheetName: activeBoard.name,
         rowLabel: row?.row_label ?? "",
@@ -1445,6 +1451,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                   </div>
                 </details>
 
+                {isStaff && (
                 <details className="rounded-md border border-border/60 bg-muted/15 px-3 py-2 text-xs">
                   <summary className="cursor-pointer list-none font-medium text-foreground [&::-webkit-details-marker]:hidden">
                     <span className="flex items-center justify-between gap-2">
@@ -1554,6 +1561,7 @@ export function ReadyMadeInventoryClient({ canEdit = true }: { canEdit?: boolean
                     </div>
                   </div>
                 </details>
+                )}
 
                 <div className="relative max-w-md">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />

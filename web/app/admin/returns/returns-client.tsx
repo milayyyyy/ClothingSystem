@@ -11,7 +11,7 @@ import { peso, cn } from "@/lib/utils";
 import { PackageX, RotateCcw, Search, Copy, ExternalLink, Eye, EyeOff, ShoppingBag, Music2, Heart, Calendar } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
 import { BigSellerReturnExcelImportButton } from "@/components/bigseller-return-excel-import-button";
-import { markReturnStatusChecked, parseStoredReturnImport, pendingReturnStatusChange, RETURN_ORDER_SELECT, type BigSellerReturnExcelRow } from "@/lib/bigseller-return-excel";
+import { forwardReturnToCheck, forwardReturnToSeller, markReturnStatusChecked, parseStoredReturnImport, pendingReturnStatusChange, RETURN_ORDER_SELECT, type BigSellerReturnExcelRow } from "@/lib/bigseller-return-excel";
 import { parseBigSellerDateTimeLabel } from "@/lib/bigseller-datetime";
 import { BIGSELLER_KNOWN_STORE_NAMES, normalizeBigSellerStoreName } from "@/lib/bigseller-store-labels";
 
@@ -142,10 +142,11 @@ function orderBsReturnStatus(o: Order): string {
 }
 
 function restockTabStatus(o: Order): "returning" | "returned" {
+  if (o.return_status === "returned") return "returned";
   const excel = orderBsReturnStatus(o).toLowerCase();
   if (excel.includes("returned")) return "returned";
   if (excel.includes("returning")) return "returning";
-  return o.return_status === "returned" ? "returned" : "returning";
+  return "returning";
 }
 
 function storesForPlatform(platform: string, extra: string[]): string[] {
@@ -1067,6 +1068,7 @@ export function ReturnsClient({
   const [bsStatus, setBsStatus] = useState<string>("all");
   const [newReturnOpen, setNewReturnOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [forwardingId, setForwardingId] = useState<string | null>(null);
   const [bsUrl, setBsUrl] = useState("");
   const [bsUser, setBsUser] = useState("");
   const [bsPass, setBsPass] = useState("");
@@ -1240,6 +1242,38 @@ export function ReturnsClient({
       .eq("id", order.id);
     if (error) { setErr(error.message); return; }
     setReturnOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, return_import: next } : o)));
+  }
+
+  async function forwardTo(order: Order, dest: "to_check" | "returned") {
+    setErr(null);
+    setForwardingId(order.id);
+    const now = new Date().toISOString();
+    const patch: Record<string, unknown> = { updated_at: now };
+    let nextOrder: Order = { ...order, updated_at: now };
+    if (dest === "to_check") {
+      const nextImport = forwardReturnToCheck(order.return_import, order.waybill_no || "");
+      patch.return_status = "returning";
+      patch.return_import = nextImport;
+      nextOrder = { ...nextOrder, return_status: "returning", return_import: nextImport };
+    } else {
+      const nextImport = forwardReturnToSeller(order.return_import);
+      patch.return_status = "returned";
+      if (nextImport) patch.return_import = nextImport;
+      nextOrder = {
+        ...nextOrder,
+        return_status: "returned",
+        return_import: nextImport ?? order.return_import,
+      };
+    }
+    let { error } = await supabase.from("orders").update(patch).eq("id", order.id);
+    if (error && /return_import/i.test(error.message) && dest === "returned") {
+      const { return_import: _omit, ...rest } = patch;
+      ({ error } = await supabase.from("orders").update(rest).eq("id", order.id));
+    }
+    setForwardingId(null);
+    if (error) { setErr(error.message); return; }
+    setReturnOrders((prev) => prev.map((o) => (o.id === order.id ? nextOrder : o)));
+    setTab(dest === "to_check" ? "to_check" : "returned");
   }
 
   async function saveBsSetting(key: string, raw: string) {
@@ -1665,6 +1699,29 @@ export function ReturnsClient({
                         >
                           Undo
                         </Button>
+                      )}
+                      {canEdit && tab !== "returned" && (
+                        <>
+                          {tab === "returning" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-xs"
+                              disabled={forwardingId === o.id}
+                              onClick={() => void forwardTo(o, "to_check")}
+                            >
+                              {forwardingId === o.id ? "Moving…" : "To be checked"}
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs"
+                            disabled={forwardingId === o.id}
+                            onClick={() => void forwardTo(o, "returned")}
+                          >
+                            {forwardingId === o.id ? "Moving…" : "Returned to seller"}
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>

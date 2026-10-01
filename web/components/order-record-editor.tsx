@@ -12,6 +12,7 @@ import {
   ORDER_RECORD_BUCKET,
   attachmentKind,
   emptyUsageSheet,
+  employeeCanEditOrderRecord,
   parseDriverReturns,
   parseUsageSheets,
   type DriverReturnPick,
@@ -75,15 +76,15 @@ export function OrderRecordEditor({
   );
 
   const employeeCanEdit =
-    !record || ((record.status === "draft" || record.status === "rejected") && record.submitted_by === userId);
-
-  const adminCanEdit = mode === "admin" && !!record;
+    !record || employeeCanEditOrderRecord(record.status, record.submitted_by, userId);
 
   const editorReadOnly =
-    readOnlyProp ?? (mode === "admin" ? !adminCanEdit : !!record && !employeeCanEdit);
+    readOnlyProp ?? (mode === "admin" ? false : !!record && !employeeCanEdit);
 
   const canEditForm = !editorReadOnly;
   const backHref = mode === "employee" ? "/employee/order-records" : "/admin/order-records";
+  const creatingOrOpen = !record || record.status === "draft" || record.status === "rejected";
+  const employeePending = mode === "employee" && record?.status === "submitted";
 
   const saveDraft = async (): Promise<OrderRecordRow | null> => {
     setBusy(true);
@@ -96,7 +97,7 @@ export function OrderRecordEditor({
       driver_returns: driverReturns,
       updated_at: new Date().toISOString(),
     };
-    if (mode !== "admin") {
+    if (mode !== "admin" && record?.status !== "submitted") {
       payload.status = "draft";
     }
 
@@ -113,8 +114,8 @@ export function OrderRecordEditor({
       if (layout === "page" && mode === "admin") {
         router.refresh();
       }
-      if (layout === "page" && mode === "employee" && !initialRecord) {
-        router.replace(`/employee/order-records/${row.id}`);
+      if (layout === "page" && !initialRecord) {
+        router.replace(`${backHref}/${row.id}`);
       }
       return row;
     }
@@ -128,8 +129,8 @@ export function OrderRecordEditor({
       setDriverReturns(parseDriverReturns(inserted.driver_returns));
     }
     onSaved?.(row);
-    if (layout === "page" && mode === "employee") {
-      router.replace(`/employee/order-records/${row.id}`);
+    if (layout === "page") {
+      router.replace(`${backHref}/${row.id}`);
     }
     return row;
   };
@@ -222,19 +223,14 @@ export function OrderRecordEditor({
 
   const removeAttachment = async (att: OrderRecordAttachment) => {
     if (!canEditForm || !record) return;
-    if (mode === "admin") {
-      const res = await fetch(
-        `/api/order-records/${record.id}/attachments?attachmentId=${encodeURIComponent(att.id)}`,
-        { method: "DELETE" },
-      );
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setErr(json.error || "Could not remove file");
-        return;
-      }
-    } else {
-      await supabase.storage.from(ORDER_RECORD_BUCKET).remove([att.path]);
-      await supabase.from("order_record_attachments").delete().eq("id", att.id);
+    const res = await fetch(
+      `/api/order-records/${record.id}/attachments?attachmentId=${encodeURIComponent(att.id)}`,
+      { method: "DELETE" },
+    );
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setErr(json.error || "Could not remove file");
+      return;
     }
     setAttachments((prev) => prev.filter((a) => a.id !== att.id));
   };
@@ -376,18 +372,28 @@ export function OrderRecordEditor({
               </Button>
             </>
           )}
-          {mode === "admin" && record?.status === "submitted" && driverReturns.length > 0 && (
-            <p className="w-full text-right text-xs text-muted-foreground">
-              Approving will move {driverReturns.length} return(s) to Returned to seller.
-            </p>
-          )}
 
-          {canEditForm && mode === "admin" && (
+          {canEditForm && mode === "admin" && creatingOrOpen && (
+            <>
+              <Button variant="outline" disabled={busy || uploading} onClick={() => void saveDraft()}>
+                Save draft
+              </Button>
+              <Button disabled={busy || uploading} onClick={() => void submitRecord()}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit for review"}
+              </Button>
+            </>
+          )}
+          {canEditForm && mode === "admin" && !creatingOrOpen && (
             <Button disabled={busy || uploading} onClick={() => void saveDraft()}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save changes"}
             </Button>
           )}
-          {canEditForm && mode === "employee" && (
+          {canEditForm && mode === "employee" && employeePending && (
+            <Button disabled={busy || uploading} onClick={() => void saveDraft()}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save changes"}
+            </Button>
+          )}
+          {canEditForm && mode === "employee" && !employeePending && (
             <>
               <Button variant="outline" disabled={busy || uploading} onClick={() => void saveDraft()}>
                 Save draft

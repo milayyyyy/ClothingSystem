@@ -291,12 +291,16 @@ export function pendingReturnStatusChange(raw: unknown): ReturnStatusChange | nu
   return sc;
 }
 
-/** Courier/driver marked this tracking number Returned — still waiting to be checked. */
-export function driverMarkedReturnedChange(raw: unknown): ReturnStatusChange | null {
-  const sc = pendingReturnStatusChange(raw);
-  if (!sc) return null;
-  if (!/returned/i.test(sc.to)) return null;
-  return sc;
+export type ReturnListTab = "returning" | "to_check" | "returned";
+
+export function orderRecordReturnTab(
+  returnStatus: string | null | undefined,
+  returnImport: unknown,
+): ReturnListTab {
+  if (pendingReturnStatusChange(returnImport)) return "to_check";
+  const excel = (returnImportPrimary(returnImport)?.returnStatus || "").toLowerCase();
+  if (excel.includes("returned") || returnStatus === "returned") return "returned";
+  return "returning";
 }
 
 export function markReturnStatusChecked(existing: unknown): StoredReturnImport | null {
@@ -304,6 +308,84 @@ export function markReturnStatusChecked(existing: unknown): StoredReturnImport |
   if (!prev) return null;
   if (!prev.statusChange) return prev;
   return { ...prev, statusChange: { ...prev.statusChange, checked: true } };
+}
+
+function blankReturnExcelRow(partial: Partial<BigSellerReturnExcelRow> = {}): BigSellerReturnExcelRow {
+  return {
+    platform: "",
+    bigsellerStore: "",
+    afterSalesType: "",
+    packageNo: "",
+    orderNo: "",
+    afterSalesId: "",
+    refunds: 0,
+    productName: "",
+    sellingPrice: 0,
+    qty: 0,
+    stockInStatus: "",
+    logistics: "",
+    orderStatus: "",
+    trackingNo: "",
+    shippingLogisticsStatus: "",
+    afterSalesStatus: "",
+    returnReason: "",
+    returnTrackingNo: "",
+    returnStatus: "",
+    orderTime: "",
+    afterSalesRequestingTime: "",
+    dueTime: "",
+    shippingTime: "",
+    buyer: "",
+    ...partial,
+  };
+}
+
+/** Manually flag a return as To be checked (pending status change). */
+export function forwardReturnToCheck(existing: unknown, trackingNo = ""): StoredReturnImport {
+  const prev = parseStoredReturnImport(existing);
+  const row = prev?.rows[0];
+  const from = (row?.returnStatus || prev?.statusChange?.from || "Returning").trim() || "Returning";
+  const tracking =
+    trackingNo.trim() ||
+    (prev?.statusChange?.trackingNo || "").trim() ||
+    (row?.returnTrackingNo || "").trim() ||
+    (row?.trackingNo || "").trim();
+  const rows =
+    prev?.rows?.length
+      ? prev.rows
+      : [blankReturnExcelRow({ trackingNo: tracking, returnStatus: from })];
+  return {
+    fileName: prev?.fileName,
+    importedAt: prev?.importedAt,
+    rows,
+    statusChange: {
+      from,
+      to: "Returned",
+      trackingNo: tracking,
+      changedAt: new Date().toISOString(),
+      checked: false,
+    },
+  };
+}
+
+/** Manually move a return to Returned to seller. */
+export function forwardReturnToSeller(existing: unknown): StoredReturnImport | null {
+  const prev = parseStoredReturnImport(existing);
+  if (!prev) return null;
+  return {
+    ...prev,
+    rows: prev.rows.map((r) => ({
+      ...r,
+      returnStatus: /returned/i.test(r.returnStatus || "") ? r.returnStatus : "Returned",
+    })),
+    statusChange: prev.statusChange
+      ? {
+          ...prev.statusChange,
+          to: /returned/i.test(prev.statusChange.to) ? prev.statusChange.to : "Returned",
+          checked: true,
+        }
+      : prev.statusChange,
+  };
 }
 
 export function afterSalesIdsFromImport(raw: unknown): string[] {
