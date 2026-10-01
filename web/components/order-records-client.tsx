@@ -17,6 +17,8 @@ import {
 } from "@/lib/order-records";
 import { createClient } from "@/lib/supabase/client";
 import { ClipboardList, Plus, Trash2 } from "lucide-react";
+import { ListPagination } from "@/components/list-pagination";
+import { useListPagination } from "@/lib/list-pagination";
 
 const STATUS_LABEL: Record<OrderRecordStatus, string> = {
   draft: "Draft",
@@ -96,6 +98,9 @@ export function OrderRecordsClient({
     return list.sort((a, b) => (b.record_date > a.record_date ? 1 : -1));
   }, [records, filter, mode, userId]);
 
+  const pager = useListPagination(filtered.length, `${filter}|${mode}|${userId}`);
+  const paged = pager.paginate(filtered);
+
   const canEditRecord = (r: OrderRecordRow) =>
     employeeCanEditOrderRecord(r.status, r.submitted_by, userId);
 
@@ -170,7 +175,7 @@ export function OrderRecordsClient({
         </Card>
       ) : (
         <div className="space-y-2">
-          {filtered.map((r) => {
+          {paged.map((r) => {
             const atts = attByRecord.get(r.id) || [];
             const name = r.submitter?.full_name || r.submitter?.email || (mode === "employee" ? "You" : "Employee");
             const returnsCount = parseDriverReturns(r.driver_returns).length;
@@ -234,6 +239,15 @@ export function OrderRecordsClient({
               </div>
             );
           })}
+          <ListPagination
+            page={pager.page}
+            pageSize={pager.pageSize}
+            totalItems={pager.totalItems}
+            totalPages={pager.totalPages}
+            onPageChange={pager.setPage}
+            onPageSizeChange={pager.setPageSize}
+            className="px-0"
+          />
         </div>
       )}
     </div>

@@ -14,6 +14,8 @@ import { peso, formatDate, cn } from "@/lib/utils";
 import { defaultSalesListDateRange } from "@/lib/sales-list";
 import { FileImage, Pencil, Plus, Trash2 } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
+import { ListPagination } from "@/components/list-pagination";
+import { useListPagination } from "@/lib/list-pagination";
 import { ExpensesExcelImportButton } from "@/components/expenses-excel-import-button";
 import {
   ExpenseCategoriesDialog,
@@ -206,6 +208,13 @@ export function ExpensesClient({
     });
   }, [list, from, to, allTime, category, accountFilter, supplierId, search, supplierNameById, accountById]);
 
+  const pager = useListPagination(
+    filtered.length,
+    `${from}|${to}|${allTime}|${category}|${accountFilter}|${supplierId}|${search}`,
+  );
+  const paged = pager.paginate(filtered);
+  const pagedIds = paged.map((e) => e.id);
+
   const filteredTotal = filtered.reduce((s, e) => s + Number(e.amount), 0);
   const byCatFiltered: Record<string, number> = {};
   filtered.forEach((e) => {
@@ -244,10 +253,10 @@ export function ExpensesClient({
     const el = headerCheckRef.current;
     if (!el) return;
     const sel = selectedIds.size;
-    const total = filtered.length;
-    el.indeterminate = sel > 0 && sel < total;
-    el.checked = total > 0 && sel === total;
-  }, [selectedIds, filtered]);
+    const total = pagedIds.length;
+    el.indeterminate = sel > 0 && sel < total && pagedIds.some((id) => selectedIds.has(id));
+    el.checked = total > 0 && pagedIds.every((id) => selectedIds.has(id));
+  }, [selectedIds, pagedIds]);
 
   function toggleRow(id: string) {
     setSelectedIds((prev) => {
@@ -258,10 +267,19 @@ export function ExpensesClient({
   }
 
   function toggleAll() {
-    if (selectedIds.size === filtered.length) {
-      setSelectedIds(new Set());
+    const allOn = pagedIds.length > 0 && pagedIds.every((id) => selectedIds.has(id));
+    if (allOn) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of pagedIds) next.delete(id);
+        return next;
+      });
     } else {
-      setSelectedIds(new Set(filtered.map((e) => e.id)));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of pagedIds) next.add(id);
+        return next;
+      });
     }
   }
 
@@ -510,7 +528,8 @@ export function ExpensesClient({
         </div>
       </div>
 
-      <Card><CardContent className="p-0 overflow-x-auto">
+      <Card><CardContent className="p-0">
+        <div className="overflow-x-auto">
         <table className="w-full min-w-[780px] text-sm">
           <thead className="bg-muted/40 text-left"><tr>
             <th className="w-10 p-2 pl-3">
@@ -519,7 +538,7 @@ export function ExpensesClient({
                 type="checkbox"
                 className="h-4 w-4 rounded border-input"
                 onChange={toggleAll}
-                disabled={filtered.length === 0}
+                disabled={paged.length === 0}
                 aria-label="Select all"
               />
             </th>
@@ -533,7 +552,7 @@ export function ExpensesClient({
             <th className="p-3 w-24 text-right">Actions</th>
           </tr></thead>
           <tbody>
-            {filtered.map((e) => {
+            {paged.map((e) => {
               const isSelected = selectedIds.has(e.id);
               return (
                 <tr key={e.id} className={`border-t ${isSelected ? "bg-primary/5" : "hover:bg-muted/30"}`}>
@@ -588,6 +607,15 @@ export function ExpensesClient({
             )}
           </tbody>
         </table>
+        </div>
+        <ListPagination
+          page={pager.page}
+          pageSize={pager.pageSize}
+          totalItems={pager.totalItems}
+          totalPages={pager.totalPages}
+          onPageChange={pager.setPage}
+          onPageSizeChange={pager.setPageSize}
+        />
       </CardContent></Card>
 
       <ExpenseForm

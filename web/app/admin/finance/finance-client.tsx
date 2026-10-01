@@ -11,6 +11,8 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FinanceCsvExportDialog } from "@/components/finance-csv-export-dialog";
+import { ListPagination } from "@/components/list-pagination";
+import { useListPagination } from "@/lib/list-pagination";
 import { useConfirmAction } from "@/components/confirm-dialog";
 import { ArrowLeftRight, Copy, Check, Download } from "lucide-react";
 import { deleteSalariesLinkedToExpenses } from "@/lib/payroll-ledger";
@@ -305,6 +307,12 @@ export function FinanceClient({
     }
     return rows;
   }, [transactions, flowRangeActive, flowDateFrom, flowDateTo]);
+
+  const flowPager = useListPagination(
+    visibleTxs.length,
+    `${flowRangeActive}|${flowAllTime}|${flowDateFrom}|${flowDateTo}`,
+  );
+  const pagedTxs = flowPager.paginate(visibleTxs);
 
   const [accountOpen, setAccountOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<FinanceAccountRow | null>(null);
@@ -1116,6 +1124,7 @@ export function FinanceClient({
               Create an account first to start recording money flow.
             </div>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
@@ -1131,14 +1140,14 @@ export function FinanceClient({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(visibleTxs || []).length === 0 ? (
+                  {(pagedTxs || []).length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} className="py-10 text-center text-sm text-muted-foreground">
                         {flowRangeActive || flowAllTime ? "No money flow in this range." : "No money flow yet."}
                       </TableCell>
                     </TableRow>
                   ) : (
-                    visibleTxs.map((t) => {
+                    pagedTxs.map((t) => {
                       const a = byId.get(t.account_id);
                       const dir = t.direction === "out" ? "out" : "in";
                       const rec = t.created_at
@@ -1186,6 +1195,15 @@ export function FinanceClient({
                 </TableBody>
               </Table>
             </div>
+            <ListPagination
+              page={flowPager.page}
+              pageSize={flowPager.pageSize}
+              totalItems={flowPager.totalItems}
+              totalPages={flowPager.totalPages}
+              onPageChange={flowPager.setPage}
+              onPageSizeChange={flowPager.setPageSize}
+            />
+            </>
           )}
         </CardContent>
       </Card>

@@ -13,6 +13,8 @@ import { peso } from "@/lib/utils";
 import { useConfirmAction } from "@/components/confirm-dialog";
 import { formatSalesDateTime, orderTypeLabel } from "@/lib/sales";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
+import { ListPagination } from "@/components/list-pagination";
+import { useListPagination } from "@/lib/list-pagination";
 import { RevenueExcelImportButton } from "@/components/revenue-excel-import-button";
 import { ONLINE_SHOP_FILTERS, onlineShopLabel } from "@/lib/online-shops";
 import {
@@ -125,7 +127,12 @@ export function SalesListClient({ orders: initialOrders, initialManualSales }: P
 
   const total = filtered.reduce((s, r) => s + r.amount, 0);
 
-  const visibleKeys = useMemo(() => filtered.map((r) => r.key), [filtered]);
+  const pager = useListPagination(
+    filtered.length,
+    `${from}|${to}|${allTime}|${tab}|${onlineShopFilter}|${search}`,
+  );
+  const paged = pager.paginate(filtered);
+  const visibleKeys = useMemo(() => paged.map((r) => r.key), [paged]);
 
   const selectedRows = useMemo(
     () => filtered.filter((r) => selectedKeys.has(r.key)),
@@ -399,7 +406,8 @@ export function SalesListClient({ orders: initialOrders, initialManualSales }: P
 
       {/* Table */}
       <Card>
-        <CardContent className="overflow-x-auto p-0">
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
           <table className="w-full min-w-[780px] text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
@@ -429,7 +437,7 @@ export function SalesListClient({ orders: initialOrders, initialManualSales }: P
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
+              {paged.map((r) => (
                 <SalesRow
                   key={r.key}
                   row={r}
@@ -446,6 +454,15 @@ export function SalesListClient({ orders: initialOrders, initialManualSales }: P
               )}
             </tbody>
           </table>
+          </div>
+          <ListPagination
+            page={pager.page}
+            pageSize={pager.pageSize}
+            totalItems={pager.totalItems}
+            totalPages={pager.totalPages}
+            onPageChange={pager.setPage}
+            onPageSizeChange={pager.setPageSize}
+          />
         </CardContent>
       </Card>
     </div>

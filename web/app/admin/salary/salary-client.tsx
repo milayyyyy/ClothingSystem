@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { ChevronDown, Trash2 } from "lucide-react";
 import { peso, formatDate, formatDateTime, cn } from "@/lib/utils";
+import { ListPagination } from "@/components/list-pagination";
+import { useListPagination } from "@/lib/list-pagination";
 import { deleteRecordedPayrollRow } from "@/lib/payroll-ledger";
 import {
   allowanceBasisLabel,
@@ -1007,6 +1009,11 @@ export function SalaryClient({
     () => recordedPayrollRows.reduce((s, x) => s + Number(x.net_pay || 0), 0),
     [recordedPayrollRows],
   );
+  const payrollPager = useListPagination(
+    recordedPayrollRows.length,
+    `${recordedPaidDate}|${recordedEmployeeFilter}|${periodStartStr}|${periodEndStr}`,
+  );
+  const pagedPayroll = payrollPager.paginate(recordedPayrollRows);
 
   const exactPaidOnSelectedDate = useMemo(() => {
     if (!recordedPaidDate) return null;
@@ -1266,7 +1273,8 @@ export function SalaryClient({
             </p>
           </details>
         </CardHeader>
-        <CardContent className="p-0 overflow-x-auto overscroll-x-contain">
+        <CardContent className="p-0">
+          <div className="overflow-x-auto overscroll-x-contain">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-left text-xs">
               <tr>
@@ -1282,7 +1290,7 @@ export function SalaryClient({
               </tr>
             </thead>
             <tbody>
-              {recordedPayrollRows.map((s) => {
+              {pagedPayroll.map((s) => {
                 const payee = recordedPayrollEmployeeName(s, employees, onCallStaff);
                 return (
                   <tr key={s.id} className="border-t">
@@ -1361,6 +1369,15 @@ export function SalaryClient({
               </tr>
             </tfoot>
           </table>
+          </div>
+          <ListPagination
+            page={payrollPager.page}
+            pageSize={payrollPager.pageSize}
+            totalItems={payrollPager.totalItems}
+            totalPages={payrollPager.totalPages}
+            onPageChange={payrollPager.setPage}
+            onPageSizeChange={payrollPager.setPageSize}
+          />
         </CardContent>
       </Card>
 
