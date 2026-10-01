@@ -40,6 +40,7 @@ export function ResellerPlaceOrderDialog({
   products,
   resellerId,
   seedProductId,
+  seedOptionIds,
   onPlaced,
 }: {
   open: boolean;
@@ -47,6 +48,7 @@ export function ResellerPlaceOrderDialog({
   products: ResellerProduct[];
   resellerId: string;
   seedProductId?: string;
+  seedOptionIds?: string[];
   onPlaced: () => void;
 }) {
   const supabase = createClient();
@@ -81,7 +83,15 @@ export function ResellerPlaceOrderDialog({
     if (!open) return;
     const next = catalog.find((p) => p.id === seedProductId) || catalog[0] || null;
     setPickId(next?.id || "");
-    applyProduct(next);
+    const seeded =
+      seedOptionIds?.filter(Boolean).length && next && seedProductId === next.id ? seedOptionIds.filter(Boolean) : null;
+    if (seeded && next) {
+      setOptionIds(seeded);
+      setAmount(Number(findSkuForOptionIds(next, seeded)?.price) || 0);
+      setQty(1);
+    } else {
+      applyProduct(next);
+    }
     setError("");
     void supabase
       .from("profiles")
@@ -92,7 +102,7 @@ export function ResellerPlaceOrderDialog({
         setPercent(clampDownpaymentPercent(data?.downpayment_percent));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, seedProductId]);
+  }, [open, seedProductId, seedOptionIds]);
 
   useEffect(() => {
     return () => {

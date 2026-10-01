@@ -15,10 +15,11 @@ import { isResellerRole } from "@/lib/roles";
 import { cn, peso } from "@/lib/utils";
 import {
   RESELLER_SPEC_FIELDS,
+  findSkuForOptionIds,
   formatResellerPrice,
   labeledOptions,
+  orderVariations,
   productPhotos,
-  skuOptionLabels,
   type ResellerProduct,
 } from "@/lib/reseller-products";
 
@@ -28,12 +29,30 @@ export function ResellerProductView({ product }: { product: ResellerProduct }) {
   const canOrder = isResellerRole(role);
   const [orderOpen, setOrderOpen] = useState(false);
   const photos = productPhotos(product);
+  const variations = orderVariations(product);
+  const [optionIds, setOptionIds] = useState(() =>
+    variations.map((v) => labeledOptions(v)[0]?.id).filter(Boolean) as string[],
+  );
   const specs = RESELLER_SPEC_FIELDS.map((field) => ({
     label: field.label,
     value: (product.specs[field.key] || "").trim(),
   })).filter((row) => row.value);
   const sizeRows = (product.size_chart.rows || []).filter((row) => row.size.trim());
-  const pricedSkus = product.skus.filter((s) => Number(s.price) > 0 || s.option_ids.length > 0);
+  const selectedSku = findSkuForOptionIds(product, optionIds);
+  const selectedPrice = Number(selectedSku?.price) || 0;
+  const selectedLabels = variations
+    .map((variation) => labeledOptions(variation).find((o) => optionIds.includes(o.id))?.label)
+    .filter(Boolean) as string[];
+
+  function chooseOption(variationId: string, optionId: string) {
+    const next = variations
+      .map((v) => {
+        if (v.id === variationId) return optionId;
+        return optionIds.find((id) => v.options.some((o) => o.id === id)) || labeledOptions(v)[0]?.id || "";
+      })
+      .filter(Boolean);
+    setOptionIds(next);
+  }
 
   return (
     <div className="space-y-6">
@@ -52,64 +71,88 @@ export function ResellerProductView({ product }: { product: ResellerProduct }) {
           <ResellerProductPhotoStrip photos={photos} alt={product.name || "Product"} layout="detail" />
           <div className="space-y-4">
             {product.category && <p className="text-sm text-muted-foreground">{product.category}</p>}
-            <p className="text-2xl font-semibold text-primary">{formatResellerPrice(product.skus) || peso(0)}</p>
+            <p className="text-2xl font-semibold text-primary">
+              {selectedPrice > 0 ? peso(selectedPrice) : formatResellerPrice(product.skus) || peso(0)}
+            </p>
             {product.preorder && <Badge variant="amber">Pre-order</Badge>}
 
-            <div className="space-y-3">
-              <h2 className="text-sm font-semibold">Variations</h2>
-              {product.variations.length === 0 ? (
+            <div className="space-y-4">
+              {variations.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No variations.</p>
               ) : (
-                product.variations.map((variation) => {
+                variations.map((variation) => {
                   const opts = labeledOptions(variation);
-                  if (!opts.length) return null;
+                  const withImages = opts.some((o) => o.image_url);
                   return (
-                    <div key={variation.id} className="space-y-1.5">
-                      <div className="text-xs font-medium text-muted-foreground">{variation.name || "Variation"}</div>
-                      <div className="flex flex-wrap gap-2">
-                        {opts.map((option) => (
-                          <div
-                            key={option.id}
-                            className="flex items-center gap-2 rounded-md border bg-muted/20 px-2 py-1.5"
-                          >
-                            {option.image_url ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={option.image_url} alt="" className="h-9 w-9 rounded object-cover" />
-                            ) : null}
-                            <span className="text-sm">{option.label}</span>
-                          </div>
-                        ))}
+                    <div key={variation.id} className="space-y-2">
+                      <div className="text-sm">
+                        <span className="font-medium">{variation.name || "Variation"}</span>
+                        {opts.find((o) => optionIds.includes(o.id))?.label ? (
+                          <span className="text-muted-foreground">
+                            {" · "}
+                            {opts.find((o) => optionIds.includes(o.id))?.label}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className={cn("flex flex-wrap", withImages ? "gap-2.5" : "gap-2")}>
+                        {opts.map((option) => {
+                          const selected = optionIds.includes(option.id);
+                          if (withImages) {
+                            return (
+                              <button
+                                key={option.id}
+                                type="button"
+                                onClick={() => chooseOption(variation.id, option.id)}
+                                className={cn(
+                                  "w-[4.75rem] overflow-hidden rounded-xl border bg-muted/20 text-left transition-colors",
+                                  selected
+                                    ? "border-primary ring-2 ring-primary/40"
+                                    : "border-border/80 hover:border-foreground/30",
+                                )}
+                              >
+                                <div className="aspect-square bg-muted">
+                                  {option.image_url ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={option.image_url} alt="" className="h-full w-full object-cover" />
+                                  ) : (
+                                    <div className="h-full w-full bg-muted" />
+                                  )}
+                                </div>
+                                <div className="truncate px-1.5 py-1.5 text-center text-[11px] leading-tight">{option.label}</div>
+                              </button>
+                            );
+                          }
+                          return (
+                            <button
+                              key={option.id}
+                              type="button"
+                              onClick={() => chooseOption(variation.id, option.id)}
+                              className={cn(
+                                "min-w-[2.75rem] rounded-full border px-3.5 py-1.5 text-sm transition-colors",
+                                selected
+                                  ? "border-primary bg-primary/15 font-medium text-foreground ring-1 ring-primary/40"
+                                  : "border-border bg-background text-muted-foreground hover:border-foreground/30 hover:text-foreground",
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   );
                 })
               )}
+              {selectedLabels.length > 0 && (
+                <div className="rounded-lg border bg-muted/15 px-3 py-2.5">
+                  <div className="text-xs text-muted-foreground">{selectedLabels.join(" · ")}</div>
+                  <div className="mt-0.5 flex flex-wrap items-baseline justify-between gap-2">
+                    <div className="text-base font-semibold tabular-nums">{selectedPrice > 0 ? peso(selectedPrice) : "—"}</div>
+                    {selectedSku?.sku && <div className="text-xs text-muted-foreground">SKU {selectedSku.sku}</div>}
+                  </div>
+                </div>
+              )}
             </div>
-
-            {pricedSkus.some((s) => s.option_ids.length > 0) && (
-              <div className="overflow-hidden rounded-md border">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
-                    <tr>
-                      <th className="px-3 py-2 font-medium">Variation</th>
-                      <th className="px-3 py-2 text-right font-medium">Price</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pricedSkus.map((sku, i) => (
-                      <tr key={`${sku.sku || i}`} className="border-t">
-                        <td className="px-3 py-1.5">
-                          {skuOptionLabels(sku, product.variations).join(" / ") || sku.sku || "Default"}
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums">
-                          {Number(sku.price) > 0 ? peso(sku.price) : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
 
             {canOrder && (
               <Button type="button" onClick={() => setOrderOpen(true)}>
@@ -184,6 +227,7 @@ export function ResellerProductView({ product }: { product: ResellerProduct }) {
           products={[product]}
           resellerId={userId}
           seedProductId={product.id}
+          seedOptionIds={optionIds}
           onPlaced={() => router.push("/admin/reseller/orders")}
         />
       )}
