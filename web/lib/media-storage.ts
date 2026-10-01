@@ -3,6 +3,7 @@ export { ORDER_RECORD_BUCKET } from "@/lib/order-records";
 export const EXPENSE_RECEIPTS_BUCKET = "expense-receipts";
 export const JERSEY_DESIGNS_BUCKET = "jersey-designs";
 export const RESELLER_PRODUCTS_BUCKET = "reseller-products";
+export const RESELLER_ORDER_RECEIPTS_BUCKET = "reseller-order-receipts";
 export const RESELLER_PRODUCT_IMAGE_MAX = 9;
 
 export const TEAM_DESIGN_MAX = 24;
@@ -53,4 +54,8 @@ export function nextJerseyDesignPath(orderId: string, teamKey: string, existingU
 
 export function expenseReceiptPath(expenseId: string, ext: "jpg" | "pdf"): string {
   return `${sanitizeStorageSegment(expenseId)}/receipt.${ext}`;
+}
+
+export function resellerOrderReceiptPath(resellerId: string, orderId: string) {
+  return `${sanitizeStorageSegment(resellerId)}/${sanitizeStorageSegment(orderId)}.jpg`;
 }

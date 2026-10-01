@@ -121,7 +121,7 @@ const STAFF_GROUPS: Group[] = [
     { href: "/admin/suppliers", label: "Suppliers", icon: Truck },
   ]},
   { title: "People", items: [
-    { href: "/admin/employees", label: "Employees", icon: Users, adminOnly: true },
+    { href: "/admin/employees", label: "Employees", icon: Users, adminOrManagerOnly: true, alwaysShowForStaff: true },
     { href: "/admin/attendance", label: "Attendance", icon: Clock },
     { href: "/admin/salary", label: "Salary", icon: Wallet },
     { href: "/admin/my-salary", label: "My Salary", icon: Wallet, managerOnly: true },

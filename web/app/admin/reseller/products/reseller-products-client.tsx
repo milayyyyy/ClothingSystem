@@ -16,12 +16,13 @@ import { isResellerRole } from "@/lib/roles";
 import { ResellerPlaceOrderDialog } from "../reseller-place-order-dialog";
 import { cn, formatSupabaseError } from "@/lib/utils";
 import {
-  coverImage,
   formatResellerPrice,
+  productPhotos,
   skuStockTotal,
   type ResellerProduct,
 } from "@/lib/reseller-products";
 import { removeResellerProductFiles } from "@/lib/reseller-product-upload";
+import { ResellerProductPhotoStrip } from "./reseller-product-photo-strip";
 
 export function ResellerProductsClient({
   initial,
@@ -112,25 +113,21 @@ export function ResellerProductsClient({
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((item) => {
-            const image = coverImage(item.images);
-            const media = (
-                  <div className="aspect-[4/3] bg-muted">
-                    {image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={image} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-muted-foreground">
-                        <Package className="h-8 w-8" />
-                      </div>
-                    )}
-                  </div>
-            );
-            const body = (
-                  <CardContent className="space-y-2 p-4">
+            const photos = productPhotos(item);
+            return (
+              <Card key={item.id} className="overflow-hidden transition-shadow hover:shadow-md">
+                <ResellerProductPhotoStrip
+                  photos={photos}
+                  alt={item.name || "Product"}
+                  layout="card"
+                  mainHref={`/admin/reseller/products/${item.id}`}
+                />
+                <Link href={`/admin/reseller/products/${item.id}`} className="block">
+                  <CardContent className="space-y-2 p-3 sm:p-4">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="truncate font-medium">{item.name || "Untitled product"}</div>
-                        <div className="truncate text-xs text-muted-foreground">{item.category || "No category"}</div>
+                        <div className="line-clamp-2 font-medium leading-snug">{item.name || "Untitled product"}</div>
+                        <div className="mt-0.5 truncate text-xs text-muted-foreground">{item.category || "No category"}</div>
                       </div>
                       {!canOrder && (
                         <Badge variant={item.status === "listed" ? "green" : "muted"}>
@@ -143,12 +140,6 @@ export function ResellerProductsClient({
                       {!canOrder && <span className="text-muted-foreground">Stock {skuStockTotal(item.skus)}</span>}
                     </div>
                   </CardContent>
-            );
-            return (
-              <Card key={item.id} className="overflow-hidden">
-                <Link href={`/admin/reseller/products/${item.id}`} className="block">
-                  {media}
-                  {body}
                 </Link>
                 {editable && (
                   <div className="flex gap-2 border-t px-4 py-3">

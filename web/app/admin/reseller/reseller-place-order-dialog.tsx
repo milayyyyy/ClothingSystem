@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -15,7 +15,11 @@ import {
   orderVariations,
   type ResellerProduct,
 } from "@/lib/reseller-products";
+import { uploadResellerOrderReceipt } from "@/lib/reseller-order-receipt";
 import {
+  DEFAULT_RESELLER_DOWNPAYMENT_PERCENT,
+  clampDownpaymentPercent,
+  downpaymentDue,
   listedCatalog,
   orderItemFromProduct,
   orderTotal,
@@ -55,10 +59,15 @@ export function ResellerPlaceOrderDialog({
   const [qty, setQty] = useState(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [percent, setPercent] = useState(DEFAULT_RESELLER_DOWNPAYMENT_PERCENT);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptPreview, setReceiptPreview] = useState("");
 
   const picked = catalog.find((p) => p.id === pickId) || catalog[0] || null;
   const variations = picked ? orderVariations(picked) : [];
   const selectedSku = picked ? findSkuForOptionIds(picked, optionIds) : null;
+  const total = orderTotal(items);
+  const due = downpaymentDue(total, percent);
 
   function applyProduct(product: ResellerProduct | null) {
     const ids = firstOptionIds(product);
@@ -74,13 +83,30 @@ export function ResellerPlaceOrderDialog({
     setPickId(next?.id || "");
     applyProduct(next);
     setError("");
+    void supabase
+      .from("profiles")
+      .select("downpayment_percent")
+      .eq("id", resellerId)
+      .maybeSingle()
+      .then(({ data }) => {
+        setPercent(clampDownpaymentPercent(data?.downpayment_percent));
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, seedProductId]);
+
+  useEffect(() => {
+    return () => {
+      if (receiptPreview) URL.revokeObjectURL(receiptPreview);
+    };
+  }, [receiptPreview]);
 
   function reset() {
     setItems([]);
     setNotes("");
     setError("");
+    setReceiptFile(null);
+    if (receiptPreview) URL.revokeObjectURL(receiptPreview);
+    setReceiptPreview("");
   }
 
   function chooseProduct(id: string) {
@@ -113,24 +139,47 @@ export function ResellerPlaceOrderDialog({
     setItems((prev) => [...prev, line]);
   }
 
+  function pickReceipt(file: File | null) {
+    if (receiptPreview) URL.revokeObjectURL(receiptPreview);
+    setReceiptFile(file);
+    setReceiptPreview(file ? URL.createObjectURL(file) : "");
+  }
+
   async function submit() {
     if (!items.length) {
       setError("Add at least one product.");
       return;
     }
-    setSaving(true);
-    setError("");
-    const { error: saveErr } = await supabase.from("reseller_orders").insert({
-      reseller_id: resellerId,
-      items,
-      notes: notes.trim() || null,
-      status: "pending",
-    });
-    setSaving(false);
-    if (saveErr) {
-      setError(formatSupabaseError(saveErr));
+    if (due > 0 && !receiptFile) {
+      setError(`Upload a receipt photo for the ${percent}% downpayment (${peso(due)}).`);
       return;
     }
+    setSaving(true);
+    setError("");
+    const orderId = crypto.randomUUID();
+    let receiptPath = "";
+    try {
+      if (due > 0 && receiptFile) {
+        receiptPath = await uploadResellerOrderReceipt(resellerId, orderId, receiptFile);
+      }
+      const { error: saveErr } = await supabase.from("reseller_orders").insert({
+        id: orderId,
+        reseller_id: resellerId,
+        items,
+        notes: notes.trim() || null,
+        status: "pending",
+        downpayment_percent: percent,
+        downpayment_amount: due,
+        receipt_path: receiptPath || null,
+        payment_status: due > 0 ? "pending_review" : "approved",
+      });
+      if (saveErr) throw new Error(formatSupabaseError(saveErr));
+    } catch (err) {
+      setSaving(false);
+      setError(err instanceof Error ? err.message : "Could not place order.");
+      return;
+    }
+    setSaving(false);
     reset();
     onPlaced();
     onClose();
@@ -146,7 +195,7 @@ export function ResellerPlaceOrderDialog({
         }
       }}
       title="Place order"
-      description="Select the variation, amount, and quantity."
+      description="Pay the downpayment and attach a receipt to send the order."
       size="lg"
     >
       <div className="space-y-4">
@@ -246,8 +295,41 @@ export function ResellerPlaceOrderDialog({
           <Input className="mt-1.5" value={notes} placeholder="Optional note" onChange={(e) => setNotes(e.target.value)} />
         </div>
 
+        <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <div className="text-sm font-medium">Downpayment {percent}%</div>
+              <p className="text-xs text-muted-foreground">
+                Pay {peso(due)} of {peso(total)} to send this order. An admin reviews the receipt.
+              </p>
+            </div>
+            <div className="text-sm font-medium tabular-nums">{peso(due)}</div>
+          </div>
+          {due > 0 && (
+            <div>
+              <Label htmlFor="reseller-downpayment-receipt">Receipt photo</Label>
+              <div className="mt-1.5 flex items-center gap-3">
+                {receiptPreview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={receiptPreview} alt="Receipt preview" className="h-16 w-16 rounded-md border object-cover" />
+                ) : (
+                  <div className="flex h-16 w-16 items-center justify-center rounded-md border border-dashed text-muted-foreground">
+                    <Upload className="h-4 w-4" />
+                  </div>
+                )}
+                <Input
+                  id="reseller-downpayment-receipt"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => pickReceipt(e.target.files?.[0] || null)}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="flex items-center justify-between gap-2 border-t pt-4">
-          <div className="text-sm font-medium">Total {peso(orderTotal(items))}</div>
+          <div className="text-sm font-medium">Total {peso(total)}</div>
           <div className="flex gap-2">
             <Button type="button" variant="outline" disabled={saving} onClick={onClose}>
               Cancel

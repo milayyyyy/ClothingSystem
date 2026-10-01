@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { PROFILE_LIST_SELECT } from "@/lib/profile-select";
+import { PROFILE_EMPLOYEE_SELECT } from "@/lib/profile-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,10 @@ import { FaceEnrollDialog } from "@/components/face-enroll-dialog";
 import { RoleSettingsDialog } from "@/components/role-settings-dialog";
 import { useConfirmAction } from "@/components/confirm-dialog";
 import { ASSIGNABLE_ROLES, roleLabel } from "@/lib/roles";
+import {
+  DEFAULT_RESELLER_DOWNPAYMENT_PERCENT,
+  clampDownpaymentPercent,
+} from "@/lib/reseller-orders";
 
 type EmpPosition = { id: string; name: string; sort_order: number };
 
@@ -72,6 +76,32 @@ function initials(name?: string | null) {
   return name.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
 }
 
+function DownpaymentPercentField({
+  value,
+  onChange,
+}: {
+  value: number | string | null | undefined;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div className="col-span-2">
+      <Label>Downpayment percent</Label>
+      <Input
+        className="mt-1.5"
+        type="number"
+        min={0}
+        max={100}
+        step={1}
+        value={clampDownpaymentPercent(value)}
+        onChange={(e) => onChange(clampDownpaymentPercent(e.target.value))}
+      />
+      <p className="mt-1 text-xs text-muted-foreground">
+        Required before a reseller order proceeds. Default {DEFAULT_RESELLER_DOWNPAYMENT_PERCENT}%. Receipt photo is reviewed by admin.
+      </p>
+    </div>
+  );
+}
+
 export function EmployeesClient({
   initialPermanent,
   initialOnCall,
@@ -111,7 +141,7 @@ export function EmployeesClient({
 
   async function refresh() {
     const [{ data: profiles }, { data: onCall }, { data: enrolledRows }] = await Promise.all([
-      supabase.from("profiles").select(PROFILE_LIST_SELECT).order("created_at", { ascending: false }),
+      supabase.from("profiles").select(PROFILE_EMPLOYEE_SELECT).order("created_at", { ascending: false }),
       supabase.from("on_call_staff").select("*").order("full_name", { ascending: true }),
       supabase.from("profiles").select("id").not("face_descriptor", "is", null),
     ]);
@@ -191,13 +221,15 @@ export function EmployeesClient({
           </button>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={() => setRoleSettingsOpen(true)}>
-            <ShieldCheck className="mr-1 h-4 w-4" /> Role Settings
-          </Button>
+          {viewerRole === "admin" && (
+            <Button variant="outline" size="sm" onClick={() => setRoleSettingsOpen(true)}>
+              <ShieldCheck className="mr-1 h-4 w-4" /> Role Settings
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => setPositionsMgrOpen(true)}>
             <Settings2 className="mr-1 h-4 w-4" /> Positions
           </Button>
-          {categoryTab === "permanent" && (
+          {categoryTab === "permanent" && viewerRole === "admin" && (
             <Button onClick={() => setAdding(true)}>
               <Plus className="mr-1 h-4 w-4" />
               Add employee
@@ -268,15 +300,15 @@ export function EmployeesClient({
                   </button>
                   <button
                     type="button"
-                    onClick={() => canActOnRow && deleteEmployee(p)}
-                    disabled={!canActOnRow}
+                    onClick={() => canActOnRow && viewerRole === "admin" && deleteEmployee(p)}
+                    disabled={!canActOnRow || viewerRole !== "admin"}
                     className={cn(
                       "rounded p-1 transition-colors",
                       canActOnRow
                         ? "text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                         : "cursor-not-allowed opacity-30",
                     )}
-                    title={canActOnRow ? "Delete employee" : "Managers cannot delete admin accounts"}
+                    title={viewerRole !== "admin" ? "Only admin can delete accounts" : canActOnRow ? "Delete employee" : "Managers cannot delete admin accounts"}
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -288,6 +320,11 @@ export function EmployeesClient({
                 <Badge variant={p.role === "admin" ? "purple" : p.role === "manager" ? "amber" : p.role === "media" ? "teal" : p.role === "reseller" ? "green" : "blue"}>{roleLabel(p.role)}</Badge>
                 <Badge variant={p.active ? "green" : "red"}>{p.active ? "Active" : "Inactive"}</Badge>
                 {p.position && <Badge variant="outline">{p.position}</Badge>}
+                {p.role === "reseller" && (
+                  <Badge variant="outline">
+                    Downpayment {clampDownpaymentPercent(p.downpayment_percent)}%
+                  </Badge>
+                )}
               </div>
 
               {/* DOB & employment start */}
@@ -359,7 +396,7 @@ export function EmployeesClient({
         employee={editing}
         positions={positions}
         onSaved={refresh}
-        onDelete={editing ? () => deleteEmployee(editing) : undefined}
+        onDelete={viewerRole === "admin" && editing ? () => deleteEmployee(editing) : undefined}
       />
       <AddEmployee open={adding} onClose={() => setAdding(false)} positions={positions} onSaved={refresh} />
       <FaceEnrollDialog
@@ -513,6 +550,7 @@ function AddEmployee({
     role: "employee",
     date_of_birth: "",
     employment_start: "",
+    downpayment_percent: DEFAULT_RESELLER_DOWNPAYMENT_PERCENT,
   };
   const [form, setForm] = useState<any>(emptyForm);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -540,6 +578,7 @@ function AddEmployee({
         phone: form.phone, position: form.position, role: form.role,
         date_of_birth: form.date_of_birth || null,
         employment_start: form.employment_start || null,
+        downpayment_percent: clampDownpaymentPercent(form.downpayment_percent),
       }),
     });
     const j = await res.json();
@@ -607,6 +646,12 @@ function AddEmployee({
         <div className="col-span-2">
           <RolePicker value={form.role} onChange={(role) => set("role", role)} />
         </div>
+        {form.role === "reseller" && (
+          <DownpaymentPercentField
+            value={form.downpayment_percent}
+            onChange={(n) => set("downpayment_percent", n)}
+          />
+        )}
         <div><Label>Date of birth</Label><Input type="date" value={form.date_of_birth} onChange={(e) => set("date_of_birth", e.target.value)} /></div>
         <div><Label>Start of employment</Label><Input type="date" value={form.employment_start} onChange={(e) => set("employment_start", e.target.value)} /></div>
 
@@ -658,6 +703,7 @@ function EditEmployee({
       position: employee.position ?? "",
       date_of_birth: employee.date_of_birth ?? "",
       employment_start: employee.employment_start ?? "",
+      downpayment_percent: clampDownpaymentPercent(employee.downpayment_percent),
     });
     setAvatarFile(null);
     setAvatarPreview(null);
@@ -707,7 +753,7 @@ function EditEmployee({
       }
     }
 
-    await supabase.from("profiles").update({
+    const { error } = await supabase.from("profiles").update({
       full_name: form.full_name,
       phone: form.phone,
       position: form.position || null,
@@ -716,7 +762,13 @@ function EditEmployee({
       date_of_birth: form.date_of_birth || null,
       employment_start: form.employment_start || null,
       avatar_url,
+      downpayment_percent: clampDownpaymentPercent(form.downpayment_percent),
     }).eq("id", form.id);
+    if (error) {
+      setBusy(false);
+      alert(error.message);
+      return;
+    }
 
     setBusy(false);
     onClose();
@@ -771,6 +823,12 @@ function EditEmployee({
         <div className="col-span-2">
           <RolePicker value={form.role} onChange={(role) => set("role", role)} />
         </div>
+        {form.role === "reseller" && (
+          <DownpaymentPercentField
+            value={form.downpayment_percent}
+            onChange={(n) => set("downpayment_percent", n)}
+          />
+        )}
         <div>
           <Label>Status</Label>
           <select className={selectClass} value={form.active ? "1" : "0"} onChange={(e) => set("active", e.target.value === "1")}>

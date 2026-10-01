@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSrv } from "@supabase/supabase-js";
 import { getSessionUser } from "@/lib/supabase/server";
 import { ASSIGNABLE_ROLES, type Role } from "@/lib/roles";
+import { clampDownpaymentPercent } from "@/lib/reseller-orders";
 
 export async function POST(req: NextRequest) {
   const me = await getSessionUser();
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest) {
   if (!serviceKey) return NextResponse.json({ error: "Missing SUPABASE_SERVICE_ROLE_KEY", hint: "Copy the service_role secret from Supabase → Project Settings → API into web/.env.local." }, { status: 500 });
 
   const body = await req.json();
-  const { email, password, full_name, role, position, phone, date_of_birth, employment_start } = body || {};
+  const { email, password, full_name, role, position, phone, date_of_birth, employment_start, downpayment_percent } = body || {};
   if (!email || !password) return NextResponse.json({ error: "email and password required" }, { status: 400 });
   const allowed = new Set<string>(ASSIGNABLE_ROLES.map((r) => r.value));
   const nextRole: Role = allowed.has(role) ? (role as Role) : "employee";
@@ -43,6 +44,7 @@ export async function POST(req: NextRequest) {
     date_of_birth: date_of_birth || null,
     employment_start: employment_start || null,
     employment_category: "permanent",
+    downpayment_percent: nextRole === "reseller" ? clampDownpaymentPercent(downpayment_percent) : 30,
   }).eq("id", created.user.id);
   if (pErr) return NextResponse.json({ error: pErr.message }, { status: 400 });
 

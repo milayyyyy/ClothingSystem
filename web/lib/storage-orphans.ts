@@ -3,6 +3,7 @@ import { ORDER_RECORD_BUCKET } from "@/lib/order-records";
 import {
   EXPENSE_RECEIPTS_BUCKET,
   JERSEY_DESIGNS_BUCKET,
+  RESELLER_ORDER_RECEIPTS_BUCKET,
   RESELLER_PRODUCTS_BUCKET,
   storagePathFromPublicUrl,
 } from "@/lib/media-storage";
@@ -58,15 +59,17 @@ async function referencedPaths(supabase: SupabaseClient): Promise<Set<string>> {
     if (p) keys.add(`${bucket}:${p}`);
   };
 
-  const [{ data: expenses, error: expErr }, { data: atts, error: attErr }, { data: teams, error: teamErr }, { data: players, error: playerErr }, resellerRes] =
+  const [{ data: expenses, error: expErr }, { data: atts, error: attErr }, { data: teams, error: teamErr }, { data: players, error: playerErr }, resellerRes, resellerOrdersRes] =
     await Promise.all([
       supabase.from("expenses").select("receipt_path").not("receipt_path", "is", null),
       supabase.from("order_record_attachments").select("path"),
       supabase.from("sublimation_teams").select("design_image_urls"),
       supabase.from("sublimation_team_players").select("design_image_url"),
       supabase.from("reseller_products").select("images,variations"),
+      supabase.from("reseller_orders").select("receipt_path").not("receipt_path", "is", null),
     ]);
   const resellerProducts = resellerRes.error ? [] : resellerRes.data;
+  const resellerOrders = resellerOrdersRes.error ? [] : resellerOrdersRes.data;
 
   if (expErr) throw new Error(expErr.message);
   if (attErr) throw new Error(attErr.message);
@@ -115,6 +118,7 @@ async function referencedPaths(supabase: SupabaseClient): Promise<Set<string>> {
       }
     }
   }
+  for (const row of resellerOrders || []) add(RESELLER_ORDER_RECEIPTS_BUCKET, (row as { receipt_path?: string | null }).receipt_path);
 
   return keys;
 }
@@ -128,18 +132,19 @@ export type StorageCleanupResult = {
 };
 
 export async function cleanupOrphanMedia(supabase: SupabaseClient): Promise<StorageCleanupResult> {
-  const [receipts, designs, attachments, resellerImages, referenced] = await Promise.all([
+  const [receipts, designs, attachments, resellerImages, resellerReceipts, referenced] = await Promise.all([
     listBucketObjects(supabase, EXPENSE_RECEIPTS_BUCKET),
     listBucketObjects(supabase, JERSEY_DESIGNS_BUCKET),
     listBucketObjects(supabase, ORDER_RECORD_BUCKET),
     listBucketObjects(supabase, RESELLER_PRODUCTS_BUCKET).catch(() => [] as ListedObject[]),
+    listBucketObjects(supabase, RESELLER_ORDER_RECEIPTS_BUCKET).catch(() => [] as ListedObject[]),
     referencedPaths(supabase),
   ]);
 
   const now = Date.now();
   const orphans: ListedObject[] = [];
   let skippedRecent = 0;
-  for (const obj of [...receipts, ...designs, ...attachments, ...resellerImages]) {
+  for (const obj of [...receipts, ...designs, ...attachments, ...resellerImages, ...resellerReceipts]) {
     if (referenced.has(`${obj.bucket}:${obj.path}`)) continue;
     if (obj.createdAt && now - obj.createdAt < SKIP_NEWER_THAN_MS) {
       skippedRecent += 1;

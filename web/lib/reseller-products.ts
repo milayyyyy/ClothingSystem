@@ -307,6 +307,23 @@ export function coverImage(images: ResellerImage[]) {
   return images[0]?.url || "";
 }
 
+/** Product photos plus variation option photos, first unique URLs. */
+export function productPhotos(product: Pick<ResellerProduct, "images" | "variations">): ResellerImage[] {
+  const seen = new Set<string>();
+  const out: ResellerImage[] = [];
+  const push = (url?: string, path?: string) => {
+    const src = (url || "").trim();
+    if (!src || seen.has(src)) return;
+    seen.add(src);
+    out.push({ url: src, path: path || "" });
+  };
+  for (const img of product.images) push(img.url, img.path);
+  for (const variation of product.variations) {
+    for (const option of variation.options) push(option.image_url, option.image_path);
+  }
+  return out;
+}
+
 export function skuPriceRange(skus: ResellerSku[]) {
   const prices = skus.map((s) => Number(s.price) || 0).filter((n) => n > 0);
   if (!prices.length) return { min: 0, max: 0 };

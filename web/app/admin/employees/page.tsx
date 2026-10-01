@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { PROFILE_LIST_SELECT } from "@/lib/profile-select";
+import { PROFILE_EMPLOYEE_SELECT } from "@/lib/profile-select";
 import { PageHeader } from "@/components/page-header";
 import { EmployeesClient } from "./employees-client";
 
@@ -14,7 +14,7 @@ export default async function AdminEmployeesPage() {
   const viewerRole = (viewerProfile as { role?: string } | null)?.role ?? "employee";
 
   const [{ data: profiles }, onCallRes, enrolledRes] = await Promise.all([
-    supabase.from("profiles").select(PROFILE_LIST_SELECT).order("created_at", { ascending: false }),
+    supabase.from("profiles").select(PROFILE_EMPLOYEE_SELECT).order("created_at", { ascending: false }),
     supabase.from("on_call_staff").select("*").order("full_name", { ascending: true }),
     supabase.from("profiles").select("id").not("face_descriptor", "is", null),
   ]);
