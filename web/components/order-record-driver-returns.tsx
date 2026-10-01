@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { DriverReturnPick, ReturnListTab } from "@/lib/order-records";
 import { PackageX } from "lucide-react";
+import { ListPagination } from "@/components/list-pagination";
+import { useListPagination } from "@/lib/list-pagination";
 
 type Props = {
   selected: DriverReturnPick[];
@@ -106,6 +108,9 @@ export function OrderRecordDriverReturns({ selected, onChange, readOnly }: Props
     [filtered, tab],
   );
 
+  const pager = useListPagination(list.length, `${tab}|${query}`);
+  const paged = pager.paginate(list);
+
   async function markReturned(row: DriverReturnPick) {
     if (readOnly || displayTab(row) === "returned") return;
     setMarkingId(row.orderId);
@@ -196,8 +201,9 @@ export function OrderRecordDriverReturns({ selected, onChange, readOnly }: Props
                     : "No orders marked as returned to seller."}
             </div>
           ) : (
-            <ul className="max-h-72 divide-y overflow-y-auto rounded-md border">
-              {list.map((row) => {
+            <div className="overflow-hidden rounded-md border">
+            <ul className="divide-y">
+              {paged.map((row) => {
                 const done = displayTab(row) === "returned";
                 return (
                   <li key={row.orderId} className="flex items-start justify-between gap-3 px-3 py-2">
@@ -221,6 +227,15 @@ export function OrderRecordDriverReturns({ selected, onChange, readOnly }: Props
                 );
               })}
             </ul>
+            <ListPagination
+              page={pager.page}
+              pageSize={pager.pageSize}
+              totalItems={pager.totalItems}
+              totalPages={pager.totalPages}
+              onPageChange={pager.setPage}
+              onPageSizeChange={pager.setPageSize}
+            />
+            </div>
           )}
           {selected.length > 0 && (
             <p className="text-xs text-muted-foreground">
