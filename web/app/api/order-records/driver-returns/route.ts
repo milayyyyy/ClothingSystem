@@ -22,6 +22,17 @@ function serviceSupabase() {
   return createServiceClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+type DriverReturnOrder = {
+  id: string;
+  order_no: string | null;
+  customer_name: string | null;
+  waybill_no: string | null;
+  external_order_no: string | null;
+  sku_code: string | null;
+  return_status: string | null;
+  return_import?: unknown;
+};
+
 function canUse(role: string | undefined) {
   return isStaff(role) || role === "employee";
 }
@@ -81,18 +92,19 @@ export async function GET(req: NextRequest) {
     .from("orders")
     .select(ORDER_SELECT)
     .in("return_status", ["returning", "returned"]);
+  let orders: DriverReturnOrder[] = (rows ?? []) as DriverReturnOrder[];
   if (error && /return_import/i.test(error.message)) {
     const fallback = await admin
       .from("orders")
       .select("id,order_no,customer_name,waybill_no,external_order_no,sku_code,return_status")
       .in("return_status", ["returning", "returned"]);
-    rows = fallback.data;
     error = fallback.error;
+    orders = (fallback.data ?? []) as DriverReturnOrder[];
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const byId = new Map<string, (typeof rows)[number]>();
-  for (const row of rows || []) byId.set(row.id, row);
+  const byId = new Map<string, DriverReturnOrder>();
+  for (const row of orders) byId.set(row.id, row);
 
   const missing = includeIds.filter((id) => !byId.has(id));
   if (missing.length) {

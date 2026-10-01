@@ -228,12 +228,16 @@ export function ReadyMadeInventoryClient({
   }, [cells]);
 
   const refreshCatalog = useCallback(async () => {
+    const groupsQuery = supabase.from("ready_made_sheet_groups").select("id,name,sort_order").order("sort_order");
+    const boardsQuery = isStaff
+      ? supabase.from("ready_made_boards").select(BOARD_SELECT_FULL).order("sort_order")
+      : supabase.from("ready_made_boards").select(BOARD_SELECT_BASE).order("sort_order");
     const [{ data: gdata, error: ge }, { data: bdata, error: be }] = await Promise.all([
-      supabase.from("ready_made_sheet_groups").select("id,name,sort_order").order("sort_order"),
-      supabase.from("ready_made_boards").select(isStaff ? BOARD_SELECT_FULL : BOARD_SELECT_BASE).order("sort_order"),
+      groupsQuery,
+      boardsQuery,
     ]);
     if (ge) console.error(ge);
-    let boardsData: Board[] | null = (bdata as Board[]) || null;
+    let boardsData: Board[] = (bdata ?? []) as Board[];
     if (be) {
       const { data: fallback, error: fe } = await supabase
         .from("ready_made_boards")
@@ -241,12 +245,11 @@ export function ReadyMadeInventoryClient({
         .order("sort_order");
       if (fe) console.error(fe);
       else console.error(be);
-      boardsData = (fallback as Board[]) || null;
+      boardsData = (fallback ?? []) as Board[];
     }
     setGroups(((gdata as Group[]) || []).filter(Boolean));
-    const bl = (boardsData as Board[]) || [];
-    setBoards(bl);
-    return bl;
+    setBoards(boardsData);
+    return boardsData;
   }, [isStaff, supabase]);
 
   const loadGrid = useCallback(async (boardId: string) => {
