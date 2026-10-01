@@ -219,9 +219,9 @@ function MetaLine({
   const v = (value || "").trim();
   if (!v) return null;
   return (
-    <div className="min-w-0 text-xs leading-5">
-      <span className="text-muted-foreground">{label}</span>
-      <div className={cn("break-all text-foreground", valueClassName)}>{v}</div>
+    <div className="min-w-0 text-[11px] leading-4">
+      <span className="text-muted-foreground">{label} </span>
+      <span className={cn("break-all text-foreground", valueClassName)}>{v}</span>
     </div>
   );
 }
@@ -337,7 +337,7 @@ function ReturnImportDetails({ raw }: { raw: unknown }) {
   if (!stored) return null;
   const changedTo = pendingReturnStatusChange(raw)?.to;
   return (
-    <div className="mt-2 space-y-2">
+    <div className="mt-1.5 space-y-1.5">
       {stored.rows.map((row, i) => (
         <BigSellerReturnProductInfo
           key={row.afterSalesId || `${row.orderNo}:${i}`}
@@ -370,20 +370,26 @@ function BigSellerReturnProductInfo({
       : "";
   const returning = /returning/i.test(row.returnStatus);
   const daysLeft = returning && row.dueTime ? daysUntilDue(row.dueTime) : null;
+  const hasReturn = Boolean(
+    (row.afterSalesRequestingTime || "").trim() ||
+      (row.warehouseArrival || "").trim() ||
+      (row.returnTrackingNo || "").trim() ||
+      (row.returnLogisticsStatus || "").trim(),
+  );
 
   return (
     <div className="overflow-hidden rounded-md border border-border/60">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/60 bg-muted/30 px-3 py-2 text-xs">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-border/60 bg-muted/30 px-2 py-1 text-[11px]">
         {row.orderNo && (
           <span>
-            <span className="text-muted-foreground">Order No:</span>
+            <span className="text-muted-foreground">Order No: </span>
             <span className="font-medium">{row.orderNo}</span>
           </span>
         )}
         {row.stockInStatus && (
           <span
             className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+              "inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[10px] font-medium",
               pendingStock
                 ? "bg-red-500/15 text-red-600 dark:text-red-400"
                 : "bg-muted text-muted-foreground",
@@ -395,81 +401,91 @@ function BigSellerReturnProductInfo({
         )}
         {row.packageNo && (
           <span>
-            <span className="text-muted-foreground">Package No:</span>
+            <span className="text-muted-foreground">Package No: </span>
             {row.packageNo}
           </span>
         )}
         {row.afterSalesId && (
           <span>
-            <span className="text-muted-foreground">After Sales ID:</span>
+            <span className="text-muted-foreground">After Sales ID: </span>
             {row.afterSalesId}
           </span>
         )}
         {row.dueTime && (
           <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground">
-            <Calendar className="h-3.5 w-3.5" />
+            <Calendar className="h-3 w-3" />
             Deadline: <span className="text-foreground">{row.dueTime}</span>
           </span>
         )}
       </div>
 
-      <div className="hidden border-b border-border/60 px-3 py-1.5 text-[11px] font-medium text-muted-foreground lg:grid lg:grid-cols-6 lg:gap-3">
+      <div
+        className={cn(
+          "hidden border-b border-border/60 px-2 py-1 text-[10px] font-medium text-muted-foreground lg:grid lg:gap-x-2",
+          hasReturn ? "lg:grid-cols-6" : "lg:grid-cols-5",
+        )}
+      >
         <div>Product Information</div>
         <div>Value</div>
         <div>After Sales</div>
         <div>Status</div>
-        <div>Return</div>
+        {hasReturn && <div>Return</div>}
         <div>Orders</div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 px-3 py-3 sm:grid-cols-2 lg:grid-cols-6 lg:gap-3">
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-2 px-2 py-2 sm:grid-cols-2 lg:gap-x-2 lg:gap-y-0",
+          hasReturn ? "lg:grid-cols-6" : "lg:grid-cols-5",
+        )}
+      >
         <div className="min-w-0">
-          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">Product Information</div>
-          <div className="truncate text-sm font-medium" title={title}>
+          <div className="mb-0.5 text-[10px] font-medium text-muted-foreground lg:hidden">Product Information</div>
+          <div className="truncate text-xs font-medium" title={title}>
             {title}
           </div>
           {subtitle && (
-            <div className="truncate text-xs text-muted-foreground" title={subtitle}>
+            <div className="truncate text-[11px] text-muted-foreground" title={subtitle}>
               {subtitle}
             </div>
           )}
           {price > 0 && (
-            <div className="mt-0.5 text-xs text-muted-foreground">
+            <div className="mt-0.5 text-[11px] text-muted-foreground">
               {peso(price)} <span className="text-orange-500">× {qty}</span>
             </div>
           )}
         </div>
 
         <div className="min-w-0">
-          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">Value</div>
+          <div className="mb-0.5 text-[10px] font-medium text-muted-foreground lg:hidden">Value</div>
           {refund > 0 ? (
             <>
-              <div className="text-[11px] text-muted-foreground">Refund Value:</div>
-              <div className="text-sm font-medium">{peso(refund)}</div>
+              <div className="text-[10px] text-muted-foreground">Refund Value</div>
+              <div className="text-xs font-medium">{peso(refund)}</div>
             </>
           ) : orderValue > 0 ? (
             <>
-              <div className="text-[11px] text-muted-foreground">Order Value:</div>
-              <div className="text-sm font-medium">{peso(orderValue)}</div>
+              <div className="text-[10px] text-muted-foreground">Order Value</div>
+              <div className="text-xs font-medium">{peso(orderValue)}</div>
             </>
           ) : null}
           {pay && (
-            <span className="mt-1 inline-block rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+            <span className="mt-0.5 inline-block rounded border border-border px-1 py-px text-[10px] text-muted-foreground">
               {pay}
             </span>
           )}
         </div>
 
         <div className="min-w-0">
-          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">After Sales</div>
-          <div className="text-sm">{row.afterSalesType || "—"}</div>
+          <div className="mb-0.5 text-[10px] font-medium text-muted-foreground lg:hidden">After Sales</div>
+          <div className="text-xs">{row.afterSalesType || "—"}</div>
           {daysLeft != null && daysLeft > 0 && (
-            <div className="mt-1 text-sm font-medium text-red-500">{daysLeft} Days</div>
+            <div className="mt-0.5 text-xs font-medium text-red-500">{daysLeft} Days</div>
           )}
         </div>
 
-        <div className="min-w-0 space-y-1.5">
-          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">Status</div>
+        <div className="min-w-0 space-y-0.5">
+          <div className="mb-0.5 text-[10px] font-medium text-muted-foreground lg:hidden">Status</div>
           <MetaLine label="Order Status:" value={row.orderStatus} />
           <MetaLine label="After Sales Status:" value={row.afterSalesStatus} />
           <MetaLine
@@ -483,16 +499,18 @@ function BigSellerReturnProductInfo({
           />
         </div>
 
-        <div className="min-w-0 space-y-1.5">
-          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">Return</div>
-          <MetaLine label="After Sales Application:" value={row.afterSalesRequestingTime} />
-          <MetaLine label="Warehouse Arrival:" value={row.warehouseArrival} />
-          <MetaLine label="Return Tracking No:" value={row.returnTrackingNo} valueClassName="text-primary" />
-          <MetaLine label="Return Logistics Status:" value={row.returnLogisticsStatus} />
-        </div>
+        {hasReturn && (
+          <div className="min-w-0 space-y-0.5">
+            <div className="mb-0.5 text-[10px] font-medium text-muted-foreground lg:hidden">Return</div>
+            <MetaLine label="After Sales Application:" value={row.afterSalesRequestingTime} />
+            <MetaLine label="Warehouse Arrival:" value={row.warehouseArrival} />
+            <MetaLine label="Return Tracking No:" value={row.returnTrackingNo} valueClassName="text-primary" />
+            <MetaLine label="Return Logistics Status:" value={row.returnLogisticsStatus} />
+          </div>
+        )}
 
-        <div className="min-w-0 space-y-1.5">
-          <div className="mb-1 text-[11px] font-medium text-muted-foreground lg:hidden">Orders</div>
+        <div className="min-w-0 space-y-0.5">
+          <div className="mb-0.5 text-[10px] font-medium text-muted-foreground lg:hidden">Orders</div>
           <MetaLine label="Order:" value={row.orderTime} />
           <MetaLine label="Ship:" value={row.shippingTime} />
           <MetaLine label="Tracking No.:" value={row.trackingNo} valueClassName="text-primary" />
@@ -501,7 +519,7 @@ function BigSellerReturnProductInfo({
       </div>
 
       {row.returnReason && (
-        <div className="border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
+        <div className="border-t border-border/60 px-2 py-1 text-[11px] text-muted-foreground">
           Return Reason: <span className="text-foreground">{row.returnReason}</span>
         </div>
       )}
@@ -1619,82 +1637,36 @@ export function ReturnsClient({
             const statusChange = pendingReturnStatusChange(o.return_import);
             return (
               <Card key={o.id} className={statusChange ? "border-amber-400 dark:border-amber-700" : undefined}>
-                <CardContent className="p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">#{o.order_no}</span>
-                        <span className="text-sm font-medium">{o.customer_name}</span>
-                        <Badge variant="outline" className="text-xs">{orderKindLabel(o)}</Badge>
-                        {tab !== "to_check" && restockTabStatus(o) === "returning" && (
-                          <Badge variant="amber" className="text-xs">Returning to seller</Badge>
-                        )}
-                        {tab !== "to_check" && restockTabStatus(o) === "returned" && (
-                          <Badge variant="green" className="text-xs">Returned ✓</Badge>
-                        )}
-                        {statusChange && (
-                          <Badge variant="amber" className="text-xs">
-                            To be checked: {statusChange.to}
-                          </Badge>
-                        )}
-                      </div>
+                <CardContent className="p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                      <span className="font-semibold">#{o.order_no}</span>
+                      <span className="text-sm font-medium">{o.customer_name}</span>
+                      <Badge variant="outline" className="text-[10px]">{orderKindLabel(o)}</Badge>
+                      {tab !== "to_check" && restockTabStatus(o) === "returning" && (
+                        <Badge variant="amber" className="text-[10px]">Returning to seller</Badge>
+                      )}
+                      {tab !== "to_check" && restockTabStatus(o) === "returned" && (
+                        <Badge variant="green" className="text-[10px]">Returned ✓</Badge>
+                      )}
                       {statusChange && (
-                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs dark:border-amber-800 dark:bg-amber-900/20">
-                          <div className="min-w-0 text-amber-950 dark:text-amber-100">
-                            <div className="font-medium">
-                              Return status changed to {statusChange.to} on this tracking number. Confirm with staff
-                              if it really arrived. If the courier marked it returned but it did not, report it.
-                            </div>
-                            <div className="mt-0.5 text-amber-800 dark:text-amber-200">
-                              {statusChange.from} → {statusChange.to}
-                              {statusChange.trackingNo ? ` · Tracking ${statusChange.trackingNo}` : ""}
-                            </div>
-                          </div>
-                          {canEdit && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 shrink-0 text-xs"
-                              onClick={() => void markStatusChecked(o)}
-                            >
-                              Mark as checked
-                            </Button>
-                          )}
-                        </div>
+                        <Badge variant="amber" className="text-[10px]">
+                          To be checked: {statusChange.to}
+                        </Badge>
                       )}
-                      {o.return_reason && !primaryImport(o) && (
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          Reason: {o.return_reason}
-                        </div>
-                      )}
-                      <ReturnImportDetails raw={o.return_import} />
-                      {ref && (
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          Restocked to:{" "}
-                          {o.return_inventory_type === "inventory"
-                            ? `Inventory — ${String(ref.item_name || "")} (+${ref.quantity})`
-                            : `Ready-made — ${String(ref.board_name || "")} › ${String(ref.row_label || "")} › ${String(ref.col_name || "")} (+${ref.quantity})`
-                          }
-                        </div>
-                      )}
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        Updated: {formatDate(o.updated_at)}
-                      </div>
                     </div>
-
-                    <div className="flex flex-wrap items-center gap-2 text-right">
-                      <div className="text-sm">
+                    <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+                      <div className="mr-1 text-right text-sm">
                         <div className="font-mono font-semibold">{peso(total)}</div>
                         {paid > 0 && (
-                          <div className="text-xs text-muted-foreground">Paid: {peso(paid)}</div>
+                          <div className="text-[11px] text-muted-foreground">Paid: {peso(paid)}</div>
                         )}
                       </div>
-
                       {tab === "returning" && canEdit && (
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 text-xs text-muted-foreground"
+                          className="h-7 px-2 text-[11px] text-muted-foreground"
                           onClick={() => revertToCompleted(o)}
                         >
                           Undo
@@ -1706,7 +1678,7 @@ export function ReturnsClient({
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-8 text-xs"
+                              className="h-7 px-2 text-[11px]"
                               disabled={forwardingId === o.id}
                               onClick={() => void forwardTo(o, "to_check")}
                             >
@@ -1715,7 +1687,7 @@ export function ReturnsClient({
                           )}
                           <Button
                             size="sm"
-                            className="h-8 text-xs"
+                            className="h-7 px-2 text-[11px]"
                             disabled={forwardingId === o.id}
                             onClick={() => void forwardTo(o, "returned")}
                           >
@@ -1724,6 +1696,48 @@ export function ReturnsClient({
                         </>
                       )}
                     </div>
+                  </div>
+                  {statusChange && (
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs dark:border-amber-800 dark:bg-amber-900/20">
+                      <div className="min-w-0 text-amber-950 dark:text-amber-100">
+                        <div className="font-medium">
+                          Return status changed to {statusChange.to} on this tracking number. Confirm with staff
+                          if it really arrived. If the courier marked it returned but it did not, report it.
+                        </div>
+                        <div className="mt-0.5 text-amber-800 dark:text-amber-200">
+                          {statusChange.from} → {statusChange.to}
+                          {statusChange.trackingNo ? ` · Tracking ${statusChange.trackingNo}` : ""}
+                        </div>
+                      </div>
+                      {canEdit && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 shrink-0 px-2 text-[11px]"
+                          onClick={() => void markStatusChecked(o)}
+                        >
+                          Mark as checked
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  {o.return_reason && !primaryImport(o) && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Reason: {o.return_reason}
+                    </div>
+                  )}
+                  <ReturnImportDetails raw={o.return_import} />
+                  {ref && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Restocked to:{" "}
+                      {o.return_inventory_type === "inventory"
+                        ? `Inventory — ${String(ref.item_name || "")} (+${ref.quantity})`
+                        : `Ready-made — ${String(ref.board_name || "")} › ${String(ref.row_label || "")} › ${String(ref.col_name || "")} (+${ref.quantity})`
+                      }
+                    </div>
+                  )}
+                  <div className="mt-1 text-[11px] text-muted-foreground">
+                    Updated: {formatDate(o.updated_at)}
                   </div>
                 </CardContent>
               </Card>

@@ -47,7 +47,7 @@ export function OrderRecordDriverReturns({ selected, onChange, readOnly }: Props
     fetch(url)
       .then(async (res) => {
         const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json.error || "Could not load returns");
+        if (!res.ok) throw new Error(json.error || `Could not load returns (${res.status})`);
         return json as { items?: DriverReturnPick[] };
       })
       .then((json) => {
