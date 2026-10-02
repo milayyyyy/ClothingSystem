@@ -38,10 +38,13 @@ export function createClient() {
 /**
  * Auth + profile for the current request. Memoized so layout and the page
  * share one Auth call and one profiles read instead of doing both twice.
+ *
+ * getSession reads the JWT from the cookie — no network round-trip.
+ * We only call getUser (network) when the JWT cookie is absent/expired,
+ * which is rare during normal browsing.
  */
 export const getSessionUser = cache(async () => {
   const supabase = createClient();
-  // Cookie JWT first (no Auth network). Fall back to getUser() only when missing.
   const { data: { session } } = await supabase.auth.getSession();
   let user = session?.user ?? null;
   if (!user) {

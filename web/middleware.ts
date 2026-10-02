@@ -18,12 +18,10 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  // getSession reads the JWT from the cookie — no network call.
+  // Only fall back to getUser (network) when the cookie is absent/expired.
   const { data: { session } } = await supabase.auth.getSession();
-  let user = session?.user ?? null;
-  if (!user) {
-    const { data } = await supabase.auth.getUser();
-    user = data.user;
-  }
+  const user = session?.user ?? null;
   const path = request.nextUrl.pathname;
   const isAuthRoute = path.startsWith("/login");
   const isProtected = path.startsWith("/admin") || path.startsWith("/employee") || path.startsWith("/attendance");
