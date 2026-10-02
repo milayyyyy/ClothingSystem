@@ -63,15 +63,9 @@ export type ResellerProduct = {
   updated_at: string;
 };
 
-export const RESELLER_CATEGORIES = [
-  "Men Clothes > Tops > T-shirts",
-  "Men Clothes > Tops > Polo",
-  "Women Clothes > Tops > T-shirts",
-  "Unisex > Tops > T-shirts",
-  "Kids > Tops > T-shirts",
-] as const;
+export type ResellerSpecField = { key: string; label: string; options: string[] };
 
-export const RESELLER_SPEC_FIELDS: { key: string; label: string; options: string[] }[] = [
+export const RESELLER_SPEC_FIELDS: ResellerSpecField[] = [
   { key: "brand", label: "Brand", options: ["No brand", "Likha. Apparel", "Mensahe. Apparel", "Padayon. Apparel", "Drips. Apparel"] },
   { key: "material", label: "Material", options: ["Pro-Club Cotton", "Cotton", "Cotton Blend", "Polyester", "Dry Fit"] },
   { key: "pattern", label: "Pattern", options: ["Print", "Solid", "Graphic", "Striped"] },
@@ -365,4 +359,30 @@ export function resellerTableMissing(message: string) {
 
 export function asResellerProductList(rows: unknown[] | null | undefined): ResellerProduct[] {
   return (rows || []).map((row) => parseResellerProduct(row as Record<string, unknown>));
+}
+
+export function resellerSpecFieldKey(label: string) {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "") || newResellerId();
+}
+
+export function listedProductSpecs(product: Pick<ResellerProduct, "specs">, fields: ResellerSpecField[] = RESELLER_SPEC_FIELDS) {
+  const seen = new Set<string>();
+  const out: { key: string; label: string; value: string }[] = [];
+  for (const field of fields) {
+    const value = (product.specs[field.key] || "").trim();
+    if (!value) continue;
+    seen.add(field.key);
+    out.push({ key: field.key, label: field.label, value });
+  }
+  for (const [key, raw] of Object.entries(product.specs)) {
+    if (seen.has(key)) continue;
+    const value = String(raw || "").trim();
+    if (!value) continue;
+    out.push({ key, label: key.replace(/_/g, " "), value });
+  }
+  return out;
 }

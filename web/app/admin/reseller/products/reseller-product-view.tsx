@@ -14,7 +14,7 @@ import { useWorkspaceShell } from "@/components/workspace-shell-context";
 import { isResellerRole } from "@/lib/roles";
 import { cn, peso } from "@/lib/utils";
 import {
-  RESELLER_SPEC_FIELDS,
+  listedProductSpecs,
   findSkuForOptionIds,
   formatResellerPrice,
   labeledOptions,
@@ -33,10 +33,7 @@ export function ResellerProductView({ product }: { product: ResellerProduct }) {
   const [optionIds, setOptionIds] = useState(() =>
     variations.map((v) => labeledOptions(v)[0]?.id).filter(Boolean) as string[],
   );
-  const specs = RESELLER_SPEC_FIELDS.map((field) => ({
-    label: field.label,
-    value: (product.specs[field.key] || "").trim(),
-  })).filter((row) => row.value);
+  const specs = listedProductSpecs(product);
   const sizeRows = (product.size_chart.rows || []).filter((row) => row.size.trim());
   const selectedSku = findSkuForOptionIds(product, optionIds);
   const selectedPrice = Number(selectedSku?.price) || 0;

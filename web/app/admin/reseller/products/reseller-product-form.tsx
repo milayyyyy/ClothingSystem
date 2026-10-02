@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ImagePlus, Plus, ShoppingBag, Store, Trash2, X } from "lucide-react";
+import { ImagePlus, Pencil, Plus, ShoppingBag, Store, Trash2, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,7 +17,6 @@ import { cn, formatSupabaseError } from "@/lib/utils";
 import { RESELLER_PRODUCT_IMAGE_MAX } from "@/lib/media-storage";
 import {
   DEFAULT_SIZE_CHART_ROWS,
-  RESELLER_CATEGORIES,
   RESELLER_OPTION_MAX,
   RESELLER_PRODUCT_DESC_MAX,
   RESELLER_PRODUCT_NAME_MAX,
@@ -36,6 +35,7 @@ import {
   suggestSku,
   toResellerProductPayload,
   type ResellerProduct,
+  type ResellerSpecField,
   type ResellerVariation,
 } from "@/lib/reseller-products";
 import {
@@ -43,6 +43,9 @@ import {
   uploadResellerOptionImage,
   uploadResellerProductImage,
 } from "@/lib/reseller-product-upload";
+import { loadResellerSpecFields } from "@/lib/reseller-spec-options";
+import { ShopeeCategoryPicker } from "./shopee-category-picker";
+import { CustomizeSpecButton, ResellerSpecOptionsDialog } from "./reseller-spec-options-dialog";
 
 const SECTIONS = [
   { id: "basic", label: "Basic information" },
@@ -81,12 +84,16 @@ export function ResellerProductForm({ productId }: { productId?: string }) {
   const [error, setError] = useState("");
   const [section, setSection] = useState<(typeof SECTIONS)[number]["id"]>("basic");
   const [missingTable, setMissingTable] = useState(false);
-  const [customCategory, setCustomCategory] = useState(false);
+  const [specFields, setSpecFields] = useState<ResellerSpecField[]>(RESELLER_SPEC_FIELDS);
+  const [specOpen, setSpecOpen] = useState(false);
+  const [specFocus, setSpecFocus] = useState("");
 
   useEffect(() => {
-    if (!productId) return;
     let cancelled = false;
     (async () => {
+      const specRes = await loadResellerSpecFields();
+      if (!cancelled) setSpecFields(specRes.fields);
+      if (!productId) return;
       const { data, error: loadErr } = await supabase.from("reseller_products").select("*").eq("id", productId).maybeSingle();
       if (cancelled) return;
       if (loadErr) {
@@ -101,11 +108,7 @@ export function ResellerProductForm({ productId }: { productId?: string }) {
         setLoading(false);
         return;
       }
-      const parsed = parseResellerProduct(data as Record<string, unknown>);
-      setProduct(parsed);
-      setCustomCategory(
-        Boolean(parsed.category) && !RESELLER_CATEGORIES.includes(parsed.category as (typeof RESELLER_CATEGORIES)[number]),
-      );
+      setProduct(parseResellerProduct(data as Record<string, unknown>));
       setLoading(false);
     })();
     return () => {
@@ -326,59 +329,67 @@ export function ResellerProductForm({ productId }: { productId?: string }) {
             </Field>
 
             <Field label="Category">
-              <select
-                className={selectClass}
-                value={customCategory ? "__custom" : product.category}
+              <ShopeeCategoryPicker
+                value={product.category}
                 disabled={!editable}
-                onChange={(e) => {
-                  if (e.target.value === "__custom") {
-                    setCustomCategory(true);
-                    update({ category: "" });
-                    return;
-                  }
-                  setCustomCategory(false);
-                  update({ category: e.target.value });
-                }}
-              >
-                <option value="">Select a category</option>
-                {RESELLER_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-                <option value="__custom">Other</option>
-              </select>
-              {customCategory && (
-                <Input
-                  className="mt-2"
-                  value={product.category}
-                  disabled={!editable}
-                  placeholder="Custom category"
-                  onChange={(e) => update({ category: e.target.value })}
-                />
-              )}
+                onChange={(category) => update({ category })}
+              />
             </Field>
           </Section>
 
-          <Section id="specification" title="Specification">
+          <Section
+            id="specification"
+            title="Specification"
+            action={
+              editable ? (
+                <CustomizeSpecButton
+                  onClick={() => {
+                    setSpecFocus("");
+                    setSpecOpen(true);
+                  }}
+                />
+              ) : undefined
+            }
+          >
             <div className="grid gap-3 sm:grid-cols-2">
-              {RESELLER_SPEC_FIELDS.map((field) => (
-                <Field key={field.key} label={field.label}>
-                  <select
-                    className={selectClass}
-                    value={product.specs[field.key] || ""}
-                    disabled={!editable}
-                    onChange={(e) => update({ specs: { ...product.specs, [field.key]: e.target.value } })}
+              {specFields.map((field) => {
+                const current = product.specs[field.key] || "";
+                const options = current && !field.options.includes(current) ? [current, ...field.options] : field.options;
+                return (
+                  <Field
+                    key={field.key}
+                    label={field.label}
+                    hint={
+                      editable ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            setSpecFocus(field.key);
+                            setSpecOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-3 w-3" /> Edit list
+                        </button>
+                      ) : undefined
+                    }
                   >
-                    <option value="">Select</option>
-                    {field.options.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              ))}
+                    <select
+                      className={selectClass}
+                      value={current}
+                      disabled={!editable}
+                      onChange={(e) => update({ specs: { ...product.specs, [field.key]: e.target.value } })}
+                    >
+                      <option value="">Select</option>
+                      {options.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                );
+              })}
             </div>
           </Section>
 
@@ -753,22 +764,45 @@ export function ResellerProductForm({ productId }: { productId?: string }) {
           </div>
         </div>
       )}
+
+      {editable && (
+        <ResellerSpecOptionsDialog
+          open={specOpen}
+          fields={specFields}
+          focusKey={specFocus}
+          onClose={() => setSpecOpen(false)}
+          onSaved={setSpecFields}
+        />
+      )}
     </div>
   );
 }
 
-function Section({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+function Section({
+  id,
+  title,
+  action,
+  children,
+}: {
+  id: string;
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <Card id={`reseller-${id}`}>
       <CardContent className="space-y-4 p-4 sm:p-5">
-        <h2 className="text-base font-semibold">{title}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold">{title}</h2>
+          {action}
+        </div>
         {children}
       </CardContent>
     </Card>
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
