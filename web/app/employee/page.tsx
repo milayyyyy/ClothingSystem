@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { OrderStatusBadge } from "@/components/ui/badge";
 import { peso, formatDate } from "@/lib/utils";
 import { redirect } from "next/navigation";
-import { TimeClock } from "./time-clock";
 import { fetchReadyMadeDashboardLowStockItems } from "@/lib/ready-made-dashboard-low-stock";
 import { DashboardReminderCards } from "@/components/dashboard-reminder-cards";
 
@@ -19,15 +18,12 @@ export default async function EmployeeDashboard() {
   const [
     { data: orders },
     { data: salaries },
-    { data: attendance },
     { data: tasksAssigned },
     { data: inventory },
     readyMadeLow,
-    { data: clockSetting },
   ] = await Promise.all([
     supabase.from("orders").select("*").order("created_at", { ascending: false }),
     supabase.from("salaries").select("*").eq("user_id", uid).order("created_at", { ascending: false }).limit(3),
-    supabase.from("attendance").select("*").eq("user_id", uid).order("time_in", { ascending: false }).limit(1),
     supabase
       .from("tasks")
       .select("id,title,status,priority,due_date, assignees:task_assignees!inner(user_id)")
@@ -35,7 +31,6 @@ export default async function EmployeeDashboard() {
       .order("due_date", { ascending: true }),
     isMedia ? Promise.resolve({ data: [] as { quantity?: unknown; min_level?: unknown }[] }) : supabase.from("inventory").select("*"),
     isMedia ? Promise.resolve([]) : fetchReadyMadeDashboardLowStockItems(supabase),
-    supabase.from("app_settings").select("value").eq("key", "clock_mode").maybeSingle(),
   ]);
 
   const tasksReminders = (tasksAssigned || [])
@@ -47,14 +42,11 @@ export default async function EmployeeDashboard() {
   ];
 
   const open = (orders || []).filter((o) => !["delivered", "cancelled"].includes(o.status));
-  const lastAttendance = attendance?.[0];
-  const onClock = !!(lastAttendance && !lastAttendance.time_out);
-  const clockMode: "manual" | "face" = (clockSetting as { value?: string } | null)?.value === "face" ? "face" : "manual";
 
   return (
     <div>
       <PageHeader title={`Hi, ${user.profile.full_name || "there"}`} description="Your tasks and earnings at a glance" />
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card><CardContent className="p-5">
           <div className="text-xs uppercase text-muted-foreground">Open tasks</div>
           <div className="mt-1 text-3xl font-semibold">{tasksReminders.length}</div>
@@ -62,17 +54,6 @@ export default async function EmployeeDashboard() {
         <Card><CardContent className="p-5">
           <div className="text-xs uppercase text-muted-foreground">Latest Net Pay</div>
           <div className="mt-1 text-3xl font-semibold">{peso(salaries?.[0]?.net_pay || 0)}</div>
-        </CardContent></Card>
-        <Card><CardContent className="p-5">
-          <div className="text-xs uppercase text-muted-foreground">Attendance</div>
-          <TimeClock
-            onClock={onClock}
-            lastId={lastAttendance?.id}
-            userId={user.id}
-            profileId={user.profile.id}
-            lastTimeIn={lastAttendance?.time_in}
-            forcedMode={clockMode}
-          />
         </CardContent></Card>
       </div>
 

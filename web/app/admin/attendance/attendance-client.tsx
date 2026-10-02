@@ -6,9 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { Clock, Pencil, Plus, ScanFace, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { CsvExportDialog } from "@/components/csv-export-dialog";
 
 export type AttendanceRow = {
@@ -66,11 +65,9 @@ function localDayEndIso(ymd: string): string {
 export function AdminAttendanceClient({
   initial,
   employees,
-  initialClockMode,
 }: {
   initial: AttendanceRow[];
   employees: EmployeeOption[];
-  initialClockMode: "manual" | "face";
 }) {
   const supabase = createClient();
   const [rows, setRows] = useState<AttendanceRow[]>(initial);
@@ -81,17 +78,8 @@ export function AdminAttendanceClient({
   const [filterCommitted, setFilterCommitted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
-  const [clockMode, setClockMode] = useState<"manual" | "face">(initialClockMode);
-  const [clockModeBusy, setClockModeBusy] = useState(false);
   const headerSelectRef = useRef<HTMLInputElement>(null);
 
-  async function toggleClockMode() {
-    const next = clockMode === "manual" ? "face" : "manual";
-    setClockModeBusy(true);
-    await supabase.from("app_settings").upsert({ key: "clock_mode", value: next, updated_at: new Date().toISOString() });
-    setClockMode(next);
-    setClockModeBusy(false);
-  }
 
 
   useEffect(() => {
@@ -273,31 +261,6 @@ export function AdminAttendanceClient({
               return (data as AttendanceRow[]) || [];
             }}
           />
-          {/* Clock mode switch */}
-          <div className="flex items-center gap-2.5 rounded-lg border bg-muted/30 px-3 py-1.5">
-            <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className={`text-xs font-medium transition-colors ${clockMode === "manual" ? "text-foreground" : "text-muted-foreground"}`}>
-              Manual
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={clockMode === "face"}
-              disabled={clockModeBusy}
-              onClick={() => void toggleClockMode()}
-              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50
-                ${clockMode === "face" ? "bg-primary" : "bg-input"}`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform
-                  ${clockMode === "face" ? "translate-x-4" : "translate-x-0"}`}
-              />
-            </button>
-            <span className={`text-xs font-medium transition-colors ${clockMode === "face" ? "text-foreground" : "text-muted-foreground"}`}>
-              Face ID
-            </span>
-            <ScanFace className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          </div>
           <Button type="button" onClick={() => setAdding(true)} disabled={employees.length === 0}>
             <Plus className="mr-1 h-4 w-4" />
             Add attendance

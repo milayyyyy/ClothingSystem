@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, ShoppingBag, Upload } from "lucide-react";
+import { Download, Plus, ShoppingBag, Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -66,6 +66,7 @@ export function ResellerOrdersClient({
   const [receiptFiles, setReceiptFiles] = useState<Record<string, File | null>>({});
   const [uploadingId, setUploadingId] = useState("");
   const [processFilter, setProcessFilter] = useState<"all" | ResellerOrderProcess>("all");
+  const [exporting, setExporting] = useState(false);
 
   const counts = useMemo(() => {
     const next: Record<string, number> = { all: orders.length };
@@ -121,6 +122,26 @@ export function ResellerOrdersClient({
       return;
     }
     window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  }
+
+  async function exportPdf() {
+    if (listed.length === 0) return;
+    setExporting(true);
+    setError("");
+    try {
+      const { buildResellerOrdersPdf } = await import("@/lib/reseller-orders-pdf");
+      const filterLabel = processFilter === "all" ? "All orders" : resellerProcessLabel(processFilter);
+      const blob = await buildResellerOrdersPdf({ orders: listed, filterLabel });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `reseller-orders-${new Date().toISOString().slice(0, 10)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not generate PDF.");
+    }
+    setExporting(false);
   }
 
   async function resubmitReceipt(order: ResellerOrder) {
@@ -187,11 +208,19 @@ export function ResellerOrdersClient({
             </button>
           ))}
         </div>
-        {canOrder && (
-          <Button type="button" className="shrink-0 self-end sm:self-start" onClick={() => setOpen(true)}>
-            <Plus className="h-4 w-4" /> Place order
-          </Button>
-        )}
+        <div className="flex shrink-0 gap-2 self-end sm:self-start">
+          {listed.length > 0 && (
+            <Button type="button" variant="outline" disabled={exporting} onClick={() => void exportPdf()}>
+              <Download className="h-4 w-4" />
+              {exporting ? "Exporting…" : "Export PDF"}
+            </Button>
+          )}
+          {canOrder && (
+            <Button type="button" onClick={() => setOpen(true)}>
+              <Plus className="h-4 w-4" /> Place order
+            </Button>
+          )}
+        </div>
       </div>
 
       {listed.length === 0 ? (

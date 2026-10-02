@@ -6,16 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
-import dynamic from "next/dynamic";
 import { PwaRegister } from "@/components/pwa-register";
 import { PwaInstallButton } from "@/components/pwa-install-button";
 import { defaultAfterLoginPath } from "@/lib/roles";
 import { clearClientAuthCache } from "@/lib/clear-client-auth-cache";
-
-const FaceLogin = dynamic(
-  () => import("@/components/face-login").then((m) => m.FaceLogin),
-  { ssr: false },
-);
 
 export default function LoginPage() {
   const router = useRouter();
@@ -45,7 +39,7 @@ export default function LoginPage() {
       <PwaRegister />
       <div className="w-full max-w-sm anim-in">
         <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Email, password, or face recognition.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Enter your email and password.</p>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div className="space-y-1.5">
@@ -87,8 +81,6 @@ export default function LoginPage() {
             <PwaInstallButton />
           </div>
         </form>
-
-        <FaceLogin />
       </div>
     </div>
   );

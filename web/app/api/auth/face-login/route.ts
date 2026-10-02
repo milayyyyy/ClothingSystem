@@ -117,33 +117,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: sessionErr.message }, { status: 500 });
   }
 
-  let clockedIn = false;
-  if (profile.role === "employee" || profile.role === "media") {
-    const { data: open } = await admin
-      .from("attendance")
-      .select("id")
-      .eq("user_id", profile.id)
-      .is("time_out", null)
-      .order("time_in", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (!open) {
-      const { error: clockErr } = await admin.from("attendance").insert({
-        user_id: profile.id,
-        time_in: new Date().toISOString(),
-      });
-      if (!clockErr) clockedIn = true;
-    } else {
-      clockedIn = true;
-    }
-  }
+  const redirectTo = profile.role === "attendance"
+    ? "/attendance"
+    : isStaff(profile.role) ? "/admin" : "/employee";
 
   return NextResponse.json({
     ok: true,
     role: profile.role,
     fullName: profile.full_name,
-    redirect: isStaff(profile.role) ? "/admin" : "/employee",
-    clockedIn,
+    redirect: redirectTo,
   });
 }

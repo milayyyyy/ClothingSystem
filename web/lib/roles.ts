@@ -1,10 +1,11 @@
 /** App login roles stored on `profiles.role`. */
-export type Role = "admin" | "manager" | "employee" | "media" | "reseller";
+export type Role = "admin" | "manager" | "employee" | "media" | "reseller" | "attendance";
 
 export const ASSIGNABLE_ROLES: { value: Role; label: string; hint?: string }[] = [
   { value: "employee", label: "Employee", hint: "Orders, tasks, inventory, reseller order and chat" },
   { value: "media", label: "Media Management", hint: "Content planner, orders, tasks" },
   { value: "reseller", label: "Reseller", hint: "Products, orders, chat" },
+  { value: "attendance", label: "Attendance Management", hint: "Face ID kiosk for employee time-in/out" },
   { value: "manager", label: "Manager" },
   { value: "admin", label: "Admin" },
 ];
@@ -15,6 +16,7 @@ const ROLE_LABELS: Record<string, string> = {
   employee: "Employee",
   media: "Media Management",
   reseller: "Reseller",
+  attendance: "Attendance Management",
 };
 
 export function roleLabel(role: string | null | undefined) {
@@ -23,7 +25,7 @@ export function roleLabel(role: string | null | undefined) {
 }
 
 export function asShellRole(role: string | null | undefined): Role {
-  if (role === "admin" || role === "manager" || role === "employee" || role === "media" || role === "reseller") {
+  if (role === "admin" || role === "manager" || role === "employee" || role === "media" || role === "reseller" || role === "attendance") {
     return role;
   }
   return "employee";
@@ -43,6 +45,10 @@ export function isResellerRole(role: string | null | undefined) {
   return role === "reseller";
 }
 
+export function isAttendanceRole(role: string | null | undefined) {
+  return role === "attendance";
+}
+
 /** Admin, manager, and employees who handle reseller orders and chat. */
 export function canWorkResellerDesk(role: string | null | undefined) {
   return isStaffRole(role) || role === "employee";
@@ -55,6 +61,7 @@ export function canUseContentPlanner(role: string | null | undefined) {
 /** Default home after login or root redirect. */
 export function defaultAfterLoginPath(role: string | null | undefined) {
   if (isResellerRole(role)) return "/admin/reseller/products";
+  if (isAttendanceRole(role)) return "/attendance";
   return isStaffRole(role) ? "/admin" : "/employee";
 }
 

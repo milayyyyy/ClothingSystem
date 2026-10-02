@@ -23,7 +23,6 @@ export function AttendancePageContent() {
     <AdminAttendanceClient
       initial={data.rows}
       employees={data.employees}
-      initialClockMode={data.clockMode}
     />
   );
 }

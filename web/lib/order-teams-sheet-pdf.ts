@@ -25,6 +25,8 @@ export type TeamsSheetPdfRow = {
 
 export type TeamsSheetPdfGroup = {
   teamName: string;
+  /** Free-text note / guide for employees. */
+  notes?: string;
   /** Public URLs of design reference photos for this team. */
   designImageUrls: string[];
   rows: TeamsSheetPdfRow[];
@@ -280,6 +282,24 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
       doc.setFontSize(10);
       doc.text(`${L.group}: ${group.teamName || "—"}`, MARGIN, y);
       y += 5;
+
+      // ── Note / guide for employees ────────────────────────────────────────
+      const noteText = (group.notes || "").trim();
+      if (noteText) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 80, 0);
+        const noteLines = doc.splitTextToSize(`Note: ${noteText}`, tableW - 4);
+        const noteH = noteLines.length * 3.5 + 4;
+        y = ensureSpace(doc, y, noteH + 4);
+        doc.setFillColor(255, 251, 235);
+        doc.setDrawColor(253, 224, 71);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(MARGIN, y, tableW, noteH, 1.5, 1.5, "FD");
+        doc.text(noteLines, MARGIN + 2, y + 3.2);
+        doc.setTextColor(0, 0, 0);
+        y += noteH + 2;
+      }
 
       const tableStartY = y;
 

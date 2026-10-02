@@ -1,7 +1,7 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { canAccessAdminPath, getPermissionsForRole } from "@/lib/role-permissions";
-import { defaultAfterLoginPath, isPortalRole } from "@/lib/roles";
+import { defaultAfterLoginPath, isAttendanceRole, isPortalRole } from "@/lib/roles";
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } });
@@ -26,10 +26,10 @@ export async function middleware(request: NextRequest) {
   }
   const path = request.nextUrl.pathname;
   const isAuthRoute = path.startsWith("/login");
-  const isProtected = path.startsWith("/admin") || path.startsWith("/employee");
+  const isProtected = path.startsWith("/admin") || path.startsWith("/employee") || path.startsWith("/attendance");
 
   const ROLE_COOKIE = "cs_role";
-  const allowedRoles = new Set(["admin", "manager", "employee", "media", "reseller"]);
+  const allowedRoles = new Set(["admin", "manager", "employee", "media", "reseller", "attendance"]);
   let profile: { role: string } | null = null;
   if (user) {
     const cached = request.cookies.get(ROLE_COOKIE)?.value ?? "";
@@ -84,6 +84,18 @@ export async function middleware(request: NextRequest) {
         url.pathname = "/admin/reseller/products";
         return NextResponse.redirect(url);
       }
+    }
+    // Attendance accounts can only access /attendance.
+    if (isAttendanceRole(role) && !path.startsWith("/attendance")) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/attendance";
+      return NextResponse.redirect(url);
+    }
+    // Non-attendance accounts cannot access /attendance.
+    if (!isAttendanceRole(role) && path.startsWith("/attendance")) {
+      const url = request.nextUrl.clone();
+      url.pathname = defaultAfterLoginPath(role);
+      return NextResponse.redirect(url);
     }
     // Media accounts stay in the employee workspace except Content Planner.
     if (role === "media" && path.startsWith("/employee/order-records")) {
@@ -171,6 +183,8 @@ export const config = {
     "/admin/:path*",
     "/employee",
     "/employee/:path*",
+    "/attendance",
+    "/attendance/:path*",
     "/login",
     "/login/:path*",
   ],

@@ -46,6 +46,8 @@ type FlatRow = {
   playerKey: string;
   teamName: string;
   sheetName: string;    // jersey-type label, e.g. "Jersey", "Hoodie"
+  /** Free-text note / guide for employees. */
+  notes: string;
   /** Duplicated on each row of the sheet; kept in sync when editing. */
   teamDesignUrls: string[];
   surname: string;
@@ -359,6 +361,7 @@ function teamsToFlatRows(teams: TeamDraft[]): FlatRow[] {
     const teamKey  = t.teamGroupKey || t.clientKey;
     const sheetKey = t.clientKey;
     const sheetName = t.sheetName || t.name || "Jersey";
+    const notes = t.notes || "";
     const urls = [...(t.design_image_urls || [])];
     for (const p of t.players) {
       out.push({
@@ -368,6 +371,7 @@ function teamsToFlatRows(teams: TeamDraft[]): FlatRow[] {
         playerKey: p.clientKey,
         teamName: t.name,
         sheetName,
+        notes,
         teamDesignUrls: urls,
         surname: p.surname,
         jersey_number: p.jersey_number,
@@ -382,7 +386,7 @@ function flatRowsToTeams(rows: FlatRow[]): TeamDraft[] {
   const orderKeys: string[] = [];
   const bySheet = new Map<string, {
     teamKey: string; teamName: string;
-    sheetKey: string; sheetName: string;
+    sheetKey: string; sheetName: string; notes: string;
     designImageUrls: string[]; players: PlayerDraft[];
   }>();
 
@@ -392,13 +396,14 @@ function flatRowsToTeams(rows: FlatRow[]): TeamDraft[] {
       orderKeys.push(key);
       bySheet.set(key, {
         teamKey: r.teamKey, teamName: r.teamName.trim() || "Team",
-        sheetKey: r.sheetKey, sheetName: r.sheetName || "Jersey",
+        sheetKey: r.sheetKey, sheetName: r.sheetName || "Jersey", notes: r.notes || "",
         designImageUrls: [...r.teamDesignUrls], players: [],
       });
     } else {
       const g = bySheet.get(key)!;
       g.teamName = r.teamName.trim() || "Team";
       g.sheetName = r.sheetName || "Jersey";
+      g.notes = r.notes || "";
       g.designImageUrls = [...r.teamDesignUrls];
     }
     bySheet.get(key)!.players.push({
@@ -418,6 +423,7 @@ function flatRowsToTeams(rows: FlatRow[]): TeamDraft[] {
       teamGroupKey: g.teamKey,
       name: g.teamName,
       sheetName: g.sheetName,
+      notes: g.notes,
       design_image_urls: g.designImageUrls.map((u) => u.trim()).filter(Boolean),
       players: g.players.length > 0
         ? g.players
@@ -437,6 +443,7 @@ function defaultFlatRow(): FlatRow {
     playerKey: pk,
     teamName: "Team",
     sheetName: "Jersey",
+    notes: "",
     teamDesignUrls: [],
     surname: "",
     jersey_number: "",
@@ -444,26 +451,28 @@ function defaultFlatRow(): FlatRow {
   };
 }
 
-type SheetGroup = { sheetKey: string; sheetName: string; rows: FlatRow[] };
-type TeamGroup  = { teamKey: string; teamName: string; sheets: SheetGroup[] };
+type SheetGroup = { sheetKey: string; sheetName: string; notes: string; rows: FlatRow[] };
+type TeamGroup  = { teamKey: string; teamName: string; notes: string; sheets: SheetGroup[] };
 
 /** Preserve team and sheet order as first-seen in `rows` (matches save order). */
 function groupRowsByTeamAndSheet(rows: FlatRow[]): TeamGroup[] {
   const teamOrder: string[] = [];
-  const teamMap = new Map<string, { teamName: string; sheetOrder: string[]; sheetMap: Map<string, SheetGroup> }>();
+  const teamMap = new Map<string, { teamName: string; notes: string; sheetOrder: string[]; sheetMap: Map<string, SheetGroup> }>();
   for (const r of rows) {
     if (!teamMap.has(r.teamKey)) {
       teamOrder.push(r.teamKey);
-      teamMap.set(r.teamKey, { teamName: r.teamName, sheetOrder: [], sheetMap: new Map() });
+      teamMap.set(r.teamKey, { teamName: r.teamName, notes: r.notes || "", sheetOrder: [], sheetMap: new Map() });
     }
     const team = teamMap.get(r.teamKey)!;
     team.teamName = r.teamName;
+    team.notes = r.notes || "";
     if (!team.sheetMap.has(r.sheetKey)) {
       team.sheetOrder.push(r.sheetKey);
-      team.sheetMap.set(r.sheetKey, { sheetKey: r.sheetKey, sheetName: r.sheetName, rows: [] });
+      team.sheetMap.set(r.sheetKey, { sheetKey: r.sheetKey, sheetName: r.sheetName, notes: r.notes || "", rows: [] });
     }
     const sheet = team.sheetMap.get(r.sheetKey)!;
     sheet.sheetName = r.sheetName;
+    sheet.notes = r.notes || "";
     sheet.rows.push(r);
   }
   return teamOrder.map((teamKey) => {
@@ -471,6 +480,7 @@ function groupRowsByTeamAndSheet(rows: FlatRow[]): TeamGroup[] {
     return {
       teamKey,
       teamName: team.teamName,
+      notes: team.notes,
       sheets: team.sheetOrder.map((sk) => team.sheetMap.get(sk)!),
     };
   });
@@ -801,7 +811,7 @@ export function TeamsSheetClient({
     setLoading(true);
     void supabase
       .from("sublimation_teams")
-      .select("id, name, team_group_key, sheet_name, sort_order, design_image_urls, players:sublimation_team_players(*)")
+      .select("id, name, team_group_key, sheet_name, notes, sort_order, design_image_urls, players:sublimation_team_players(*)")
       .eq("order_id", orderId)
       .order("sort_order", { ascending: true })
       .then(({ data, error }) => {
@@ -845,6 +855,14 @@ export function TeamsSheetClient({
     setFlatRows((prev) =>
       prev.map((r) =>
         r.teamKey === teamKey && r.sheetKey === sheetKey ? { ...r, sheetName: name } : r,
+      ),
+    );
+  }
+
+  function patchNotes(teamKey: string, sheetKey: string, notes: string) {
+    setFlatRows((prev) =>
+      prev.map((r) =>
+        r.teamKey === teamKey && r.sheetKey === sheetKey ? { ...r, notes } : r,
       ),
     );
   }
@@ -901,12 +919,27 @@ export function TeamsSheetClient({
       const sample = prev.find((r) => r.teamKey === teamKey && r.sheetKey === sheetKey);
       const teamName = sample?.teamName ?? "Team";
       const sheetName = sample?.sheetName ?? "Jersey";
+      const notes = sample?.notes ?? "";
       const teamDesignUrls = sample?.teamDesignUrls ?? [];
+
+      // Auto-copy jersey lines from an existing player in the same sheet
+      const donor = prev.find(
+        (r) => r.teamKey === teamKey && r.sheetKey === sheetKey && r.jerseyChecklist.length > 0,
+      );
+      const copiedChecklist: JerseyChecklistItem[] = donor
+        ? donor.jerseyChecklist.map((item) => ({
+            id: newClientKey(),
+            name: item.name,
+            size: "",
+            checked: item.checked,
+          }))
+        : [];
+
       const pk = newClientKey();
       const rowId = `${sheetKey}__${pk}`;
       const newRow: FlatRow = {
-        rowId, teamKey, sheetKey, playerKey: pk, teamName, sheetName, teamDesignUrls,
-        surname: "", jersey_number: "", jerseyChecklist: [],
+        rowId, teamKey, sheetKey, playerKey: pk, teamName, sheetName, notes, teamDesignUrls,
+        surname: "", jersey_number: "", jerseyChecklist: copiedChecklist,
       };
       let insertAt = prev.length;
       for (let i = prev.length - 1; i >= 0; i--) {
@@ -936,6 +969,7 @@ export function TeamsSheetClient({
       playerKey,
       teamName,
       sheetName: "Jersey Type",
+      notes: "",
       teamDesignUrls: [],
       surname: "",
       jersey_number: "",
@@ -1094,6 +1128,7 @@ export function TeamsSheetClient({
           teamName: group.sheets.length > 1
             ? `${group.teamName} — ${sheet.sheetName}`
             : group.teamName,
+          notes: sheet.notes || "",
           designImageUrls: [...(sheet.rows[0]?.teamDesignUrls ?? [])],
           rows: sheet.rows.map((r, idx) => ({
             index: idx + 1,
@@ -1477,6 +1512,30 @@ export function TeamsSheetClient({
                           </Button>
                         )}
                       </div>
+                    </div>
+
+                    {/* Notes / guide for employees */}
+                    <div>
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Note / guide for employees
+                      </label>
+                      {viewOnly ? (
+                        sheet.notes ? (
+                          <p className="mt-1 whitespace-pre-wrap rounded-md border border-amber-200/60 bg-amber-50/50 px-3 py-2 text-sm text-foreground dark:border-amber-800/40 dark:bg-amber-950/30">
+                            {sheet.notes}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs text-muted-foreground italic">No note</p>
+                        )
+                      ) : (
+                        <textarea
+                          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary/60 focus:bg-primary/5"
+                          rows={2}
+                          value={sheet.notes}
+                          placeholder="Add a note that employees can see when viewing or printing this sheet…"
+                          onChange={(e) => patchNotes(group.teamKey, sheet.sheetKey, e.target.value)}
+                        />
+                      )}
                     </div>
 
                     <div className="overflow-x-auto rounded-md border border-border/80">
