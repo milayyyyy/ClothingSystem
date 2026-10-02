@@ -74,7 +74,7 @@ const HERO_PHOTO_MM = 62;
 /** Gap between the narrowed table and the hero photo. */
 const HERO_PHOTO_GAP_MM = 4;
 /** Empty checkbox prefix for handwritten marking on printed sheets. */
-const PDF_CHECKBOX = "[ ]";
+const PDF_CHECKBOX = "[       ]";
 
 function labels(kind: "teams" | "services") {
   const isSvc = kind === "services";
@@ -288,12 +288,12 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
       if (noteText) {
         doc.setFont("helvetica", "normal");
         doc.setFontSize(8);
-        doc.setTextColor(100, 80, 0);
+        doc.setTextColor(60, 60, 60);
         const noteLines = doc.splitTextToSize(`Note: ${noteText}`, tableW - 4);
         const noteH = noteLines.length * 3.5 + 4;
         y = ensureSpace(doc, y, noteH + 4);
-        doc.setFillColor(255, 251, 235);
-        doc.setDrawColor(253, 224, 71);
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(180, 180, 180);
         doc.setLineWidth(0.3);
         doc.roundedRect(MARGIN, y, tableW, noteH, 1.5, 1.5, "FD");
         doc.text(noteLines, MARGIN + 2, y + 3.2);
