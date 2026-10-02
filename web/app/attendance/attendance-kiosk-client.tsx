@@ -120,7 +120,7 @@ export function AttendanceKioskClient({
       .gte("time_in", localDayStartIso())
       .lte("time_in", localDayEndIso())
       .order("time_in", { ascending: false });
-    if (data) setRows(data as AttendanceTodayRow[]);
+    if (data) setRows(data as unknown as AttendanceTodayRow[]);
   }
 
   // Refresh list every 30 seconds
