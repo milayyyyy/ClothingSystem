@@ -309,19 +309,19 @@ export function AttendanceKioskClient({
   const clockedIn = rows.filter((r) => !r.time_out).length;
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-4 sm:p-6 lg:flex-row lg:gap-8 lg:p-8">
-      {/* LEFT: Face ID + clock */}
-      <div className="flex flex-col items-center gap-5 lg:w-[420px] lg:shrink-0">
+    <div className="flex flex-1 flex-col">
+      {/* TOP: Face ID + clock — centered */}
+      <div className="flex flex-col items-center gap-4 px-4 pb-4 pt-6 sm:gap-5 sm:px-6 sm:pt-8">
         {/* Live clock */}
         <div className="text-center">
-          <h1 className="text-lg font-semibold tracking-tight text-muted-foreground">Attendance Management</h1>
-          <div className="mt-2 text-5xl font-bold tabular-nums tracking-tight">{fmt12(now)}</div>
-          <div className="mt-1 text-sm text-muted-foreground">{fmtDate(now)}</div>
+          <h1 className="text-base font-semibold tracking-tight text-muted-foreground sm:text-lg">Attendance Management</h1>
+          <div className="mt-2 text-6xl font-bold tabular-nums tracking-tight sm:text-7xl">{fmt12(now)}</div>
+          <div className="mt-1.5 text-sm text-muted-foreground sm:text-base">{fmtDate(now)}</div>
         </div>
 
-        {/* Camera viewport */}
+        {/* Camera viewport — larger */}
         <canvas ref={canvasRef} className="hidden" />
-        <div className="relative aspect-video w-full max-w-sm overflow-hidden rounded-2xl border-2 border-border bg-muted shadow-lg">
+        <div className="relative aspect-video w-full max-w-md overflow-hidden rounded-2xl border-2 border-border bg-muted shadow-lg sm:max-w-lg">
           <video
             ref={videoRef}
             className={`h-full w-full object-cover [transform:scaleX(-1)] transition-opacity duration-300 ${active ? "opacity-100" : "opacity-0"}`}
@@ -332,28 +332,28 @@ export function AttendanceKioskClient({
 
           {!active && !isDone && status !== "no_match" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted-foreground">
-              <ScanFace className="h-16 w-16 opacity-20" />
+              <ScanFace className="h-20 w-20 opacity-20" />
               <span className="text-sm opacity-50">Tap the button to start</span>
             </div>
           )}
 
           {status === "success_in" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-green-500/15">
-              <CheckCircle2 className="h-20 w-20 text-green-500 drop-shadow" />
-              <span className="text-lg font-bold text-green-700 dark:text-green-400">Timed In</span>
+              <CheckCircle2 className="h-24 w-24 text-green-500 drop-shadow" />
+              <span className="text-xl font-bold text-green-700 dark:text-green-400">Timed In</span>
             </div>
           )}
           {status === "success_out" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-blue-500/15">
-              <CheckCircle2 className="h-20 w-20 text-blue-500 drop-shadow" />
-              <span className="text-lg font-bold text-blue-700 dark:text-blue-400">Timed Out</span>
+              <CheckCircle2 className="h-24 w-24 text-blue-500 drop-shadow" />
+              <span className="text-xl font-bold text-blue-700 dark:text-blue-400">Timed Out</span>
             </div>
           )}
 
           {status === "no_match" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-red-500/10">
-              <XCircle className="h-14 w-14 text-red-400" />
-              <span className="text-sm font-medium text-red-600">Not recognized</span>
+              <XCircle className="h-16 w-16 text-red-400" />
+              <span className="text-base font-medium text-red-600">Not recognized</span>
             </div>
           )}
 
@@ -365,12 +365,12 @@ export function AttendanceKioskClient({
         </div>
 
         {/* Status message */}
-        {msg && <p className={`text-center text-sm ${statusColor}`}>{msg}</p>}
+        {msg && <p className={`text-center text-base ${statusColor}`}>{msg}</p>}
 
         {/* Controls */}
         <div className="flex flex-wrap justify-center gap-3">
           {!active && !isDone && status !== "no_match" && (
-            <Button size="lg" onClick={startCamera} disabled={isLoading} className="gap-2 text-base">
+            <Button size="lg" onClick={startCamera} disabled={isLoading} className="gap-2 text-base px-8 py-3">
               {isLoading ? (
                 <><Loader2 className="h-5 w-5 animate-spin" /> {status === "loading_models" ? "Loading models…" : "Starting camera…"}</>
               ) : (
@@ -389,23 +389,18 @@ export function AttendanceKioskClient({
             </Button>
           )}
           {isDone && (
-            <Button size="lg" onClick={() => { setStatus("idle"); setMsg(""); setLastEmployee(null); }} className="gap-2 text-base">
+            <Button size="lg" onClick={() => { setStatus("idle"); setMsg(""); setLastEmployee(null); }} className="gap-2 text-base px-8 py-3">
               <Camera className="h-5 w-5" /> Next employee
             </Button>
           )}
         </div>
-
-        {/* Sign out */}
-        <Button variant="ghost" size="sm" className="mt-2 text-xs text-muted-foreground" onClick={handleSignOut}>
-          <LogOut className="mr-1 h-3.5 w-3.5" /> Sign out
-        </Button>
       </div>
 
-      {/* RIGHT: Today's attendance list */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      {/* BOTTOM: Today's attendance list */}
+      <div className="flex-1 px-4 pb-4 sm:px-6 sm:pb-6">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Today&apos;s Attendance</h2>
+            <h2 className="text-base font-semibold sm:text-lg">Today&apos;s Attendance</h2>
             <p className="text-sm text-muted-foreground">
               {uniqueEmployees} employee{uniqueEmployees !== 1 ? "s" : ""} ·{" "}
               <span className="text-green-600 dark:text-green-400">{clockedIn} currently clocked in</span>
@@ -416,7 +411,7 @@ export function AttendanceKioskClient({
           </Button>
         </div>
 
-        <Card className="flex-1">
+        <Card>
           <CardContent className="overflow-x-auto p-0">
             <table className="w-full min-w-[500px] text-sm">
               <thead className="bg-muted/40 text-left">
@@ -470,6 +465,13 @@ export function AttendanceKioskClient({
             </table>
           </CardContent>
         </Card>
+
+        {/* Sign out — at the very bottom, small and subtle */}
+        <div className="mt-6 flex justify-center border-t border-border/50 pt-4">
+          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground/60 hover:text-muted-foreground" onClick={handleSignOut}>
+            <LogOut className="mr-1 h-3 w-3" /> Sign out
+          </Button>
+        </div>
       </div>
     </div>
   );
