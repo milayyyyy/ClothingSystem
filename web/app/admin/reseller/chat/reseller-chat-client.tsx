@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle, Plus, Send } from "lucide-react";
+import { Check, CheckCheck, MessageCircle, Plus, Send } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,11 +10,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useWorkspaceShell } from "@/components/workspace-shell-context";
 import { canWorkResellerDesk, isResellerRole } from "@/lib/roles";
-import { cn, formatDateTime, formatSupabaseError } from "@/lib/utils";
+import { cn, formatSupabaseError } from "@/lib/utils";
 import {
   chatTitleFromMessage,
+  formatResellerChatStamp,
   parseResellerChat,
   parseResellerChatMessage,
+  resellerChatReceipt,
   type ResellerChat,
   type ResellerChatMessage,
 } from "@/lib/reseller-chat";
@@ -62,6 +64,15 @@ export function ResellerChatClient({
     setSelectedId((prev) => prev && next.some((c) => c.id === prev) ? prev : next[0]?.id ?? null);
   }
 
+  async function markSeen(chatId: string, rows: ResellerChatMessage[]) {
+    const ids = rows.filter((msg) => msg.sender_id !== userId && !msg.seen_at).map((msg) => msg.id);
+    if (!ids.length) return;
+    const now = new Date().toISOString();
+    const { error: seenErr } = await supabase.from("reseller_chat_messages").update({ seen_at: now }).in("id", ids);
+    if (seenErr) return;
+    setMessages((prev) => prev.map((msg) => (ids.includes(msg.id) ? { ...msg, seen_at: now } : msg)));
+  }
+
   async function loadMessages(chatId: string) {
     const { data, error: loadErr } = await supabase
       .from("reseller_chat_messages")
@@ -72,7 +83,9 @@ export function ResellerChatClient({
       setError(formatSupabaseError(loadErr));
       return;
     }
-    setMessages((data || []).map((row) => parseResellerChatMessage(row as Record<string, unknown>)));
+    const next = (data || []).map((row) => parseResellerChatMessage(row as Record<string, unknown>));
+    setMessages(next);
+    void markSeen(chatId, next);
   }
 
   useEffect(() => {
@@ -114,6 +127,7 @@ export function ResellerChatClient({
           sender_name: name,
           body,
           created_at: new Date().toISOString(),
+          seen_at: "",
         },
       ]);
       void loadChats();
@@ -161,7 +175,7 @@ export function ResellerChatClient({
     <div className="space-y-4">
       {tableMissing && (
         <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          Apply migrations 113 and 115 (reseller account + employee desk), then reload.
+          Apply migrations 113, 115, and 125 (reseller chat + seen), then reload.
         </p>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -203,9 +217,8 @@ export function ResellerChatClient({
                   )}
                 >
                   <div className="truncate text-sm font-medium">{isStaff ? chat.reseller_name : chat.title || "Chat"}</div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {isStaff ? chat.title || "Chat" : formatDateTime(chat.updated_at)}
-                  </div>
+                  {isStaff && <div className="truncate text-xs text-muted-foreground">{chat.title || "Chat"}</div>}
+                  <div className="truncate text-[11px] text-muted-foreground">{formatResellerChatStamp(chat.updated_at)}</div>
                 </button>
               ))}
             </CardContent>
@@ -231,6 +244,8 @@ export function ResellerChatClient({
                   <div className="flex-1 space-y-2 overflow-y-auto p-4">
                     {messages.map((msg) => {
                       const mine = msg.sender_id === userId;
+                      const stamp = formatResellerChatStamp(msg.created_at);
+                      const receipt = mine ? resellerChatReceipt(msg) : "";
                       return (
                         <div key={msg.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
                           <div
@@ -243,6 +258,26 @@ export function ResellerChatClient({
                               {mine ? "You" : msg.sender_name}
                             </div>
                             <div className="whitespace-pre-wrap">{msg.body}</div>
+                            <div
+                              className={cn(
+                                "mt-1 flex items-center gap-1 text-[10px] leading-none",
+                                mine ? "justify-end opacity-80" : "text-muted-foreground",
+                              )}
+                            >
+                              {stamp && <span>{stamp}</span>}
+                              {receipt === "Seen" && (
+                                <>
+                                  <CheckCheck className="h-3 w-3" />
+                                  <span>Seen</span>
+                                </>
+                              )}
+                              {receipt === "Delivered" && (
+                                <>
+                                  <Check className="h-3 w-3" />
+                                  <span>Delivered</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );

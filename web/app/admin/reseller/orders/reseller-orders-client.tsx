@@ -10,15 +10,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useWorkspaceShell } from "@/components/workspace-shell-context";
 import { canWorkResellerDesk, isResellerRole, isStaffRole } from "@/lib/roles";
-import { formatDateTime, formatSupabaseError, peso } from "@/lib/utils";
+import { cn, formatDateTime, formatSupabaseError, peso } from "@/lib/utils";
 import type { ResellerProduct } from "@/lib/reseller-products";
 import { RESELLER_ORDER_RECEIPTS_BUCKET } from "@/lib/media-storage";
 import { uploadResellerOrderReceipt } from "@/lib/reseller-order-receipt";
 import {
-  orderTotal,
-  parseResellerOrder,
+  RESELLER_ORDER_PROCESSES,
   RESELLER_ORDER_SELECT,
   RESELLER_ORDER_SELECT_BASE,
+  orderTotal,
+  parseResellerOrder,
+  resellerProcessAccent,
+  resellerProcessBadge,
+  resellerProcessLabel,
   type ResellerDeskAccount,
   type ResellerOrder,
   type ResellerOrderProcess,
@@ -61,8 +65,19 @@ export function ResellerOrdersClient({
   const [error, setError] = useState("");
   const [receiptFiles, setReceiptFiles] = useState<Record<string, File | null>>({});
   const [uploadingId, setUploadingId] = useState("");
+  const [processFilter, setProcessFilter] = useState<"all" | ResellerOrderProcess>("all");
 
-  const listed = useMemo(() => orders, [orders]);
+  const counts = useMemo(() => {
+    const next: Record<string, number> = { all: orders.length };
+    for (const row of RESELLER_ORDER_PROCESSES) next[row.value] = 0;
+    for (const order of orders) next[order.process] = (next[order.process] || 0) + 1;
+    return next;
+  }, [orders]);
+
+  const listed = useMemo(
+    () => (processFilter === "all" ? orders : orders.filter((order) => order.process === processFilter)),
+    [orders, processFilter],
+  );
 
   async function refresh() {
     const full = await supabase
@@ -137,27 +152,60 @@ export function ResellerOrdersClient({
     <div className="space-y-4">
       {tableMissing && (
         <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          Apply migrations 113, 115, 123, and 124 (reseller orders, downpayment, process), then reload.
+          Apply migrations 113, 115, 123, 124, and 125 (reseller orders, downpayment, process, chat), then reload.
         </p>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      {canOrder && (
-        <div className="flex justify-end">
-          <Button type="button" onClick={() => setOpen(true)}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+          <button
+            type="button"
+            onClick={() => setProcessFilter("all")}
+            className={cn(
+              "shrink-0 rounded-full border px-3 py-1 text-xs font-medium",
+              processFilter === "all"
+                ? "border-primary bg-primary/15 text-foreground"
+                : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+            )}
+          >
+            All <span className="tabular-nums text-muted-foreground">{counts.all || 0}</span>
+          </button>
+          {RESELLER_ORDER_PROCESSES.map((row) => (
+            <button
+              key={row.value}
+              type="button"
+              onClick={() => setProcessFilter(row.value)}
+              className={cn(
+                "shrink-0 rounded-full border px-3 py-1 text-xs font-medium",
+                processFilter === row.value
+                  ? "border-primary bg-primary/15 text-foreground"
+                  : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+              )}
+            >
+              {row.label} <span className="tabular-nums text-muted-foreground">{counts[row.value] || 0}</span>
+            </button>
+          ))}
+        </div>
+        {canOrder && (
+          <Button type="button" className="shrink-0 self-end sm:self-start" onClick={() => setOpen(true)}>
             <Plus className="h-4 w-4" /> Place order
           </Button>
-        </div>
-      )}
+        )}
+      </div>
 
       {listed.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <ShoppingBag className="mb-3 h-8 w-8 text-muted-foreground" />
             <p className="text-sm font-medium text-muted-foreground">
-              {canManage && !canAssign ? "No reseller orders assigned to you." : "No reseller orders yet."}
+              {orders.length === 0
+                ? canManage && !canAssign
+                  ? "No reseller orders assigned to you."
+                  : "No reseller orders yet."
+                : `No orders in ${processFilter === "all" ? "this list" : resellerProcessLabel(processFilter)}.`}
             </p>
-            {canOrder && (
+            {canOrder && orders.length === 0 && (
               <Button type="button" className="mt-4" onClick={() => setOpen(true)}>
                 <Plus className="h-4 w-4" /> Place order
               </Button>
@@ -169,41 +217,53 @@ export function ResellerOrdersClient({
           {listed.map((order) => {
             const due = order.downpayment_amount || 0;
             const checking = order.process === "pending_checking" || order.process === "draft";
+            const total = orderTotal(order.items);
             return (
-              <Card key={order.id}>
-                <CardContent className="space-y-3 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      {canManage && <div className="text-sm font-medium">{order.reseller_name}</div>}
-                      <div className="text-xs text-muted-foreground">{formatDateTime(order.created_at)}</div>
+              <Card key={order.id} className={cn("overflow-hidden border-l-4", resellerProcessAccent(order.process))}>
+                <CardContent className="space-y-4 p-4 sm:p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-base font-semibold leading-snug">
+                        {canManage ? order.reseller_name : order.items[0]?.name || "Order"}
+                      </div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{formatDateTime(order.created_at)}</div>
+                      {order.assigned_name && (
+                        <div className="mt-1 text-xs text-muted-foreground">Sent to {order.assigned_name}</div>
+                      )}
                     </div>
-                    {due > 0 && <Badge variant={paymentBadge(order.payment_status)}>{paymentLabel(order.payment_status)}</Badge>}
+                    <div className="flex flex-col items-end gap-1.5">
+                      <Badge variant={resellerProcessBadge(order.process)}>{resellerProcessLabel(order.process)}</Badge>
+                      {due > 0 && <Badge variant={paymentBadge(order.payment_status)}>{paymentLabel(order.payment_status)}</Badge>}
+                      <div className="text-sm font-semibold tabular-nums">{peso(total)}</div>
+                    </div>
                   </div>
-                  {canManage ? (
-                    <ResellerOrderProcessBar
-                      order={order}
-                      canChange={canManage}
-                      canAssign={canAssign}
-                      accounts={accounts}
-                      onChange={(process, assignedTo) => void setProcess(order.id, process, assignedTo)}
-                    />
-                  ) : (
-                    <ResellerOrderProcessReadonly process={order.process} />
-                  )}
-                  <ul className="space-y-1 text-sm">
+
+                  <ul className="divide-y rounded-lg border bg-muted/10">
                     {order.items.map((item, i) => (
-                      <li key={`${order.id}-${i}`} className="flex justify-between gap-2">
-                        <span className="min-w-0 truncate">
-                          {item.qty} × {item.name}
-                          {item.option_labels.length ? ` (${item.option_labels.join(" / ")})` : ""}
-                        </span>
-                        <span className="shrink-0 tabular-nums">{peso(item.price * item.qty)}</span>
+                      <li key={`${order.id}-${i}`} className="flex items-start justify-between gap-3 px-3 py-2.5 text-sm">
+                        <div className="min-w-0">
+                          <div className="font-medium leading-snug">
+                            {item.qty} × {item.name}
+                          </div>
+                          {item.option_labels.length > 0 && (
+                            <div className="mt-0.5 text-xs text-muted-foreground">{item.option_labels.join(" · ")}</div>
+                          )}
+                        </div>
+                        <div className="shrink-0 tabular-nums text-muted-foreground">{peso(item.price * item.qty)}</div>
                       </li>
                     ))}
+                    <li className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
+                      <span className="text-muted-foreground">Total</span>
+                      <span className="font-semibold tabular-nums">{peso(total)}</span>
+                    </li>
                   </ul>
-                  {order.notes && <p className="text-sm text-muted-foreground">{order.notes}</p>}
+
+                  {order.notes && (
+                    <p className="rounded-md bg-muted/20 px-3 py-2 text-sm text-muted-foreground">{order.notes}</p>
+                  )}
+
                   {due > 0 && (
-                    <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                    <div className="space-y-2 rounded-lg border bg-muted/15 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                         <span>
                           Downpayment {order.downpayment_percent}% · {peso(due)}
@@ -249,7 +309,20 @@ export function ResellerOrdersClient({
                       )}
                     </div>
                   )}
-                  <div className="text-sm font-medium">Total {peso(orderTotal(order.items))}</div>
+
+                  <div className="rounded-lg border bg-background/60 p-3">
+                    {canManage ? (
+                      <ResellerOrderProcessBar
+                        order={order}
+                        canChange={canManage}
+                        canAssign={canAssign}
+                        accounts={accounts}
+                        onChange={(process, assignedTo) => void setProcess(order.id, process, assignedTo)}
+                      />
+                    ) : (
+                      <ResellerOrderProcessReadonly process={order.process} />
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             );

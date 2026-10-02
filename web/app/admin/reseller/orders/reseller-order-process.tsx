@@ -9,14 +9,12 @@ import { roleLabel } from "@/lib/roles";
 import {
   RESELLER_ORDER_PROCESSES,
   RESELLER_PROCESS_FLOW,
-  resellerProcessBadge,
   resellerProcessLabel,
   resellerProcessNeedsAccount,
   type ResellerDeskAccount,
   type ResellerOrder,
   type ResellerOrderProcess,
 } from "@/lib/reseller-orders";
-import { Badge } from "@/components/ui/badge";
 
 const selectClass =
   "flex h-11 w-full rounded-md border border-input bg-background px-3 text-base shadow-sm sm:h-9 sm:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -102,8 +100,6 @@ export function ResellerOrderProcessBar({
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <Badge variant={resellerProcessBadge(order.process)}>{resellerProcessLabel(order.process)}</Badge>
-        {order.assigned_name && <span>Sent to {order.assigned_name}</span>}
         {canAssign && resellerProcessNeedsAccount(order.process) && accounts.length > 0 && (
           <label className="flex items-center gap-1.5">
             <span>Send to</span>

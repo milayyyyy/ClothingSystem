@@ -108,6 +108,15 @@ export function resellerProcessBadge(process: ResellerOrderProcess): "muted" | "
   return "muted";
 }
 
+export function resellerProcessAccent(process: ResellerOrderProcess) {
+  if (process === "completed") return "border-l-emerald-500";
+  if (process === "ready_to_ship") return "border-l-teal-500";
+  if (process === "processing") return "border-l-blue-500";
+  if (process === "pending_checking") return "border-l-amber-500";
+  if (process === "cancelled") return "border-l-red-500";
+  return "border-l-border";
+}
+
 export function resellerOrdersTableMissing(message: string) {
   return /reseller_orders|schema cache|does not exist/i.test(message);
 }

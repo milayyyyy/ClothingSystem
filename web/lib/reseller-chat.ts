@@ -14,7 +14,26 @@ export type ResellerChatMessage = {
   sender_name: string;
   body: string;
   created_at: string;
+  seen_at: string;
 };
+
+export function formatResellerChatStamp(value: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const sameDay = date.toDateString() === now.toDateString();
+  const time = date.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", hour12: true });
+  if (sameDay) return time;
+  const day = date.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+  return `${day} · ${time}`;
+}
+
+export function resellerChatReceipt(message: Pick<ResellerChatMessage, "created_at" | "seen_at">) {
+  if (message.seen_at) return "Seen";
+  if (message.created_at) return "Delivered";
+  return "";
+}
 
 export function resellerChatTableMissing(message: string) {
   return /reseller_chats|reseller_chat_messages|schema cache|does not exist/i.test(message);
@@ -47,6 +66,7 @@ export function parseResellerChatMessage(row: Record<string, unknown>): Reseller
     sender_name: profileName(row.profiles) || "Someone",
     body: typeof row.body === "string" ? row.body : "",
     created_at: typeof row.created_at === "string" ? row.created_at : "",
+    seen_at: typeof row.seen_at === "string" ? row.seen_at : "",
   };
 }
 
