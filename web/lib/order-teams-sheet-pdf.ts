@@ -36,6 +36,7 @@ export type TeamsSheetPdfPriceLine = {
   name: string;
   size: string;
   count: number;
+  freebies?: number;
   unitPrice: number;
 };
 
@@ -395,7 +396,7 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
     doc.text("Price chart", MARGIN, y);
     y += 6;
 
-    const priceColW = tableW / 5;
+    const priceColW = tableW / 6;
 
     if (data.priceLines.length === 0) {
       doc.setFont("helvetica", "normal");
@@ -405,35 +406,37 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
       autoTable(doc, {
         startY: y,
         tableWidth: tableW,
-        head: [[L.priceLineHdr, "Size", "Qty", "Unit price", "Subtotal"]],
+        head: [[L.priceLineHdr, "Size", "Qty", "Freebies", "Unit price", "Subtotal"]],
         body: data.priceLines.map((line) => {
-          const sub = line.count * line.unitPrice;
+          const freebies = Math.min(Math.max(0, Number(line.freebies || 0)), line.count);
+          const sub = Math.max(0, line.count - freebies) * line.unitPrice;
           return [
             line.name.trim() || "—",
             line.size.trim() || "—",
             String(line.count),
+            freebies > 0 ? String(freebies) : "—",
             line.unitPrice > 0 ? pesoPdf(line.unitPrice) : "—",
             sub > 0 ? pesoPdf(sub) : "—",
           ];
         }),
         foot: [
           [
-            { content: "Grand total", colSpan: 4, styles: { halign: "right", fontStyle: "bold" } },
+            { content: "Grand total", colSpan: 5, styles: { halign: "right", fontStyle: "bold" } },
             { content: pesoPdf(data.orderTotal), styles: { halign: "right", fontStyle: "bold" } },
           ],
           ...(data.extraAmount && data.extraAmount > 0 ? [[
-            { content: "Extra", colSpan: 4, styles: { halign: "right" as const } },
+            { content: "Extra", colSpan: 5, styles: { halign: "right" as const } },
             { content: pesoPdf(data.extraAmount), styles: { halign: "right" as const } },
           ]] : []),
           [
-            { content: "Down payment", colSpan: 4, styles: { halign: "right" } },
+            { content: "Down payment", colSpan: 5, styles: { halign: "right" } },
             {
               content: data.downPayment > 0 ? pesoPdf(data.downPayment) : "—",
               styles: { halign: "right" },
             },
           ],
           [
-            { content: "Balance", colSpan: 4, styles: { halign: "right", fontStyle: "bold" } },
+            { content: "Balance", colSpan: 5, styles: { halign: "right", fontStyle: "bold" } },
             { content: pesoPdf(data.balance), styles: { halign: "right", fontStyle: "bold" } },
           ],
         ],
@@ -443,10 +446,11 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
         footStyles: { fillColor: [245, 245, 245], textColor: [30, 30, 30] },
         columnStyles: {
           0: { cellWidth: priceColW * 1.35 },
-          1: { cellWidth: priceColW * 0.85 },
-          2: { cellWidth: priceColW * 0.55, halign: "center" },
-          3: { cellWidth: priceColW * 0.9, halign: "right" },
+          1: { cellWidth: priceColW * 0.75 },
+          2: { cellWidth: priceColW * 0.5, halign: "center" },
+          3: { cellWidth: priceColW * 0.65, halign: "center" },
           4: { cellWidth: priceColW * 0.9, halign: "right" },
+          5: { cellWidth: priceColW * 0.85, halign: "right" },
         },
         margin: { left: MARGIN, right: MARGIN },
       });

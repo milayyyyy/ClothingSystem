@@ -21,6 +21,11 @@ import {
   buildTeamsSheetPdf,
   downloadTeamsSheetPdf,
 } from "@/lib/order-teams-sheet-pdf";
+import {
+  jerseyLineFreebieKey,
+  jerseyLineFreebieQty,
+  jerseyLineSubtotal,
+} from "@/lib/order-invoice";
 import { FileDown } from "lucide-react";
 import { uploadJerseyDesignPhoto } from "@/lib/jersey-design-upload";
 import { JERSEY_DESIGNS_BUCKET, TEAM_DESIGN_MAX, storagePathFromPublicUrl } from "@/lib/media-storage";
@@ -792,14 +797,20 @@ export function TeamsSheetClient({
 
   const orderTotal = useMemo(
     () => {
-      const linesTotal = uniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0);
+      const linesTotal = uniqueLines.reduce((sum, l) => {
+        const freebies = jerseyLineFreebieQty(linePrices, l.key, l.count);
+        return sum + jerseyLineSubtotal(l.count, linePrices[l.key] ?? 0, freebies);
+      }, 0);
       const extra = linePrices["__extra__"] ?? 0;
       return linesTotal + extra;
     },
     [uniqueLines, linePrices],
   );
   const activeTeamTotal = useMemo(
-    () => activeUniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0),
+    () => activeUniqueLines.reduce((sum, l) => {
+      const freebies = jerseyLineFreebieQty(linePrices, l.key, l.count);
+      return sum + jerseyLineSubtotal(l.count, linePrices[l.key] ?? 0, freebies);
+    }, 0),
     [activeUniqueLines, linePrices],
   );
   const extraAmount = linePrices["__extra__"] ?? 0;
@@ -1080,7 +1091,10 @@ export function TeamsSheetClient({
   }
 
   async function save() {
-    const computedTotal = uniqueLines.reduce((sum, l) => sum + l.count * (linePrices[l.key] ?? 0), 0) + (linePrices["__extra__"] ?? 0);
+    const computedTotal = uniqueLines.reduce((sum, l) => {
+      const freebies = jerseyLineFreebieQty(linePrices, l.key, l.count);
+      return sum + jerseyLineSubtotal(l.count, linePrices[l.key] ?? 0, freebies);
+    }, 0) + (linePrices["__extra__"] ?? 0);
     const dp = Math.max(0, Number(downPaymentStr) || 0);
 
     // If there's a new/increased down payment, ask for a finance account first
@@ -1146,6 +1160,7 @@ export function TeamsSheetClient({
         name: line.name,
         size: line.size,
         count: line.count,
+        freebies: jerseyLineFreebieQty(linePrices, line.key, line.count),
         unitPrice: linePrices[line.key] ?? 0,
       })),
       extraAmount,
@@ -1647,8 +1662,8 @@ export function TeamsSheetClient({
             {viewOnly
               ? "Grouped line items and pricing for this jersey type sheet."
               : isSvc
-                ? "Service lines with the same name & size are grouped. Set a unit price per type — the total updates automatically. Save sheet saves both the data and the pricing."
-                : "Jersey lines for the active sheet are grouped here. Set a unit price per type — the total updates automatically. Switch jersey type tabs to see each sheet's chart."}
+                ? "Service lines with the same name & size are grouped. Set a unit price per type and freebies per size — free pieces are deducted from the subtotal. Save sheet saves both the data and the pricing."
+                : "Jersey lines for the active sheet are grouped here. Set a unit price per type and freebies per size — free pieces are deducted from the subtotal. Switch jersey type tabs to see each sheet's chart."}
           </p>
 
           {activeUniqueLines.length === 0 ? (
@@ -1661,6 +1676,7 @@ export function TeamsSheetClient({
                     <th className="border-b border-r px-3 py-2 text-left">{L.priceLineHdr}</th>
                     <th className="border-b border-r px-3 py-2 text-center">Size</th>
                     <th className="border-b border-r px-3 py-2 text-center">Qty</th>
+                    <th className="border-b border-r px-3 py-2 text-center">Freebies</th>
                     <th className="border-b border-r px-3 py-2 text-right">Unit price (₱)</th>
                     <th className="border-b px-3 py-2 text-right">Subtotal</th>
                   </tr>
@@ -1668,7 +1684,8 @@ export function TeamsSheetClient({
                 <tbody>
                   {activeUniqueLines.map((line) => {
                     const unitPrice = linePrices[line.key] ?? 0;
-                    const subtotal = line.count * unitPrice;
+                    const freebies = jerseyLineFreebieQty(linePrices, line.key, line.count);
+                    const subtotal = jerseyLineSubtotal(line.count, unitPrice, freebies);
                     return (
                       <tr key={line.key} className="border-b border-border/60 hover:bg-muted/10">
                         <td className="border-r px-3 py-2 font-medium">{line.name}</td>
@@ -1676,6 +1693,27 @@ export function TeamsSheetClient({
                           {line.size || <span className="italic text-muted-foreground/60">—</span>}
                         </td>
                         <td className="border-r px-3 py-2 text-center font-mono">{line.count}</td>
+                        <td className="border-r px-3 py-2 text-center font-mono">
+                          {viewOnly ? (
+                            freebies > 0 ? freebies : <span className="text-muted-foreground">—</span>
+                          ) : (
+                            <input
+                              type="number"
+                              min={0}
+                              max={line.count}
+                              step={1}
+                              className="mx-auto h-8 w-16 rounded border border-border/60 bg-transparent px-1 text-center font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
+                              value={freebies === 0 ? "" : freebies}
+                              placeholder="0"
+                              onChange={(e) => {
+                                const n = Math.floor(Number(e.target.value) || 0);
+                                const clamped = Math.min(Math.max(0, n), line.count);
+                                setLinePrices((prev) => ({ ...prev, [jerseyLineFreebieKey(line.key)]: clamped }));
+                              }}
+                              aria-label={`Freebies for ${line.name} ${line.size}`}
+                            />
+                          )}
+                        </td>
                         <td className="border-r px-3 py-2 text-right font-mono">
                           {viewOnly ? (
                             unitPrice > 0 ? peso(unitPrice) : <span className="text-muted-foreground">—</span>
@@ -1704,7 +1742,7 @@ export function TeamsSheetClient({
                 </tbody>
                 <tfoot className="bg-muted/30 text-sm font-semibold">
                   <tr className="border-t-2 border-border">
-                    <td colSpan={4} className="border-r px-3 py-2 text-right text-muted-foreground">
+                    <td colSpan={5} className="border-r px-3 py-2 text-right text-muted-foreground">
                       {(() => {
                         const g = teamGroups.find((t) => t.teamKey === activeTeamKey);
                         if (g && g.sheets.length > 1) return "Sheet Total";
@@ -1717,7 +1755,7 @@ export function TeamsSheetClient({
                     </td>
                   </tr>
                   <tr className="border-t border-border/60">
-                    <td colSpan={4} className="border-r px-3 py-1.5 text-right text-muted-foreground">
+                    <td colSpan={5} className="border-r px-3 py-1.5 text-right text-muted-foreground">
                       Extra
                     </td>
                     <td className="px-3 py-2 text-right font-mono">
@@ -1741,7 +1779,7 @@ export function TeamsSheetClient({
                     </td>
                   </tr>
                   <tr className="border-t border-border/60">
-                    <td colSpan={4} className="border-r px-3 py-1.5 text-right text-muted-foreground">
+                    <td colSpan={5} className="border-r px-3 py-1.5 text-right text-muted-foreground">
                       Down payment
                     </td>
                     <td className="px-3 py-2 text-right font-mono">
@@ -1762,7 +1800,7 @@ export function TeamsSheetClient({
                     </td>
                   </tr>
                   <tr className="border-t border-border/60">
-                    <td colSpan={4} className="border-r px-3 py-2 text-right text-muted-foreground">
+                    <td colSpan={5} className="border-r px-3 py-2 text-right text-muted-foreground">
                       Balance
                     </td>
                     <td

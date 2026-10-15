@@ -95,7 +95,12 @@ export function OrderInvoiceDocument({ invoice }: { invoice: OrderInvoiceData })
                       {line.size || "—"}
                     </td>
                   )}
-                  <td className="py-3 pr-4 text-center font-mono text-gray-700">{line.quantity}</td>
+                  <td className="py-3 pr-4 text-center font-mono text-gray-700">
+                    {line.quantity}
+                    {line.freebies > 0 && (
+                      <div className="text-[10px] font-normal text-gray-500">{line.freebies} free</div>
+                    )}
+                  </td>
                   <td className="py-3 pr-4 text-right font-mono text-gray-700">{peso(line.unitPrice)}</td>
                   <td className="py-3 text-right font-mono font-semibold text-gray-900">{peso(line.subtotal)}</td>
                 </tr>

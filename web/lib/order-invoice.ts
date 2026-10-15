@@ -7,11 +7,36 @@ export function jerseyLineKey(name: string, size: string): string {
   return `${name.trim()}|||${size.trim()}`;
 }
 
+/** Stored beside unit prices in `jersey_line_prices` (`__freebie__<name>|||<size>`). */
+export function jerseyLineFreebieKey(lineKey: string): string {
+  return `__freebie__${lineKey}`;
+}
+
+export function jerseyLineFreebieQty(
+  linePrices: Record<string, number> | null | undefined,
+  lineKey: string,
+  maxCount?: number,
+): number {
+  const n = Math.floor(Number(linePrices?.[jerseyLineFreebieKey(lineKey)] ?? 0));
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  if (maxCount != null) return Math.min(n, Math.max(0, maxCount));
+  return n;
+}
+
+export function jerseyLineBillableQty(count: number, freebies: number): number {
+  return Math.max(0, Number(count || 0) - Math.max(0, Number(freebies || 0)));
+}
+
+export function jerseyLineSubtotal(count: number, unitPrice: number, freebies: number): number {
+  return jerseyLineBillableQty(count, freebies) * Number(unitPrice || 0);
+}
+
 export type InvoiceLineItem = {
   key: string;
   name: string;
   size: string;
   quantity: number;
+  freebies: number;
   unitPrice: number;
   subtotal: number;
 };
@@ -60,13 +85,15 @@ function buildLineItemsFromTeams(
     })
     .map((row) => {
       const unitPrice = Number(linePrices[row.key] ?? 0);
+      const freebies = jerseyLineFreebieQty(linePrices, row.key, row.count);
       return {
         key: row.key,
         name: row.name,
         size: row.size,
         quantity: row.count,
+        freebies,
         unitPrice,
-        subtotal: row.count * unitPrice,
+        subtotal: jerseyLineSubtotal(row.count, unitPrice, freebies),
       };
     });
 }
@@ -109,6 +136,7 @@ export async function fetchOrderInvoiceData(
       name: item.product_name,
       size: "",
       quantity: Number(item.quantity),
+      freebies: 0,
       unitPrice: Number(item.unit_price),
       subtotal: Number(item.line_total ?? item.quantity * item.unit_price),
     }));
@@ -159,6 +187,7 @@ export async function fetchOrderInvoiceData(
           name: isServicesSheet ? "Services order" : "Order",
           size: "",
           quantity: qty,
+          freebies: 0,
           unitPrice: unit,
           subtotal: qty * unit,
         },
