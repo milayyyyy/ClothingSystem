@@ -142,15 +142,19 @@ const SUB_STAGES = [
   { v: "quality_control", label: "Packaging & Quality Control" },
 ] as const;
 
-/** DB `sublimation_stage` order for admin “forward” (includes `for_pickup` after QC). */
+/** Production order for the row forward arrow. Reprint Error is a side status, not a step. */
 const SUB_STAGE_FORWARD_ORDER = [
   "design_layout",
   "printing",
   "heatpress",
   "cut_sew",
-  "reprint_error",
   "quality_control",
   "for_pickup",
+] as const;
+
+const SUBLIMATION_SETTABLE_SUB_STAGES = [
+  ...SUB_STAGE_FORWARD_ORDER,
+  "reprint_error",
 ] as const;
 
 /** Sublimation sub-stages for bulk “set to status” (includes terminal `for_pickup`). */
@@ -236,31 +240,64 @@ type OrderForwardPatch = { stage: string; sub_stage?: string | null; updated_at:
 
 function nowIso() { return new Date().toISOString(); }
 
+function isOrderFullyCompleted(order: Order): boolean {
+  return normalizeOrderServiceStage(order?.stage) === "completed";
+}
+
+/** Status the list badge uses for sublimation — forward must follow this, not a stale sub_stage. */
+function sublimationVisibleStep(order: Order): string {
+  const stage = normalizeOrderServiceStage(order.stage);
+  if (stage === "completed") return "completed";
+  const sub = String(order.sub_stage || "").trim();
+  if (stage === "for_pickup" || sub === "for_pickup") return "for_pickup";
+  if (sub === "reprint_error") return "reprint_error";
+  if ((SUB_STAGE_FORWARD_ORDER as readonly string[]).includes(sub)) return sub;
+  return "design_layout";
+}
+
 function computeOrderForwardUpdate(order: Order): OrderForwardPatch | null {
   if (String(order?.status || "").toLowerCase() === "cancelled") return null;
-  // Completed is the terminal state — no further forwarding allowed
-  const currentStage = normalizeOrderServiceStage(order.stage);
-  if (currentStage === "completed") return null;
+  if (isOrderFullyCompleted(order)) return null;
   const kind = getOrderKind(order);
   // POS orders only have two states: pending (design_layout) → completed
   if (kind === "pos") {
     return { stage: "completed", updated_at: nowIso() };
   }
   if (kind === "sublimation") {
-    const curSub = String(order.sub_stage || "design_layout");
-    let idx = (SUB_STAGE_FORWARD_ORDER as readonly string[]).indexOf(curSub);
-    if (idx < 0) idx = 0;
-    if (idx < SUB_STAGE_FORWARD_ORDER.length - 1) {
-      const nextSub = SUB_STAGE_FORWARD_ORDER[idx + 1]!;
-      return { sub_stage: nextSub, stage: mergedServiceStageForSub(order.stage, nextSub), updated_at: nowIso() };
+    const step = sublimationVisibleStep(order);
+    if (step === "completed") return null;
+    if (step === "for_pickup") {
+      return { stage: "completed", sub_stage: "for_pickup", updated_at: nowIso() };
     }
-    const nextStage = nextOrderServiceStage(order.stage);
-    if (!nextStage) return null;
-    return { stage: nextStage, sub_stage: curSub, updated_at: nowIso() };
+    const nextSub = step === "reprint_error"
+      ? "quality_control"
+      : SUB_STAGE_FORWARD_ORDER[(SUB_STAGE_FORWARD_ORDER as readonly string[]).indexOf(step) + 1];
+    if (!nextSub) {
+      return { stage: "completed", sub_stage: step, updated_at: nowIso() };
+    }
+    return {
+      sub_stage: nextSub,
+      stage: mergedServiceStageForSub(order.stage, nextSub),
+      updated_at: nowIso(),
+    };
   }
   const nextStage = nextOrderServiceStage(order.stage);
   if (!nextStage) return null;
   return { stage: nextStage, updated_at: nowIso() };
+}
+
+function orderForwardNextLabel(order: Order): string | null {
+  const patch = computeOrderForwardUpdate(order);
+  if (!patch) return null;
+  const kind = getOrderKind(order);
+  if (kind === "sublimation") {
+    if (patch.stage === "completed") return ORDER_SERVICE_LABEL.completed;
+    const sub = String(patch.sub_stage || "");
+    const subOpt = SUBLIMATION_BULK_TARGET_OPTIONS.find((s) => s.v === sub);
+    if (subOpt) return subOpt.label;
+    return ORDER_SERVICE_LABEL[patch.stage] || patch.stage;
+  }
+  return ORDER_SERVICE_LABEL[patch.stage] || patch.stage;
 }
 
 /** Set pipeline to a chosen step (bulk forward). Allows moving to any listed stage, not only “next”. */
@@ -275,7 +312,7 @@ function computeOrderTargetUpdate(order: Order, target: string): OrderForwardPat
       if (currentStage === "completed") return null;
       return { stage: "completed", sub_stage: String(order.sub_stage || "for_pickup"), updated_at: nowIso() };
     }
-    if (!(SUB_STAGE_FORWARD_ORDER as readonly string[]).includes(t)) return null;
+    if (!(SUBLIMATION_SETTABLE_SUB_STAGES as readonly string[]).includes(t)) return null;
     // Block forwarding if the order is completed — only allow going backward
     if (currentStage === "completed") {
       const targetStage = mergedServiceStageForSub(null, t);
@@ -1584,12 +1621,8 @@ export function OrdersClient({
       if (hideCompleted) {
         if (k === "pos") {
           // Never hide POS orders — always show both pending and completed
-        } else if (k === "sublimation") {
-          const svcStage = normalizeOrderServiceStage(o.stage);
-          if (svcStage === "completed") return false;
-          if (svcStage === "for_pickup" || String(o.sub_stage || "") === "for_pickup") return false;
-        } else {
-          if (normalizeOrderServiceStage(o.stage) === "completed") return false;
+        } else if (isOrderFullyCompleted(o)) {
+          return false;
         }
       }
 
@@ -2456,7 +2489,7 @@ export function OrdersClient({
                                 ? "text-muted-foreground hover:bg-accent hover:text-foreground"
                                 : "cursor-not-allowed opacity-40")
                             }
-                            title={canForwardOrder(o) ? "Forward one status step" : normalizeOrderServiceStage(o.stage) === "completed" ? "Order is completed — cannot advance further" : "Already at final step or cancelled"}
+                            title={canForwardOrder(o) ? `Forward to ${orderForwardNextLabel(o)}` : isOrderFullyCompleted(o) ? "Order is completed — cannot advance further" : "Already at final step or cancelled"}
                             aria-label="Forward order status"
                             onClick={() => void forwardOrderRow(o)}
                           >
@@ -2636,7 +2669,7 @@ export function OrdersClient({
                               ? "text-muted-foreground hover:bg-accent hover:text-foreground"
                               : "cursor-not-allowed opacity-40")
                           }
-                          title={canForwardOrder(o) ? "Forward one status step" : normalizeOrderServiceStage(o.stage) === "completed" ? "Order is completed — cannot advance further" : "Already at final step or cancelled"}
+                          title={canForwardOrder(o) ? `Forward to ${orderForwardNextLabel(o)}` : isOrderFullyCompleted(o) ? "Order is completed — cannot advance further" : "Already at final step or cancelled"}
                           aria-label="Forward order status"
                           onClick={() => void forwardOrderRow(o)}
                         >
