@@ -37,6 +37,7 @@ import {
   nextOrderServiceStage,
 } from "@/lib/order-services";
 import { useConfirmAction } from "@/components/confirm-dialog";
+import { orderCollectibleBalance, orderPaidAmount, orderUncollectedAmount } from "@/lib/order-balance";
 
 /** Local calendar day `YYYY-MM-DD` for date-range filters on `bigseller_printed_at`. */
 function localDayKeyFromIso(iso: string | null | undefined): string | null {
@@ -883,11 +884,14 @@ function PaymentCollectDialog({
 }) {
   const supabase = createClient();
   const orderTotal = Number(order?.total || 0);
-  const alreadyPaid = Number(order?.down_payment || 0);
-  const remaining = Math.max(0, orderTotal - alreadyPaid);
+  const alreadyPaid = orderPaidAmount(order || {});
+  const alreadyUncollected = orderUncollectedAmount(order || {});
+  const remaining = orderCollectibleBalance(order || { total: orderTotal });
 
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState("");
+  const [writeOffRemaining, setWriteOffRemaining] = useState(false);
+  const [writeOffNote, setWriteOffNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -895,6 +899,8 @@ function PaymentCollectDialog({
     if (open) {
       setAmount(remaining > 0 ? String(remaining) : "");
       setAccountId(financeAccounts[0]?.id ?? "");
+      setWriteOffRemaining(false);
+      setWriteOffNote("");
       setMsg(null);
     }
   }, [open, remaining, financeAccounts]);
@@ -902,33 +908,45 @@ function PaymentCollectDialog({
   async function recordPayment(e: React.FormEvent) {
     e.preventDefault();
     if (!order) return;
-    const amt = Number(amount);
-    if (!amt || amt <= 0) { setMsg("Enter a valid amount."); return; }
-    if (!accountId) { setMsg("Select a finance account."); return; }
+    const amt = Number(amount) || 0;
+    if (amt < 0) { setMsg("Enter a valid amount."); return; }
+    if (!writeOffRemaining && amt <= 0) { setMsg("Enter a valid amount."); return; }
+    if (amt > remaining + 0.0001) { setMsg("Amount cannot exceed the remaining balance."); return; }
+    if (amt > 0 && !accountId) { setMsg("Select a finance account."); return; }
+    if (writeOffRemaining && amt <= 0 && remaining <= 0) { setMsg("Nothing left to write off."); return; }
     setSaving(true);
     setMsg(null);
     try {
-      const newPaid = Math.min(orderTotal, alreadyPaid + amt);
+      const newPaid = Math.min(orderTotal, alreadyPaid + Math.max(0, amt));
+      const leftover = Math.max(0, remaining - Math.max(0, amt));
+      const newUncollected = writeOffRemaining ? alreadyUncollected + leftover : alreadyUncollected;
       const isPendingPOS = getOrderKind(order) === "pos" && String(order?.stage || "").toLowerCase() !== "completed";
 
-      // Update order: record payment + advance POS stage if pending
+      // Update order: record payment + optional goodwill write-off + advance POS stage if pending
       const orderPatch: Record<string, unknown> = { down_payment: newPaid };
+      if (writeOffRemaining) {
+        orderPatch.uncollected_amount = newUncollected;
+        const note = writeOffNote.trim();
+        if (note) orderPatch.uncollected_note = note;
+      }
       if (isPendingPOS) orderPatch.stage = "completed";
       const { error: oe } = await supabase.from("orders").update(orderPatch).eq("id", order.id);
       if (oe) throw oe;
 
       const today = new Date().toISOString().slice(0, 10);
-      const desc = `Order payment: #${order.order_no} — ${order.customer_name || ""}`;
-      const { error: te } = await supabase.from("finance_transactions").insert({
-        occurred_at: today,
-        account_id: accountId,
-        direction: "in",
-        amount: amt,
-        description: desc,
-        notes: `order:${order.id}`,
-        order_id: order.id,
-      });
-      if (te) throw te;
+      if (amt > 0) {
+        const desc = `Order payment: #${order.order_no} — ${order.customer_name || ""}`;
+        const { error: te } = await supabase.from("finance_transactions").insert({
+          occurred_at: today,
+          account_id: accountId,
+          direction: "in",
+          amount: amt,
+          description: desc,
+          notes: `order:${order.id}`,
+          order_id: order.id,
+        });
+        if (te) throw te;
+      }
 
       // Auto-submit Daily Order Record for pending POS orders being completed
       if (isPendingPOS) {
@@ -994,12 +1012,19 @@ function PaymentCollectDialog({
           <div className="mt-1 flex flex-wrap gap-4 text-xs text-muted-foreground">
             <span>Total: <span className="font-medium text-foreground">{peso(orderTotal)}</span></span>
             <span>Already paid: <span className="font-medium text-foreground">{peso(alreadyPaid)}</span></span>
+            {alreadyUncollected > 0 && (
+              <span>Uncollected / goodwill: <span className="font-medium text-foreground">{peso(alreadyUncollected)}</span></span>
+            )}
             <span>Balance: <span className="font-semibold text-primary">{peso(remaining)}</span></span>
           </div>
         </div>
 
         {remaining <= 0 ? (
-          <p className="text-sm text-green-600 dark:text-green-400">This order is fully paid. No balance remaining.</p>
+          <p className="text-sm text-green-600 dark:text-green-400">
+            {alreadyUncollected > 0
+              ? "This order has no collectible balance (paid + uncollected / goodwill cover the total)."
+              : "This order is fully paid. No balance remaining."}
+          </p>
         ) : (
           <form onSubmit={recordPayment} className="space-y-3">
             <div>
@@ -1008,7 +1033,7 @@ function PaymentCollectDialog({
                 className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
                 value={accountId}
                 onChange={(e) => setAccountId(e.target.value)}
-                required
+                required={!(writeOffRemaining && !(Number(amount) > 0))}
               >
                 <option value="">— select account —</option>
                 {financeAccounts.map((a) => (
@@ -1050,22 +1075,65 @@ function PaymentCollectDialog({
               <label className="mb-1 block text-sm font-medium">Amount received (₱)</label>
               <input
                 type="number"
-                min={0.01}
+                min={writeOffRemaining ? 0 : 0.01}
                 max={remaining}
                 step="0.01"
                 className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                required
+                required={!writeOffRemaining}
               />
-              {Number(amount) < remaining && Number(amount) > 0 && (
-                <p className="mt-1 text-xs text-amber-600">Partial payment — ₱{(remaining - Number(amount)).toLocaleString(undefined, { minimumFractionDigits: 2 })} will remain outstanding.</p>
+              {Number(amount) < remaining && Number(amount) >= 0 && amount !== "" && !writeOffRemaining && (
+                <p className="mt-1 text-xs text-amber-600">Partial payment — {peso(remaining - Number(amount))} will remain outstanding.</p>
               )}
             </div>
+            <label className="flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                checked={writeOffRemaining}
+                onChange={(e) => setWriteOffRemaining(e.target.checked)}
+              />
+              <span>
+                <span className="font-medium">Write off remaining as uncollected / goodwill</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Owner agrees not to collect the rest. It leaves Outstanding Balances and is listed under Uncollected / Goodwill. No cash is credited.
+                </span>
+              </span>
+            </label>
+            {writeOffRemaining && (
+              <div>
+                <label className="mb-1 block text-sm font-medium">Reason (optional)</label>
+                <input
+                  type="text"
+                  className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
+                  value={writeOffNote}
+                  onChange={(e) => setWriteOffNote(e.target.value)}
+                  placeholder="e.g. goodwill, regular customer"
+                />
+                {Number(amount) < remaining ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {peso(Math.max(0, remaining - (Number(amount) || 0)))} will be recorded as uncollected / goodwill.
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs text-amber-600">
+                    Lower Amount received (or set it to 0) so there is a remainder to write off.
+                  </p>
+                )}
+              </div>
+            )}
             {msg && <p className="text-sm text-destructive">{msg}</p>}
             <div className="flex justify-end gap-2 pt-1">
               <Button type="button" variant="outline" onClick={onClose}>Skip (record later)</Button>
-              <Button type="submit" disabled={saving}>{saving ? "Recording…" : "Record payment"}</Button>
+              <Button type="submit" disabled={saving}>
+                {saving
+                  ? "Recording…"
+                  : writeOffRemaining && !(Number(amount) > 0)
+                    ? "Write off remaining"
+                    : writeOffRemaining
+                      ? "Record payment & write off rest"
+                      : "Record payment"}
+              </Button>
             </div>
           </form>
         )}
@@ -1103,19 +1171,15 @@ function OutstandingBalancesSection({
       if (isBigSellerOnlineOrder(o)) return false;
       // POS orders with full payment collected at terminal (down_payment = total) are excluded.
       // POS orders where payment was skipped (down_payment < total) DO appear here.
+      // Uncollected / goodwill write-off is not outstanding.
       const total = Number(o.total || 0);
-      const paid = Number(o.down_payment || 0);
-      return total > 0 && paid < total;
-    }).sort((a, b) => {
-      const balA = Number(a.total || 0) - Number(a.down_payment || 0);
-      const balB = Number(b.total || 0) - Number(b.down_payment || 0);
-      return balB - balA;
-    });
+      return total > 0 && orderCollectibleBalance(o) > 0;
+    }).sort((a, b) => orderCollectibleBalance(b) - orderCollectibleBalance(a));
   }, [orders]);
 
   if (outstanding.length === 0) return null;
 
-  const grandBalance = outstanding.reduce((s, o) => s + Number(o.total || 0) - Number(o.down_payment || 0), 0);
+  const grandBalance = outstanding.reduce((s, o) => s + orderCollectibleBalance(o), 0);
 
   return (
     <>
@@ -1164,8 +1228,9 @@ function OutstandingBalancesSection({
                 <tbody>
                   {outstanding.map((o) => {
                     const total = Number(o.total || 0);
-                    const paid = Number(o.down_payment || 0);
-                    const balance = total - paid;
+                    const paid = orderPaidAmount(o);
+                    const uncollected = orderUncollectedAmount(o);
+                    const balance = orderCollectibleBalance(o);
                     const k = getOrderKind(o);
                     const kindLabel = k === "pos" ? "POS" : k === "sublimation" ? "Sublimation" : k === "services" ? "Services" : k === "online" ? "Online" : "Walk-in";
                     return (
@@ -1174,7 +1239,12 @@ function OutstandingBalancesSection({
                         <td className="py-2 font-medium">{o.customer_name}</td>
                         <td className="py-2 text-xs text-muted-foreground">{kindLabel}</td>
                         <td className="py-2 text-right font-mono text-xs">{peso(total)}</td>
-                        <td className="py-2 text-right font-mono text-xs text-green-600">{paid > 0 ? peso(paid) : <span className="text-muted-foreground">—</span>}</td>
+                        <td className="py-2 text-right font-mono text-xs text-green-600">
+                          {paid > 0 ? peso(paid) : <span className="text-muted-foreground">—</span>}
+                          {uncollected > 0 && (
+                            <div className="text-[10px] font-normal text-muted-foreground">uncollected {peso(uncollected)}</div>
+                          )}
+                        </td>
                         <td className="py-2 text-right font-mono text-xs font-semibold text-amber-700 dark:text-amber-400">{peso(balance)}</td>
                         <td className="px-3 py-2">
                           <Button
@@ -1199,6 +1269,84 @@ function OutstandingBalancesSection({
         </CardContent>
       </Card>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Uncollected / Goodwill — remaining balance the owner agreed not to collect
+// ---------------------------------------------------------------------------
+function UncollectedGoodwillSection({ orders }: { orders: Order[] }) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  const rows = useMemo(() => {
+    return orders.filter((o) => {
+      if (isBigSellerOnlineOrder(o)) return false;
+      return orderUncollectedAmount(o) > 0;
+    }).sort((a, b) => orderUncollectedAmount(b) - orderUncollectedAmount(a));
+  }, [orders]);
+
+  if (rows.length === 0) return null;
+
+  const grand = rows.reduce((s, o) => s + orderUncollectedAmount(o), 0);
+
+  return (
+    <Card className="mt-4 border-slate-200 dark:border-slate-700">
+      <CardContent className="p-0">
+        <div
+          className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 hover:bg-muted/30"
+          onClick={() => setCollapsed((c) => !c)}
+        >
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-[11px] font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              {rows.length}
+            </span>
+            Uncollected / Goodwill
+            <span className="text-xs font-normal text-muted-foreground">
+              — remaining balance the owner agreed not to collect
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{peso(grand)} uncollected</span>
+            <span className="text-xs text-muted-foreground">{collapsed ? "▼ show" : "▲ hide"}</span>
+          </div>
+        </div>
+
+        {!collapsed && (
+          <div className="overflow-x-auto border-t">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2 text-left font-medium">#</th>
+                  <th className="py-2 text-left font-medium">Customer</th>
+                  <th className="py-2 text-left font-medium">Type</th>
+                  <th className="py-2 text-right font-medium">Total</th>
+                  <th className="py-2 text-right font-medium">Paid</th>
+                  <th className="py-2 text-right font-medium">Uncollected</th>
+                  <th className="px-4 py-2 text-left font-medium">Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((o) => {
+                  const k = getOrderKind(o);
+                  const kindLabel = k === "pos" ? "POS" : k === "sublimation" ? "Sublimation" : k === "services" ? "Services" : k === "online" ? "Online" : "Walk-in";
+                  return (
+                    <tr key={o.id} className="border-t hover:bg-muted/20">
+                      <td className="px-4 py-2 font-mono text-xs text-muted-foreground">#{o.order_no}</td>
+                      <td className="py-2 font-medium">{o.customer_name}</td>
+                      <td className="py-2 text-xs text-muted-foreground">{kindLabel}</td>
+                      <td className="py-2 text-right font-mono text-xs">{peso(Number(o.total || 0))}</td>
+                      <td className="py-2 text-right font-mono text-xs text-green-600">{peso(orderPaidAmount(o))}</td>
+                      <td className="py-2 text-right font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">{peso(orderUncollectedAmount(o))}</td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground">{String(o.uncollected_note || "").trim() || "Goodwill"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1757,12 +1905,10 @@ export function OrdersClient({
     await refresh();
     // After completing a non-BigSeller order with outstanding balance, offer payment collection
     if (patch.stage === "completed" && !isBigSellerOnlineOrder(o)) {
-      const orderTotal = Number(o.total || 0);
-      const alreadyPaid = Number(o.down_payment || 0);
-      if (orderTotal > alreadyPaid) {
+      if (orderCollectibleBalance(o) > 0) {
         await ensureFinanceAccounts();
         // Re-read the order so totals reflect price-chart saves
-        const { data: fresh } = await supabase.from("orders").select("id,order_no,customer_name,total,down_payment,kind,order_type,source,notes").eq("id", o.id).single();
+        const { data: fresh } = await supabase.from("orders").select("id,order_no,customer_name,total,down_payment,uncollected_amount,uncollected_note,kind,order_type,source,notes").eq("id", o.id).single();
         setPaymentOrder(fresh ?? o);
       }
     }
@@ -2402,7 +2548,7 @@ export function OrdersClient({
               </thead>
               <tbody>
                 {filtered.map((o) => {
-                  const balance = Number(o.total) - Number(o.down_payment || 0);
+                  const balance = orderCollectibleBalance(o);
                   const k = KINDS.find((x) => x.v === getOrderKind(o)) || KINDS[0];
                   const isPOS = getOrderKind(o) === "pos";
                   const stageLabel = isPOS
@@ -2545,6 +2691,7 @@ export function OrdersClient({
         onEnsureAccounts={ensureFinanceAccounts}
         onPaymentRecorded={refresh}
       />
+      <UncollectedGoodwillSection orders={orders} />
 
       <OrderForm open={open} onClose={() => setOpen(false)} order={editing} employees={employees} jobTypes={jobTypes} onSaved={refresh} />
       <JobTypesManagerDialog open={jobTypesMgrOpen} onClose={() => setJobTypesMgrOpen(false)} onChanged={fetchJobTypes} />

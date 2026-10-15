@@ -120,6 +120,16 @@ export function OrderInvoiceDocument({ invoice }: { invoice: OrderInvoiceData })
                   </td>
                 </tr>
               )}
+              {invoice.uncollectedAmount > 0 && (
+                <tr>
+                  <td colSpan={showSize ? 4 : 3} className="py-1.5 pr-4 text-right text-sm text-gray-500">
+                    Uncollected / goodwill
+                  </td>
+                  <td className="py-1.5 text-right font-mono text-gray-600">
+                    −{peso(invoice.uncollectedAmount)}
+                  </td>
+                </tr>
+              )}
               {/* Balance due */}
               <tr className="border-t-2 border-gray-900">
                 <td colSpan={showSize ? 4 : 3} className="py-4 pr-4 text-right text-base font-extrabold text-gray-900">

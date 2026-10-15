@@ -98,6 +98,8 @@ create table if not exists public.orders (
   unit_price numeric(12,2) default 0,
   total numeric(12,2) default 0,
   down_payment numeric(12,2) default 0,
+  uncollected_amount numeric(12,2) not null default 0,
+  uncollected_note text,
   status order_status default 'pending',
   due_date date,
   notes text,

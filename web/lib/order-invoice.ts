@@ -28,6 +28,7 @@ export type OrderInvoiceData = {
   lineItems: InvoiceLineItem[];
   subtotal: number;
   downPayment: number;
+  uncollectedAmount: number;
   balance: number;
   notes: string | null;
   hasSheetPricing: boolean;
@@ -77,7 +78,7 @@ export async function fetchOrderInvoiceData(
   const { data: order, error } = await supabase
     .from("orders")
     .select(
-      "id, order_no, customer_name, customer_phone, created_at, due_date, down_payment, unit_price, quantity, jersey_line_prices, teams_sheet_format, kind, order_type, source, notes",
+      "id, order_no, customer_name, customer_phone, created_at, due_date, down_payment, uncollected_amount, unit_price, quantity, jersey_line_prices, teams_sheet_format, kind, order_type, source, notes",
     )
     .eq("id", orderId)
     .maybeSingle();
@@ -114,6 +115,7 @@ export async function fetchOrderInvoiceData(
 
     const subtotal = lineItems.reduce((s, l) => s + l.subtotal, 0);
     const downPayment = Math.max(0, Number(order.down_payment) || 0);
+    const uncollectedAmount = Math.max(0, Number(order.uncollected_amount) || 0);
     return {
       orderId: order.id,
       orderNo: Number(order.order_no),
@@ -126,7 +128,8 @@ export async function fetchOrderInvoiceData(
       lineItems,
       subtotal,
       downPayment,
-      balance: Math.max(0, subtotal - downPayment),
+      uncollectedAmount,
+      balance: Math.max(0, subtotal - downPayment - uncollectedAmount),
       notes: order.notes ?? null,
       hasSheetPricing: lineItems.length > 0,
     };
@@ -165,7 +168,8 @@ export async function fetchOrderInvoiceData(
 
   const subtotal = lineItems.reduce((s, l) => s + l.subtotal, 0);
   const downPayment = Math.max(0, Number(order.down_payment) || 0);
-  const balance = Math.max(0, subtotal - downPayment);
+  const uncollectedAmount = Math.max(0, Number(order.uncollected_amount) || 0);
+  const balance = Math.max(0, subtotal - downPayment - uncollectedAmount);
 
   return {
     orderId: order.id,
@@ -179,6 +183,7 @@ export async function fetchOrderInvoiceData(
     lineItems,
     subtotal,
     downPayment,
+    uncollectedAmount,
     balance,
     notes: order.notes ?? null,
     hasSheetPricing,

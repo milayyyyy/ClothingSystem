@@ -22,7 +22,7 @@ type DashOrder = {
   stage?: string | null; sub_stage?: string | null; kind?: string | null; order_type?: string | null;
   due_date: string; created_at: string; down_payment?: number;
 };
-type DashStatOrder = { id: string; total: number; down_payment?: number; status: string; created_at: string };
+type DashStatOrder = { id: string; total: number; down_payment?: number; uncollected_amount?: number; status: string; created_at: string };
 
 type DashboardData = {
   orders: DashOrder[];
@@ -50,7 +50,7 @@ async function loadDashboard(supabase: ReturnType<typeof createClient>): Promise
         .limit(5),
       supabase
         .from("orders")
-        .select("id,total,down_payment,status,created_at"),
+        .select("id,total,down_payment,uncollected_amount,status,created_at"),
       supabase.from("expenses").select("expense_date,amount").gte("expense_date", monthStartIso()),
       supabase.from("inventory").select("id,name,quantity,min_level"),
       supabase.from("tasks").select("id,title,status,priority,due_date").order("due_date", { ascending: true }),
@@ -72,7 +72,7 @@ export function AdminDashboardClient() {
   const canAddOrder = role === "admin" || role === "manager";
   const canAddExpense = canEdit(permissions, "sales_expenses");
   const { data, loading, error } = useClientPageData({
-    cacheKey: "page:admin-dashboard-v2",
+    cacheKey: "page:admin-dashboard-v3",
     load: () => loadDashboard(supabase),
   });
 
@@ -85,7 +85,8 @@ export function AdminDashboardClient() {
   const { orders, statOrders, expenses, inventory, tasks: tasksRaw, readyMadeLow } = data;
   const totalSales = statOrders.reduce((s, o) => s + Number(o.total || 0), 0);
   const collected = statOrders.reduce((s, o) => s + Number(o.down_payment || 0), 0);
-  const outstanding = totalSales - collected;
+  const uncollected = statOrders.reduce((s, o) => s + Number(o.uncollected_amount || 0), 0);
+  const outstanding = totalSales - collected - uncollected;
   const active = statOrders.filter((o) => !["delivered", "cancelled", "ready"].includes(o.status)).length;
   const monthExpenses = expenses
     .filter((e) => new Date(e.expense_date).getMonth() === new Date().getMonth())

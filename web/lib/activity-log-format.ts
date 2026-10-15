@@ -134,6 +134,8 @@ const FIELD_LABELS: Record<string, string> = {
   unit_cost: "Unit cost",
   unit_price: "Unit price",
   down_payment: "Down payment",
+  uncollected_amount: "Uncollected / goodwill",
+  uncollected_note: "Uncollected note",
   downpayment_percent: "Downpayment %",
   downpayment_amount: "Downpayment amount",
   payment_status: "Payment status",
