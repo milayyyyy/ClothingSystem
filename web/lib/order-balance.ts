@@ -28,3 +28,50 @@ export function orderCollectibleBalance(order: {
   const total = Number(order?.total || 0);
   return Math.max(0, total - orderPaidAmount(order) - orderUncollectedAmount(order));
 }
+
+export function orderIdFromFinanceTx(tx: {
+  order_id?: string | null;
+  notes?: string | null;
+}): string | null {
+  if (tx.order_id) return String(tx.order_id);
+  const m = String(tx.notes || "").match(
+    /order:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+  );
+  return m?.[1] ?? null;
+}
+
+export function pesoAmountFromText(text?: string | null): number {
+  const s = String(text || "");
+  const m = s.match(/₱\s*([\d,]+(?:\.\d+)?)/) || s.match(/PHP\s*([\d,]+(?:\.\d+)?)/i);
+  if (!m) return 0;
+  const n = Number(String(m[1]).replace(/,/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Reverse paid / uncollected on the order when its finance money-flow row is deleted. */
+export function orderPatchAfterDeletingFinanceTx(
+  order: { down_payment?: number | null; uncollected_amount?: number | null },
+  tx: {
+    direction?: string | null;
+    amount?: number | null;
+    notes?: string | null;
+    description?: string | null;
+  },
+): Record<string, unknown> | null {
+  if (isUncollectedGoodwillFinanceTx(tx.notes, tx.description)) {
+    const writeOff =
+      pesoAmountFromText(tx.description) ||
+      Number(tx.amount || 0) ||
+      orderUncollectedAmount(order);
+    const next = Math.max(0, orderUncollectedAmount(order) - writeOff);
+    const patch: Record<string, unknown> = { uncollected_amount: next };
+    if (next <= 0) patch.uncollected_note = null;
+    return patch;
+  }
+  if (String(tx.direction || "").toLowerCase() === "in") {
+    const amt = Number(tx.amount || 0);
+    if (amt <= 0) return null;
+    return { down_payment: Math.max(0, orderPaidAmount(order) - amt) };
+  }
+  return null;
+}

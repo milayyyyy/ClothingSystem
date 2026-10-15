@@ -10,7 +10,7 @@ const ACCOUNT_SELECT_FULL =
   "id,name,kind,balance,description,notes,opening_balance,account_name,account_number,qr_code_url,updated_at";
 const ACCOUNT_SELECT_BASE = "id,name,kind,balance,notes,updated_at";
 const TX_SELECT_FULL =
-  "id,occurred_at,account_id,direction,amount,description,notes,expense_id,manual_sale_id,created_at";
+  "id,occurred_at,account_id,direction,amount,description,notes,expense_id,manual_sale_id,order_id,created_at";
 const TX_SELECT_BASE =
   "id,occurred_at,account_id,direction,amount,description,notes,expense_id,created_at";
 

@@ -17,7 +17,11 @@ import { useConfirmAction } from "@/components/confirm-dialog";
 import { ArrowLeftRight, Copy, Check, Download } from "lucide-react";
 import { deleteSalariesLinkedToExpenses } from "@/lib/payroll-ledger";
 import { ONLINE_SHOP_FILTERS } from "@/lib/online-shops";
-import { isUncollectedGoodwillFinanceTx } from "@/lib/order-balance";
+import {
+  isUncollectedGoodwillFinanceTx,
+  orderIdFromFinanceTx,
+  orderPatchAfterDeletingFinanceTx,
+} from "@/lib/order-balance";
 import { orderTypeLabel, SALES_CHANNELS, type SalesChannel } from "@/lib/sales";
 
 type FinanceAccountRow = {
@@ -44,6 +48,7 @@ type FinanceTxRow = {
   notes?: string | null;
   expense_id?: string | null;
   manual_sale_id?: string | null;
+  order_id?: string | null;
   created_at?: string | null;
 };
 
@@ -762,16 +767,47 @@ export function FinanceClient({
     router.refresh();
   }
 
+  async function restoreOrderIfLinkedFinanceTx(t: FinanceTxRow): Promise<boolean> {
+    const orderId = orderIdFromFinanceTx(t);
+    if (!orderId) return true;
+    const { data: order, error: loadErr } = await supabase
+      .from("orders")
+      .select("id, down_payment, uncollected_amount")
+      .eq("id", orderId)
+      .maybeSingle();
+    if (loadErr) {
+      alert(loadErr.message);
+      return false;
+    }
+    if (!order) return true;
+    const patch = orderPatchAfterDeletingFinanceTx(order, t);
+    if (!patch) return true;
+    const { error: upErr } = await supabase.from("orders").update(patch).eq("id", orderId);
+    if (upErr) {
+      alert(upErr.message);
+      return false;
+    }
+    return true;
+  }
+
   function deleteTx(t: FinanceTxRow) {
     if (t.expense_id || t.manual_sale_id) {
       // Transaction is linked to an expense or sales record — ask what to delete
       setLinkedExpenseTx(t);
     } else {
+      const linkedOrder = Boolean(orderIdFromFinanceTx(t));
+      const goodwill = isUncollectedGoodwillFinanceTx(t.notes, t.description);
       ask({
         title: "Delete money flow entry?",
-        description: "Remove this transaction from the ledger? Account balances will be recalculated. This cannot be undone.",
+        description: linkedOrder
+          ? goodwill
+            ? "Remove this uncollected / goodwill row? The amount returns to Outstanding Balances. This cannot be undone."
+            : "Remove this transaction? If it is an order payment, that amount returns to Outstanding Balances. Account balances will be recalculated. This cannot be undone."
+          : "Remove this transaction from the ledger? Account balances will be recalculated. This cannot be undone.",
         confirmLabel: "Delete entry",
         onConfirm: async () => {
+          const ok = await restoreOrderIfLinkedFinanceTx(t);
+          if (!ok) return;
           const { error: e } = await supabase.from("finance_transactions").delete().eq("id", t.id);
           if (e) { alert(e.message); return; }
           router.refresh();
