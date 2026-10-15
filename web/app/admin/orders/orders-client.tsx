@@ -37,7 +37,12 @@ import {
   nextOrderServiceStage,
 } from "@/lib/order-services";
 import { useConfirmAction } from "@/components/confirm-dialog";
-import { orderCollectibleBalance, orderPaidAmount, orderUncollectedAmount } from "@/lib/order-balance";
+import {
+  orderCollectibleBalance,
+  orderPaidAmount,
+  orderUncollectedAmount,
+  UNCOLLECTED_GOODWILL_TX_NOTE_PREFIX,
+} from "@/lib/order-balance";
 
 /** Local calendar day `YYYY-MM-DD` for date-range filters on `bigseller_printed_at`. */
 function localDayKeyFromIso(iso: string | null | undefined): string | null {
@@ -947,16 +952,17 @@ function PaymentCollectDialog({
     if (!order) return;
     const amt = Number(amount) || 0;
     if (amt < 0) { setMsg("Enter a valid amount."); return; }
-    if (!writeOffRemaining && amt <= 0) { setMsg("Enter a valid amount."); return; }
-    if (amt > remaining + 0.0001) { setMsg("Amount cannot exceed the remaining balance."); return; }
-    if (amt > 0 && !accountId) { setMsg("Select a finance account."); return; }
-    if (writeOffRemaining && amt <= 0 && remaining <= 0) { setMsg("Nothing left to write off."); return; }
+    const cashAmt = writeOffRemaining ? 0 : amt;
+    const writeOffAmt = writeOffRemaining ? remaining : 0;
+    if (!writeOffRemaining && cashAmt <= 0) { setMsg("Enter a valid amount."); return; }
+    if (!writeOffRemaining && cashAmt > remaining + 0.0001) { setMsg("Amount cannot exceed the remaining balance."); return; }
+    if (cashAmt > 0 && !accountId) { setMsg("Select a finance account."); return; }
+    if (writeOffRemaining && writeOffAmt <= 0) { setMsg("Nothing left to write off."); return; }
     setSaving(true);
     setMsg(null);
     try {
-      const newPaid = Math.min(orderTotal, alreadyPaid + Math.max(0, amt));
-      const leftover = Math.max(0, remaining - Math.max(0, amt));
-      const newUncollected = writeOffRemaining ? alreadyUncollected + leftover : alreadyUncollected;
+      const newPaid = Math.min(orderTotal, alreadyPaid + Math.max(0, cashAmt));
+      const newUncollected = writeOffRemaining ? alreadyUncollected + writeOffAmt : alreadyUncollected;
       const isPendingPOS = getOrderKind(order) === "pos" && String(order?.stage || "").toLowerCase() !== "completed";
 
       // Update order: record payment + optional goodwill write-off + advance POS stage if pending
@@ -971,18 +977,38 @@ function PaymentCollectDialog({
       if (oe) throw oe;
 
       const today = new Date().toISOString().slice(0, 10);
-      if (amt > 0) {
+      if (cashAmt > 0) {
         const desc = `Order payment: #${order.order_no} — ${order.customer_name || ""}`;
         const { error: te } = await supabase.from("finance_transactions").insert({
           occurred_at: today,
           account_id: accountId,
           direction: "in",
-          amount: amt,
+          amount: cashAmt,
           description: desc,
           notes: `order:${order.id}`,
           order_id: order.id,
         });
         if (te) throw te;
+      }
+      if (writeOffAmt > 0) {
+        const reason = writeOffNote.trim();
+        const desc = [
+          "Uncollected / goodwill",
+          `Order #${order.order_no}`,
+          order.customer_name || "",
+          peso(writeOffAmt),
+          reason,
+        ].filter(Boolean).join(" — ");
+        const { error: ge } = await supabase.from("finance_transactions").insert({
+          occurred_at: today,
+          account_id: null,
+          direction: "out",
+          amount: 0,
+          description: desc,
+          notes: `${UNCOLLECTED_GOODWILL_TX_NOTE_PREFIX}order:${order.id}`,
+          order_id: order.id,
+        });
+        if (ge) throw ge;
       }
 
       // Auto-submit Daily Order Record for pending POS orders being completed
@@ -1064,13 +1090,15 @@ function PaymentCollectDialog({
           </p>
         ) : (
           <form onSubmit={recordPayment} className="space-y-3">
+            {!writeOffRemaining && (
+              <>
             <div>
               <label className="mb-1 block text-sm font-medium">Finance account to credit</label>
               <select
                 className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
                 value={accountId}
                 onChange={(e) => setAccountId(e.target.value)}
-                required={!(writeOffRemaining && !(Number(amount) > 0))}
+                required
               >
                 <option value="">— select account —</option>
                 {financeAccounts.map((a) => (
@@ -1112,18 +1140,20 @@ function PaymentCollectDialog({
               <label className="mb-1 block text-sm font-medium">Amount received (₱)</label>
               <input
                 type="number"
-                min={writeOffRemaining ? 0 : 0.01}
+                min={0.01}
                 max={remaining}
                 step="0.01"
                 className="h-9 w-full rounded-md border bg-transparent px-3 text-sm"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                required={!writeOffRemaining}
+                required
               />
-              {Number(amount) < remaining && Number(amount) >= 0 && amount !== "" && !writeOffRemaining && (
+              {Number(amount) < remaining && Number(amount) >= 0 && amount !== "" && (
                 <p className="mt-1 text-xs text-amber-600">Partial payment — {peso(remaining - Number(amount))} will remain outstanding.</p>
               )}
             </div>
+              </>
+            )}
             <label className="flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
               <input
                 type="checkbox"
@@ -1134,12 +1164,15 @@ function PaymentCollectDialog({
               <span>
                 <span className="font-medium">Write off remaining as uncollected / goodwill</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  Owner agrees not to collect the rest. It leaves Outstanding Balances and is listed under Uncollected / Goodwill. No cash is credited.
+                  No finance account is credited. The balance leaves Outstanding and appears in Finance money flow as Uncollected / Goodwill with blank In/Out.
                 </span>
               </span>
             </label>
             {writeOffRemaining && (
               <div>
+                <p className="mb-2 text-sm">
+                  Writing off <span className="font-semibold">{peso(remaining)}</span> as uncollected / goodwill.
+                </p>
                 <label className="mb-1 block text-sm font-medium">Reason (optional)</label>
                 <input
                   type="text"
@@ -1148,28 +1181,13 @@ function PaymentCollectDialog({
                   onChange={(e) => setWriteOffNote(e.target.value)}
                   placeholder="e.g. goodwill, regular customer"
                 />
-                {Number(amount) < remaining ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {peso(Math.max(0, remaining - (Number(amount) || 0)))} will be recorded as uncollected / goodwill.
-                  </p>
-                ) : (
-                  <p className="mt-1 text-xs text-amber-600">
-                    Lower Amount received (or set it to 0) so there is a remainder to write off.
-                  </p>
-                )}
               </div>
             )}
             {msg && <p className="text-sm text-destructive">{msg}</p>}
             <div className="flex justify-end gap-2 pt-1">
               <Button type="button" variant="outline" onClick={onClose}>Skip (record later)</Button>
               <Button type="submit" disabled={saving}>
-                {saving
-                  ? "Recording…"
-                  : writeOffRemaining && !(Number(amount) > 0)
-                    ? "Write off remaining"
-                    : writeOffRemaining
-                      ? "Record payment & write off rest"
-                      : "Record payment"}
+                {saving ? "Recording…" : writeOffRemaining ? "Write off remaining" : "Record payment"}
               </Button>
             </div>
           </form>

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isUncollectedGoodwillFinanceTx } from "@/lib/order-balance";
 
 export type FinanceAccountExport = {
   id: string;
@@ -122,13 +123,14 @@ export function buildFinanceMergedCsv(
 
   for (const t of flowSorted) {
     const unassigned = !t.account_id;
+    const goodwill = unassigned && isUncollectedGoodwillFinanceTx(undefined, t.description);
     const a = t.account_id ? byId.get(t.account_id) : undefined;
     const dir = t.direction === "out" ? "out" : "in";
     const amt = Number(t.amount || 0);
     lines.push(
       csvRow([
         t.occurred_at,
-        unassigned ? "None" : a?.name ?? "",
+        goodwill ? "Uncollected / Goodwill" : unassigned ? "None" : a?.name ?? "",
         unassigned ? "" : labelFinanceKind(a?.kind ?? ""),
         unassigned ? "" : dir === "in" ? "In" : "Out",
         !unassigned && dir === "in" ? amt : "",

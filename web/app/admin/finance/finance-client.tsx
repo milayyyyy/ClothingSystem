@@ -17,6 +17,7 @@ import { useConfirmAction } from "@/components/confirm-dialog";
 import { ArrowLeftRight, Copy, Check, Download } from "lucide-react";
 import { deleteSalariesLinkedToExpenses } from "@/lib/payroll-ledger";
 import { ONLINE_SHOP_FILTERS } from "@/lib/online-shops";
+import { isUncollectedGoodwillFinanceTx } from "@/lib/order-balance";
 import { orderTypeLabel, SALES_CHANNELS, type SalesChannel } from "@/lib/sales";
 
 type FinanceAccountRow = {
@@ -1149,6 +1150,7 @@ export function FinanceClient({
                   ) : (
                     pagedTxs.map((t) => {
                       const unassigned = !t.account_id;
+                      const goodwill = unassigned && isUncollectedGoodwillFinanceTx(t.notes, t.description);
                       const a = t.account_id ? byId.get(t.account_id) : undefined;
                       const dir = t.direction === "out" ? "out" : "in";
                       const rec = t.created_at
@@ -1165,7 +1167,7 @@ export function FinanceClient({
                           <TableCell className="text-xs text-muted-foreground whitespace-nowrap" title={t.created_at || undefined}>
                             {rec}
                           </TableCell>
-                          <TableCell className="font-medium">{unassigned ? "None" : a?.name || "—"}</TableCell>
+                          <TableCell className="font-medium">{goodwill ? "Uncollected / Goodwill" : unassigned ? "None" : a?.name || "—"}</TableCell>
                           <TableCell className="text-sm text-muted-foreground">{unassigned ? "—" : labelKind(a?.kind || "")}</TableCell>
                           <TableCell className="text-right tabular-nums text-emerald-700 dark:text-emerald-300">
                             {!unassigned && dir === "in" ? money(Number(t.amount || 0)) : "—"}
