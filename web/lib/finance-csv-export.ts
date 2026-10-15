@@ -15,7 +15,7 @@ export type FinanceAccountExport = {
 export type FinanceTxExport = {
   id: string;
   occurred_at: string;
-  account_id: string;
+  account_id: string | null;
   direction: string;
   amount: number;
   description?: string | null;
@@ -61,6 +61,7 @@ export function balanceAfterByTransactionId(
 
   const balanceAfter = new Map<string, number>();
   for (const tx of sorted) {
+    if (!tx.account_id) continue;
     const cur = running.get(tx.account_id) ?? 0;
     const amt = Number(tx.amount || 0);
     const next = tx.direction === "out" ? cur - amt : cur + amt;
@@ -120,18 +121,19 @@ export function buildFinanceMergedCsv(
   });
 
   for (const t of flowSorted) {
-    const a = byId.get(t.account_id);
+    const unassigned = !t.account_id;
+    const a = t.account_id ? byId.get(t.account_id) : undefined;
     const dir = t.direction === "out" ? "out" : "in";
     const amt = Number(t.amount || 0);
     lines.push(
       csvRow([
         t.occurred_at,
-        a?.name ?? "",
-        labelFinanceKind(a?.kind ?? ""),
-        dir === "in" ? "In" : "Out",
-        dir === "in" ? amt : "",
-        dir === "out" ? amt : "",
-        balanceAfter.get(t.id) ?? "",
+        unassigned ? "None" : a?.name ?? "",
+        unassigned ? "" : labelFinanceKind(a?.kind ?? ""),
+        unassigned ? "" : dir === "in" ? "In" : "Out",
+        !unassigned && dir === "in" ? amt : "",
+        !unassigned && dir === "out" ? amt : "",
+        unassigned ? "" : balanceAfter.get(t.id) ?? "",
         t.description ?? "",
         t.created_at ? String(t.created_at).slice(0, 10) : "",
       ]),

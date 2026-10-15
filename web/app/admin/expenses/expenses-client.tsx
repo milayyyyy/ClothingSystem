@@ -90,6 +90,29 @@ function inDateRange(dateKey: string, from: string, to: string, allTime: boolean
   return true;
 }
 
+/** Finance ledger row for an expense. Paid through None → no account, amount 0, still listed. */
+function expenseFinanceTxPayload(opts: {
+  expenseId: string;
+  expenseDate: string;
+  category: string;
+  description: string;
+  amount: number;
+  accountId: string | null;
+}) {
+  const descParts = [`Expense: ${opts.category}`];
+  if (opts.description.trim()) descParts.push(opts.description.trim().slice(0, 120));
+  const deduct = opts.amount > 0 && Boolean(opts.accountId);
+  return {
+    occurred_at: opts.expenseDate,
+    account_id: deduct ? opts.accountId : null,
+    direction: "out" as const,
+    amount: deduct ? opts.amount : 0,
+    description: descParts.join(" — "),
+    notes: `expense:${opts.expenseId}`,
+    expense_id: opts.expenseId,
+  };
+}
+
 export function ExpensesClient({
   initial,
   initialCategories,
@@ -841,21 +864,20 @@ function ExpenseForm({
         return;
       }
 
-      if (amt > 0 && form.finance_account_id) {
-        const descParts = [`Expense: ${form.category}`];
-        if (form.description.trim()) descParts.push(form.description.trim().slice(0, 120));
-        const { error: txErr } = await supabase.from("finance_transactions").insert({
-          occurred_at: form.expense_date,
-          account_id: form.finance_account_id,
-          direction: "out",
-          amount: amt,
-          description: descParts.join(" — "),
-          notes: `expense:${id}`,
-          expense_id: id,
-        });
+      {
+        const { error: txErr } = await supabase.from("finance_transactions").insert(
+          expenseFinanceTxPayload({
+            expenseId: id,
+            expenseDate: form.expense_date,
+            category: form.category,
+            description: form.description,
+            amount: amt,
+            accountId: form.finance_account_id || null,
+          }),
+        );
         if (txErr) {
           await supabase.from("expenses").delete().eq("id", id);
-          alert(txErr.message || "Could not record the deduction on the finance account.");
+          alert(txErr.message || "Could not record this expense in Finance.");
           return;
         }
       }
@@ -1143,8 +1165,8 @@ function ExpenseForm({
             </p>
           ) : (
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Leave as None to record the expense without changing any account balance. Choosing an account subtracts the
-              amount from that Finance page balance.
+              Leave as None to list the expense in Finance with blank In/Out and no deduction. Choosing an account
+              subtracts the amount from that Finance page balance.
             </p>
           )}
         </div>
@@ -1277,39 +1299,24 @@ function ExpenseEditDialog({
         return;
       }
 
-      const descForTx = descTrim
-        ? `Expense: ${form.category} — ${descTrim.slice(0, 120)}`
-        : `Expense: ${form.category}`;
-
-      if (amt > 0 && financeId) {
-        const txBody = {
-          occurred_at: form.expense_date,
-          account_id: financeId,
-          direction: "out" as const,
-          amount: amt,
-          description: descForTx,
-        };
-        if (tx?.id) {
-          const { error: txErr } = await supabase.from("finance_transactions").update(txBody).eq("id", tx.id);
-          if (txErr) {
-            alert(txErr.message);
-            return;
-          }
-        } else {
-          const { error: txErr } = await supabase.from("finance_transactions").insert({
-            ...txBody,
-            notes: `expense:${row.id}`,
-            expense_id: row.id,
-          });
-          if (txErr) {
-            alert(txErr.message);
-            return;
-          }
+      const txBody = expenseFinanceTxPayload({
+        expenseId: row.id,
+        expenseDate: form.expense_date,
+        category: form.category,
+        description: descTrim,
+        amount: amt,
+        accountId: financeId,
+      });
+      if (tx?.id) {
+        const { error: txErr } = await supabase.from("finance_transactions").update(txBody).eq("id", tx.id);
+        if (txErr) {
+          alert(txErr.message);
+          return;
         }
-      } else if (tx?.id) {
-        const { error: delErr } = await supabase.from("finance_transactions").delete().eq("id", tx.id);
-        if (delErr) {
-          alert(delErr.message);
+      } else {
+        const { error: txErr } = await supabase.from("finance_transactions").insert(txBody);
+        if (txErr) {
+          alert(txErr.message);
           return;
         }
       }

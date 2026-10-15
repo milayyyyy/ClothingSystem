@@ -36,7 +36,7 @@ type FinanceAccountRow = {
 type FinanceTxRow = {
   id: string;
   occurred_at: string;
-  account_id: string;
+  account_id: string | null;
   direction: "in" | "out" | string;
   amount: number;
   description?: string | null;
@@ -638,7 +638,7 @@ export function FinanceClient({
   async function openEditTx(t: FinanceTxRow) {
     setEditingTx(t);
     setTxDate(t.occurred_at);
-    setTxAccountId(t.account_id);
+    setTxAccountId(t.account_id || "");
     setTxDir((t.direction as any) || "in");
     setTxAmount(String(t.amount ?? ""));
     setTxDesc((t.description || "") ?? "");
@@ -1119,7 +1119,7 @@ export function FinanceClient({
               </div>
             </div>
           )}
-          {liveAccounts.length === 0 ? (
+          {liveAccounts.length === 0 && (transactions || []).length === 0 ? (
             <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
               Create an account first to start recording money flow.
             </div>
@@ -1148,7 +1148,8 @@ export function FinanceClient({
                     </TableRow>
                   ) : (
                     pagedTxs.map((t) => {
-                      const a = byId.get(t.account_id);
+                      const unassigned = !t.account_id;
+                      const a = t.account_id ? byId.get(t.account_id) : undefined;
                       const dir = t.direction === "out" ? "out" : "in";
                       const rec = t.created_at
                         ? new Date(t.created_at).toLocaleString(undefined, {
@@ -1164,13 +1165,13 @@ export function FinanceClient({
                           <TableCell className="text-xs text-muted-foreground whitespace-nowrap" title={t.created_at || undefined}>
                             {rec}
                           </TableCell>
-                          <TableCell className="font-medium">{a?.name || "—"}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{labelKind(a?.kind || "")}</TableCell>
+                          <TableCell className="font-medium">{unassigned ? "None" : a?.name || "—"}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{unassigned ? "—" : labelKind(a?.kind || "")}</TableCell>
                           <TableCell className="text-right tabular-nums text-emerald-700 dark:text-emerald-300">
-                            {dir === "in" ? money(Number(t.amount || 0)) : "—"}
+                            {!unassigned && dir === "in" ? money(Number(t.amount || 0)) : "—"}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-rose-700 dark:text-rose-300">
-                            {dir === "out" ? money(Number(t.amount || 0)) : "—"}
+                            {!unassigned && dir === "out" ? money(Number(t.amount || 0)) : "—"}
                           </TableCell>
                           <TableCell className="text-sm text-muted-foreground">
                             <span>{t.description || "—"}</span>

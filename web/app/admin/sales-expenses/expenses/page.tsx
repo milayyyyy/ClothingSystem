@@ -61,7 +61,7 @@ export default async function AdminExpensesSubPage() {
     <div>
       <PageHeader
         title="Expenses"
-        description="Log spending. Choosing a finance account posts money out on that balance; leave paid through empty to record the expense without deducting an account."
+        description="Log spending. Choosing a finance account posts money out on that balance. Paid through None still appears in Finance with blank In/Out and does not deduct any account."
       />
       {categoriesError?.message?.includes("expense_categories") && (
         <p className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
