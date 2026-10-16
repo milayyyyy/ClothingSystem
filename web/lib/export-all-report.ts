@@ -5,6 +5,7 @@ import {
   type FinanceAccountExport,
   type FinanceTxExport,
 } from "@/lib/finance-csv-export";
+import { isUncollectedGoodwillFinanceTx } from "@/lib/order-balance";
 import {
   fetchAllInventoryStock,
   fetchReadyMadeStockGrids,
@@ -474,15 +475,17 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
       tableWidth: portraitW,
       head: [["Date", "Account", "In", "Out", "After", "Description"]],
       body: tx.rows.map((t) => {
-        const a = byId.get(t.account_id);
+        const unassigned = !t.account_id;
+        const goodwill = unassigned && isUncollectedGoodwillFinanceTx(undefined, t.description);
+        const a = t.account_id ? byId.get(t.account_id) : undefined;
         const dir = t.direction === "out" ? "out" : "in";
         const amt = Number(t.amount || 0);
         return [
           String(t.occurred_at).slice(0, 10),
-          (a?.name ?? "").trim() || "—",
-          dir === "in" ? peso(amt) : "—",
-          dir === "out" ? peso(amt) : "—",
-          peso(data.balanceAfter.get(t.id) ?? 0),
+          goodwill ? "Uncollected / Goodwill" : unassigned ? "None" : (a?.name ?? "").trim() || "—",
+          !unassigned && dir === "in" ? peso(amt) : "—",
+          !unassigned && dir === "out" ? peso(amt) : "—",
+          unassigned ? "—" : peso(data.balanceAfter.get(t.id) ?? 0),
           (t.description ?? "").trim() || "—",
         ];
       }),
