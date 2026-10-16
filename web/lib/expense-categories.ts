@@ -23,6 +23,7 @@ export const EXPENSE_CATEGORIES = [
   "Vellum Board",
   "Vinyl Stickers",
   "Ziplock",
+  "Commission",
 ] as const;
 
 const CATEGORY_ALIASES: Record<string, string> = {
@@ -42,6 +43,7 @@ const CATEGORY_ALIASES: Record<string, string> = {
   "vellum board": "Vellum Board",
   "vinyl stickers": "Vinyl Stickers",
   ziplock: "Ziplock",
+  commission: "Commission",
   supplies: "Supplies",
   logistics: "Logistics",
   maintenance: "Maintenance",

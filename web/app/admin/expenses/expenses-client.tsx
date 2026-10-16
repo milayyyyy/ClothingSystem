@@ -23,6 +23,7 @@ import {
 } from "@/components/expense-categories-dialog";
 import { EXPENSE_CATEGORIES } from "@/lib/expense-categories";
 import { employmentCategoryLabel, normalizeEmploymentCategory } from "@/lib/employment-category";
+import { orderDisplayStatusLabel } from "@/lib/order-display";
 import { deleteSalariesLinkedToExpenses } from "@/lib/payroll-ledger";
 import { prepareStorageUpload } from "@/lib/compress-image";
 import { EXPENSE_RECEIPTS_BUCKET, expenseReceiptPath } from "@/lib/media-storage";
@@ -64,7 +65,41 @@ export type EmployeePickerRow = {
   position?: string | null;
 };
 
-type ExpensePurpose = "inventory" | "salary" | "general";
+type ExpensePurpose = "inventory" | "salary" | "commission" | "general";
+
+type CommissionOrderRow = {
+  id: string;
+  order_no: number | string | null;
+  customer_name: string | null;
+  stage?: string | null;
+  sub_stage?: string | null;
+  status?: string | null;
+  kind?: string | null;
+  order_type?: string | null;
+};
+
+function commissionOrderKindLabel(o: CommissionOrderRow): string {
+  const raw = String(o.kind ?? o.order_type ?? "").toLowerCase().trim();
+  if (raw === "pos") return "POS";
+  if (raw === "sublimation") return "Sublimation";
+  if (raw === "services") return "Services";
+  if (raw === "online") return "Online";
+  return "Walk-in";
+}
+
+function commissionOrderStatusLabel(o: CommissionOrderRow): string {
+  const raw = String(o.kind ?? o.order_type ?? "").toLowerCase().trim();
+  if (raw === "pos") {
+    return String(o.stage || "").toLowerCase() === "completed" ? "Completed" : "Pending";
+  }
+  return orderDisplayStatusLabel(o);
+}
+
+function commissionExpenseDescription(o: CommissionOrderRow): string {
+  const no = o.order_no != null && String(o.order_no).trim() ? String(o.order_no) : "—";
+  const name = (o.customer_name || "").trim() || "Customer";
+  return `Commission — #${no} — ${name}`;
+}
 
 type ExpenseRow = {
   id: string;
@@ -718,6 +753,7 @@ type ExpenseFormState = {
   stock_mode: "add" | "deduct";
   stock_qty: number;
   employee_id: string;
+  order_id: string;
 };
 
 function emptyForm(defaultCategory: string): ExpenseFormState {
@@ -734,6 +770,7 @@ function emptyForm(defaultCategory: string): ExpenseFormState {
     stock_mode: "add",
     stock_qty: 0,
     employee_id: "",
+    order_id: "",
   };
 }
 
@@ -762,6 +799,9 @@ function ExpenseForm({
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [invSearch, setInvSearch] = useState("");
+  const [commissionOrders, setCommissionOrders] = useState<CommissionOrderRow[]>([]);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [ordersLoading, setOrdersLoading] = useState(false);
 
   const filteredInventory = useMemo(() => {
     const q = invSearch.trim().toLowerCase();
@@ -777,7 +817,67 @@ function ExpenseForm({
     setForm(emptyForm(defaultCategory));
     setReceiptFile(null);
     setInvSearch("");
+    setOrderSearch("");
+    setCommissionOrders([]);
   }, [open, defaultCategory]);
+
+  useEffect(() => {
+    if (!open || form.expense_purpose !== "commission") return;
+    let cancelled = false;
+    const delay = orderSearch.trim() ? 250 : 0;
+    const timer = window.setTimeout(() => {
+      setOrdersLoading(true);
+      void (async () => {
+        const q = orderSearch.trim().replace(/[%_,()]/g, " ").trim();
+        let req = supabase
+          .from("orders")
+          .select("id, order_no, customer_name, stage, sub_stage, status, kind, order_type")
+          .order("created_at", { ascending: false })
+          .limit(2000);
+        if (q) {
+          const digits = q.replace(/^#/, "").trim();
+          if (/^\d+$/.test(digits)) {
+            req = req.or(`customer_name.ilike.%${q}%,order_no.eq.${Number(digits)}`);
+          } else {
+            req = req.ilike("customer_name", `%${q}%`);
+          }
+        }
+        const { data, error } = await req;
+        if (cancelled) return;
+        if (error) {
+          console.warn("Commission order list:", error.message);
+          setCommissionOrders([]);
+        } else {
+          setCommissionOrders((data as CommissionOrderRow[]) || []);
+        }
+        setOrdersLoading(false);
+      })();
+    }, delay);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, form.expense_purpose, orderSearch, supabase]);
+
+  const filteredCommissionOrders = useMemo(() => {
+    const q = orderSearch.trim().toLowerCase();
+    const tokens = q.split(/\s+/).filter(Boolean);
+    const rows = !tokens.length
+      ? commissionOrders
+      : commissionOrders.filter((o) => {
+          const blob = [
+            o.customer_name,
+            String(o.order_no ?? ""),
+            `#${o.order_no ?? ""}`,
+            commissionOrderStatusLabel(o),
+            commissionOrderKindLabel(o),
+          ]
+            .map((x) => String(x || "").toLowerCase())
+            .join(" ");
+          return tokens.every((t) => blob.includes(t));
+        });
+    return rows.slice(0, 80);
+  }, [commissionOrders, orderSearch]);
 
   function set(k: keyof ExpenseFormState, v: string | number) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -790,14 +890,22 @@ function ExpenseForm({
         next.category = "Salary";
         next.inventory_id = "";
         next.stock_qty = 0;
+        next.order_id = "";
       } else if (p === "inventory") {
-        if (f.category === "Salary") next.category = "Materials";
+        if (f.category === "Salary" || f.category === "Commission") next.category = "Materials";
         next.employee_id = "";
+        next.order_id = "";
+      } else if (p === "commission") {
+        next.inventory_id = "";
+        next.stock_qty = 0;
+        next.employee_id = "";
+        next.category = "Commission";
       } else {
         next.inventory_id = "";
         next.stock_qty = 0;
         next.employee_id = "";
-        if (f.category === "Salary") next.category = "Materials";
+        next.order_id = "";
+        if (f.category === "Salary" || f.category === "Commission") next.category = "Materials";
       }
       return next;
     });
@@ -829,6 +937,11 @@ function ExpenseForm({
       }
     }
 
+    if (purpose === "commission" && !form.order_id) {
+      alert("Select an order for this commission.");
+      return;
+    }
+
     setSaving(true);
     let invPrev: { id: string; qty: number } | null = null;
     try {
@@ -842,6 +955,14 @@ function ExpenseForm({
       if (purpose === "salary" && form.employee_id) {
         const emp = findEmployeePicker(employees, form.employee_id);
         if (emp) extraNotes.push(`Salary payout: ${employeeLabel(emp)} (${employeeOptionSuffix(emp)})`);
+      }
+      if (purpose === "commission" && form.order_id) {
+        const ord = commissionOrders.find((o) => o.id === form.order_id);
+        extraNotes.push(
+          ord
+            ? `Commission for order #${ord.order_no} — ${ord.customer_name || "Customer"} (order:${ord.id})`
+            : `Commission for order:${form.order_id}`,
+        );
       }
       const mergedNotes = [form.notes.trim(), ...extraNotes].filter(Boolean).join("\n") || null;
 
@@ -969,7 +1090,8 @@ function ExpenseForm({
   const submitDisabled =
     saving ||
     (purpose === "salary" && Number(form.amount) <= 0) ||
-    (purpose === "inventory" && Number(form.stock_qty) > 0 && !form.inventory_id);
+    (purpose === "inventory" && Number(form.stock_qty) > 0 && !form.inventory_id) ||
+    (purpose === "commission" && !form.order_id);
 
   return (
     <Dialog open={open} onClose={onClose} title="Add Expense">
@@ -981,6 +1103,7 @@ function ExpenseForm({
               [
                 { p: "inventory" as const, label: "Inventory & ready-made", hint: "Link to an item and adjust stock" },
                 { p: "salary" as const, label: "Employee salary", hint: "Record pay and add a payroll row" },
+                { p: "commission" as const, label: "Commission", hint: "Link to an order; customer and # go in the description" },
                 { p: "general" as const, label: "Other", hint: "Utilities, rent, etc. (no stock or payroll link)" },
               ] as const
             ).map(({ p, label, hint }) => (
@@ -989,7 +1112,7 @@ function ExpenseForm({
                 type="button"
                 onClick={() => setPurpose(p)}
                 className={cn(
-                  "max-w-[14rem] flex-1 rounded-md border p-2.5 text-left text-xs transition-colors sm:min-w-[9rem]",
+                  "max-w-[16rem] min-w-[8.5rem] flex-1 rounded-md border p-2.5 text-left text-xs transition-colors",
                   purpose === p ? "border-primary bg-primary/5" : "border-transparent hover:bg-accent",
                 )}
               >
@@ -1072,6 +1195,60 @@ function ExpenseForm({
           </div>
         )}
 
+        {purpose === "commission" && (
+          <div className="col-span-2 space-y-2 rounded-md border border-dashed p-3">
+            <Label className="text-xs font-medium text-muted-foreground">Order</Label>
+            <Input
+              type="search"
+              placeholder="Search customer or #…"
+              value={orderSearch}
+              onChange={(e) => setOrderSearch(e.target.value)}
+              className="h-9"
+            />
+            <div className="max-h-52 overflow-y-auto rounded-md border bg-background">
+              {ordersLoading ? (
+                <p className="px-3 py-4 text-xs text-muted-foreground">Loading orders…</p>
+              ) : filteredCommissionOrders.length === 0 ? (
+                <p className="px-3 py-4 text-xs text-muted-foreground">
+                  {commissionOrders.length === 0 ? "No orders found." : "No orders match that search."}
+                </p>
+              ) : (
+                filteredCommissionOrders.map((o) => {
+                  const selected = form.order_id === o.id;
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => {
+                        setForm((f) => ({
+                          ...f,
+                          order_id: o.id,
+                          description: commissionExpenseDescription(o),
+                        }));
+                      }}
+                      className={cn(
+                        "flex w-full items-start justify-between gap-2 border-b px-3 py-2 text-left text-xs last:border-b-0 hover:bg-accent",
+                        selected && "bg-primary/10",
+                      )}
+                    >
+                      <span>
+                        <span className="font-medium text-foreground">#{o.order_no}</span>
+                        <span className="text-muted-foreground"> — {o.customer_name || "—"}</span>
+                      </span>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {commissionOrderKindLabel(o)} · {commissionOrderStatusLabel(o)}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              All statuses are listed. Selecting an order fills Description with the customer and order #.
+            </p>
+          </div>
+        )}
+
         {purpose === "salary" && (
           <div className="col-span-2 space-y-2 rounded-md border border-dashed p-3">
             <Label htmlFor="exp-employee">Employee</Label>
@@ -1119,10 +1296,10 @@ function ExpenseForm({
           <select
             className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
             value={form.category}
-            disabled={purpose === "salary"}
+            disabled={purpose === "salary" || purpose === "commission"}
             onChange={(e) => set("category", e.target.value)}
           >
-            {categoryNames.map((c) => (
+            {(categoryNames.includes("Commission") ? categoryNames : [...categoryNames, "Commission"]).map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>
@@ -1134,7 +1311,13 @@ function ExpenseForm({
           <Input
             value={form.description}
             onChange={(e) => set("description", e.target.value)}
-            placeholder={purpose === "salary" ? "Pay period or memo" : "What was purchased"}
+            placeholder={
+              purpose === "salary"
+                ? "Pay period or memo"
+                : purpose === "commission"
+                  ? "Select an order to fill customer and #"
+                  : "What was purchased"
+            }
           />
         </div>
         <div>
