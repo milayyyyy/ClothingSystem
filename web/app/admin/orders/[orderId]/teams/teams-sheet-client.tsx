@@ -707,12 +707,11 @@ export function TeamsSheetClient({
   const [uploadingTeamKey, setUploadingTeamKey] = useState<string | null>(null);
   const [exportingPdf, setExportingPdf] = useState(false);
 
-  // Walk-in & Online can switch between "teams" and "services" sheet format
-  const canSwitchFormat = orderKind === "local" || orderKind === "online";
+  // Walk-in, Online, and Services can switch between Teams & Jerseys vs Services sheet layout
+  const canSwitchFormat = orderKind === "local" || orderKind === "online" || orderKind === "services";
   const [sheetFormat, setSheetFormat] = useState<"teams" | "services">(() => {
-    if (orderKind === "services") return "services";
     if (initialSheetFormat === "services" || initialSheetFormat === "teams") return initialSheetFormat;
-    return "teams";
+    return orderKind === "services" ? "services" : "teams";
   });
 
   async function persistSheetFormat(fmt: "teams" | "services") {
@@ -1129,7 +1128,7 @@ export function TeamsSheetClient({
     void commitSave(computedTotal, dp); // save without recording transaction
   }
 
-  const isSvc = orderKind === "services" || (canSwitchFormat && sheetFormat === "services");
+  const isSvc = canSwitchFormat ? sheetFormat === "services" : orderKind === "services";
 
   function sheetPdfPayload(includePriceChart: boolean) {
     return {
@@ -1283,7 +1282,7 @@ export function TeamsSheetClient({
           </Button>
         {!viewOnly && (
           <>
-          {/* Format toggle — only for Walk-in & Online */}
+          {/* Format toggle — Walk-in, Online, and Services */}
           {canSwitchFormat && (
             <div className="flex rounded-md border overflow-hidden text-xs">
               <button

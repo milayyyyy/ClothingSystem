@@ -121,7 +121,7 @@ export async function fetchOrderInvoiceData(
   const isPOS = String(order.kind ?? order.order_type ?? "").toLowerCase() === "pos";
   const sheetFmt = String(order.teams_sheet_format ?? "").toLowerCase();
   const isServicesSheet =
-    kind === "services" || sheetFmt === "services";
+    sheetFmt === "services" || (kind === "services" && sheetFmt !== "teams");
 
   // ── POS orders: load from pos_order_items ──────────────────────────────
   if (isPOS) {

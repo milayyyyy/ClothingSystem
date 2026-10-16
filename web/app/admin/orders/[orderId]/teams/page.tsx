@@ -37,7 +37,7 @@ export default async function TeamsSheetPage({ params }: { params: { orderId: st
     : rawKind === "online" ? "online"
     : "local";
 
-  let sheetFormat: "teams" | "services" = "teams";
+  let sheetFormat: "teams" | "services" = orderKind === "services" ? "services" : "teams";
   try {
     const { data: fmtRow } = await supabase
       .from("orders")

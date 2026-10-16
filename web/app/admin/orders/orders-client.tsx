@@ -3169,6 +3169,7 @@ function OrderForm({
         targetId = order.id;
       } else {
         delete payload.id;
+        if (kind === "services") payload.teams_sheet_format = "services";
         const { data: ins, error } = await supabase.from("orders").insert(payload).select("id").single();
         if (error) throw error;
         targetId = ins?.id;
