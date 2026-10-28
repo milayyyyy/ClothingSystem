@@ -280,32 +280,41 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
       const blockH = 12 + Math.max(group.rows.length * 6, 18);
       y = ensureSpace(doc, y, blockH);
 
-      // ── Group header ──────────────────────────────────────────────────────
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.text(`${L.group}: ${group.teamName || "—"}`, MARGIN, y);
-      y += 5;
-
-      // ── Production specs + note for employees ─────────────────────────────
+      // ── Group header: Team · Fabric type · Pattern type (all bold) ────────
       const fabricText = (group.fabricType || "").trim() || "—";
       const patternText = (group.patternType || "").trim() || "—";
       const noteText = (group.notes || "").trim();
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      const specLines: string[] = [
-        ...doc.splitTextToSize(`Fabric type: ${fabricText}`, tableW - 4),
-        ...doc.splitTextToSize(`Pattern type: ${patternText}`, tableW - 4),
-      ];
-      if (noteText) specLines.push(...doc.splitTextToSize(`Note: ${noteText}`, tableW - 4));
-      {
+      const teamPart = `${L.group}: ${group.teamName || "—"}`;
+      const specBeside = `Fabric type: ${fabricText}    Pattern type: ${patternText}`;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      const specGap = 5;
+      const teamW = doc.getTextWidth(teamPart);
+      if (teamW + specGap + doc.getTextWidth(specBeside) <= tableW) {
+        doc.text(teamPart, MARGIN, y);
+        doc.text(specBeside, MARGIN + teamW + specGap, y);
+        y += 5;
+      } else {
+        doc.text(teamPart, MARGIN, y);
+        y += 5;
+        const specLines = doc.splitTextToSize(specBeside, tableW);
+        doc.text(specLines, MARGIN, y);
+        y += specLines.length * 4.5;
+      }
+
+      // ── Note only (highlighted) ───────────────────────────────────────────
+      if (noteText) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        const noteLines = doc.splitTextToSize(`Note: ${noteText}`, tableW - 4);
         doc.setTextColor(40, 40, 40);
-        const specH = specLines.length * 3.5 + 4;
+        const specH = noteLines.length * 3.5 + 4;
         y = ensureSpace(doc, y, specH + 4);
         doc.setFillColor(255, 252, 235);
         doc.setDrawColor(180, 160, 80);
         doc.setLineWidth(0.3);
         doc.roundedRect(MARGIN, y, tableW, specH, 1.5, 1.5, "FD");
-        doc.text(specLines, MARGIN + 2, y + 3.2);
+        doc.text(noteLines, MARGIN + 2, y + 3.2);
         doc.setTextColor(0, 0, 0);
         y += specH + 2;
       }

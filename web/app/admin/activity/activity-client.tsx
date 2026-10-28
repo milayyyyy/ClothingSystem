@@ -14,19 +14,23 @@ import {
   Wrench, Store, Truck, BellRing, CheckSquare,
 } from "lucide-react";
 import { formatActivityLog, ENTITY_CATEGORY } from "@/lib/activity-log-format";
+import { fetchActivityLogs, type ActivityLogListRow } from "@/lib/activity-log-query";
 import { cn } from "@/lib/utils";
 
-type L = {
-  id: string;
-  action: string;
-  entity: string;
-  entity_id?: string | null;
-  summary?: string | null;
-  payload?: unknown;
-  created_at: string;
-  actor_role?: string | null;
-  actor?: { full_name?: string | null; email?: string | null } | null;
-};
+type L = ActivityLogListRow;
+
+function roleLabel(role?: string | null) {
+  if (!role) return "";
+  if (role === "sub_admin") return "Sub admin";
+  return role.replace(/_/g, " ");
+}
+
+function roleMatches(actorRole: string | null | undefined, filter: string) {
+  if (filter === "all") return true;
+  const r = (actorRole || "").toLowerCase();
+  if (filter === "manager") return r === "manager" || r === "sub_admin";
+  return r === filter;
+}
 
 const ACTION_VARIANT: Record<string, any> = {
   INSERT: "green", UPDATE: "blue", DELETE: "red",
@@ -133,7 +137,11 @@ function buildSessions(logs: L[]): SessionGroup[] {
   const sessions: SessionGroup[] = [];
   for (const log of logs) {
     const prev = sessions[sessions.length - 1];
-    const sameActor = prev && (prev.actor?.email === log.actor?.email);
+    const prevFirst = prev?.logs[0];
+    const sameActor =
+      !!prevFirst &&
+      ((!!prevFirst.actor_id && prevFirst.actor_id === log.actor_id) ||
+        (!!prevFirst.actor?.email && prevFirst.actor.email === log.actor?.email));
     const sameEntity = prev && prev.entity === log.entity && prev.entity_id === log.entity_id;
     const withinGap = prev && (new Date(prev.firstAt).getTime() - new Date(log.created_at).getTime()) < SESSION_GAP_MS;
     if (prev && sameActor && sameEntity && withinGap) {
@@ -277,8 +285,13 @@ function LogRow({ l, detail, selected, canDelete, onToggleSelect, onDelete, comp
               {l.actor?.full_name || l.actor?.email || "System"}
             </span>
             {l.actor_role && (
-              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium capitalize text-muted-foreground">
-                {l.actor_role.replace("_", " ")}
+              <span className={cn(
+                "rounded px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                l.actor_role === "admin"
+                  ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300"
+                  : "bg-muted text-muted-foreground",
+              )}>
+                {roleLabel(l.actor_role)}
               </span>
             )}
             <Badge variant={ACTION_VARIANT[l.action] || "outline"} className="text-[10px] px-1.5 py-0">
@@ -398,8 +411,13 @@ function SessionRow({ session, formattedById, selected, canDelete, onToggleSelec
               {session.actor?.full_name || session.actor?.email || "System"}
             </span>
             {session.actor_role && (
-              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium capitalize text-muted-foreground">
-                {session.actor_role.replace("_", " ")}
+              <span className={cn(
+                "rounded px-1.5 py-0.5 text-[10px] font-medium capitalize",
+                session.actor_role === "admin"
+                  ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300"
+                  : "bg-muted text-muted-foreground",
+              )}>
+                {roleLabel(session.actor_role)}
               </span>
             )}
             {/* Count badge */}
@@ -578,6 +596,7 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
   const [filter, setFilter] = useState("");
   const [entity, setEntity] = useState<string>("all");
   const [actionFilter, setActionFilter] = useState<string>("all");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [fetching, setFetching] = useState(false);
@@ -603,19 +622,23 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
     let cancelled = false;
     async function fetchByRange() {
       setFetching(true);
-      let q = supabase
-        .from("activity_logs")
-        .select("*, actor:actor_id(full_name, email)")
-        .order("created_at", { ascending: false })
-        .limit(2000);
-      if (dateFrom) q = q.gte("created_at", `${dateFrom}T00:00:00.000Z`);
-      if (dateTo) {
-        const end = new Date(`${dateTo}T00:00:00.000Z`);
-        end.setDate(end.getDate() + 1);
-        q = q.lt("created_at", end.toISOString());
+      const end = dateTo
+        ? (() => {
+            const d = new Date(`${dateTo}T00:00:00.000Z`);
+            d.setDate(d.getDate() + 1);
+            return d.toISOString();
+          })()
+        : undefined;
+      try {
+        const data = await fetchActivityLogs(supabase, {
+          fromIso: dateFrom ? `${dateFrom}T00:00:00.000Z` : undefined,
+          toIsoExclusive: end,
+          limit: 2000,
+        });
+        if (!cancelled && data) setList(data);
+      } catch {
+        if (!cancelled) setList([]);
       }
-      const { data } = await q;
-      if (!cancelled && data) setList(data);
       if (!cancelled) setFetching(false);
     }
     void fetchByRange();
@@ -633,6 +656,7 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
     return list.filter((l) => {
       if (entity !== "all" && l.entity !== entity) return false;
       if (actionFilter !== "all" && l.action !== actionFilter) return false;
+      if (!roleMatches(l.actor_role, roleFilter)) return false;
       if (q) {
         const detail = formattedById.get(l.id);
         const hay = `${l.actor?.full_name || ""} ${l.actor?.email || ""} ${l.entity} ${l.summary || ""} ${detail?.searchText || ""}`.toLowerCase();
@@ -640,7 +664,7 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
       }
       return true;
     });
-  }, [list, filter, entity, actionFilter, formattedById]);
+  }, [list, filter, entity, actionFilter, roleFilter, formattedById]);
 
   // Sessions (for timeline view: collapse same actor+entity+id within 5 min)
   const sessions = useMemo(() => buildSessions(filtered), [filtered]);
@@ -790,7 +814,7 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
                 )}>
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 Filters
-                {(entity !== "all" || actionFilter !== "all" || dateFrom || dateTo) && (
+                {(entity !== "all" || actionFilter !== "all" || roleFilter !== "all" || dateFrom || dateTo) && (
                   <span className="h-1.5 w-1.5 rounded-full bg-primary" />
                 )}
               </button>
@@ -857,6 +881,37 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
               );
             })}
 
+            <span className="ml-2 text-xs font-medium text-muted-foreground shrink-0">Role</span>
+            {[
+              { key: "all", label: "All roles" },
+              { key: "admin", label: "Admin" },
+              { key: "manager", label: "Manager" },
+              { key: "employee", label: "Employee" },
+            ].map(({ key, label }) => {
+              const count =
+                key === "all"
+                  ? list.length
+                  : list.filter((l) => roleMatches(l.actor_role, key)).length;
+              const active = roleFilter === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setRoleFilter(key)}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                    active
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-input bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  {label}
+                  <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] tabular-nums",
+                    active ? "bg-black/10 dark:bg-white/10" : "bg-muted")}>{count}</span>
+                </button>
+              );
+            })}
+
             {!showFilters && (
               <div className="relative ml-auto w-52">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -901,15 +956,15 @@ export function ActivityClient({ initial, canDelete }: { initial: L[]; canDelete
             <Activity className="h-10 w-10 text-muted-foreground/30" />
             <p className="text-sm font-medium text-muted-foreground">No activity found</p>
             <p className="text-xs text-muted-foreground">
-              {filter || entity !== "all" || actionFilter !== "all"
+              {filter || entity !== "all" || actionFilter !== "all" || roleFilter !== "all"
                 ? "Try adjusting your filters."
                 : dateFrom || dateTo
                 ? "No records in the selected date range."
                 : "Activity will appear here when records are created or changed."}
             </p>
-            {(filter || entity !== "all" || actionFilter !== "all" || dateFrom || dateTo) && (
+            {(filter || entity !== "all" || actionFilter !== "all" || roleFilter !== "all" || dateFrom || dateTo) && (
               <button type="button"
-                onClick={() => { setFilter(""); setEntity("all"); setActionFilter("all"); setDateFrom(""); setDateTo(""); }}
+                onClick={() => { setFilter(""); setEntity("all"); setActionFilter("all"); setRoleFilter("all"); setDateFrom(""); setDateTo(""); }}
                 className="text-xs font-medium text-primary hover:underline">
                 Clear all filters
               </button>
