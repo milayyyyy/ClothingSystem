@@ -27,6 +27,8 @@ export type TeamsSheetPdfGroup = {
   teamName: string;
   /** Free-text note / guide for employees. */
   notes?: string;
+  fabricType?: string;
+  patternType?: string;
   /** Public URLs of design reference photos for this team. */
   designImageUrls: string[];
   rows: TeamsSheetPdfRow[];
@@ -284,22 +286,28 @@ export async function buildTeamsSheetPdf(data: TeamsSheetPdfData): Promise<Blob>
       doc.text(`${L.group}: ${group.teamName || "—"}`, MARGIN, y);
       y += 5;
 
-      // ── Note / guide for employees ────────────────────────────────────────
+      // ── Production specs + note for employees ─────────────────────────────
+      const fabricText = (group.fabricType || "").trim() || "—";
+      const patternText = (group.patternType || "").trim() || "—";
       const noteText = (group.notes || "").trim();
-      if (noteText) {
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(8);
-        doc.setTextColor(60, 60, 60);
-        const noteLines = doc.splitTextToSize(`Note: ${noteText}`, tableW - 4);
-        const noteH = noteLines.length * 3.5 + 4;
-        y = ensureSpace(doc, y, noteH + 4);
-        doc.setFillColor(255, 255, 255);
-        doc.setDrawColor(180, 180, 180);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      const specLines: string[] = [
+        ...doc.splitTextToSize(`Fabric type: ${fabricText}`, tableW - 4),
+        ...doc.splitTextToSize(`Pattern type: ${patternText}`, tableW - 4),
+      ];
+      if (noteText) specLines.push(...doc.splitTextToSize(`Note: ${noteText}`, tableW - 4));
+      {
+        doc.setTextColor(40, 40, 40);
+        const specH = specLines.length * 3.5 + 4;
+        y = ensureSpace(doc, y, specH + 4);
+        doc.setFillColor(255, 252, 235);
+        doc.setDrawColor(180, 160, 80);
         doc.setLineWidth(0.3);
-        doc.roundedRect(MARGIN, y, tableW, noteH, 1.5, 1.5, "FD");
-        doc.text(noteLines, MARGIN + 2, y + 3.2);
+        doc.roundedRect(MARGIN, y, tableW, specH, 1.5, 1.5, "FD");
+        doc.text(specLines, MARGIN + 2, y + 3.2);
         doc.setTextColor(0, 0, 0);
-        y += noteH + 2;
+        y += specH + 2;
       }
 
       const tableStartY = y;

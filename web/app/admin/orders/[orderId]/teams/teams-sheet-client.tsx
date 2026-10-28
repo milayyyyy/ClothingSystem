@@ -10,6 +10,7 @@ import {
   type ChangeEvent,
   type DragEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -26,19 +27,17 @@ import {
   jerseyLineFreebieQty,
   jerseyLineSubtotal,
 } from "@/lib/order-invoice";
-import { FileDown } from "lucide-react";
+import { FileDown, X } from "lucide-react";
 import { uploadJerseyDesignPhoto } from "@/lib/jersey-design-upload";
 import { JERSEY_DESIGNS_BUCKET, TEAM_DESIGN_MAX, storagePathFromPublicUrl } from "@/lib/media-storage";
 import {
   emptyPlayer,
   emptyTeam,
   isImageUploadFile,
-  jerseyDesignSaveErrorMessage,
   jerseyDesignUploadErrorMessage,
   mapTeamsFromSupabase,
   newClientKey,
   persistSublimationTeams,
-  saveTeamDesignGallery,
   type JerseyChecklistItem,
   type PlayerDraft,
   type TeamDraft,
@@ -53,6 +52,8 @@ type FlatRow = {
   sheetName: string;    // jersey-type label, e.g. "Jersey", "Hoodie"
   /** Free-text note / guide for employees. */
   notes: string;
+  fabricType: string;
+  patternType: string;
   /** Duplicated on each row of the sheet; kept in sync when editing. */
   teamDesignUrls: string[];
   surname: string;
@@ -98,6 +99,16 @@ function TeamDesignStrip({
   const [stripError, setStripError] = useState<string | null>(null);
   const [previews, setPreviews] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!viewerUrl) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setViewerUrl(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [viewerUrl]);
 
   async function uploadFiles(fileList: FileList | File[]) {
     setStripError(null);
@@ -179,7 +190,7 @@ function TeamDesignStrip({
         </label>
         {!viewOnly && (
           <span className="text-[10px] text-muted-foreground/90">
-            {urls.length}/{TEAM_DESIGN_MAX} · drag images here or choose files
+            {urls.length}/{TEAM_DESIGN_MAX} · click a photo to view · drag or choose files
           </span>
         )}
       </div>
@@ -200,16 +211,29 @@ function TeamDesignStrip({
             key={url}
             className="group relative h-12 w-12 shrink-0 overflow-hidden rounded-md border border-border bg-muted/40"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={url} alt="" className="h-full w-full object-cover" />
+            <button
+              type="button"
+              className="block h-full w-full"
+              onClick={() => setViewerUrl(url)}
+              aria-label="View design photo"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={url} alt="" className="h-full w-full object-cover" />
+            </button>
             {!viewOnly && (
               <button
                 type="button"
-                className="absolute inset-0 flex items-center justify-center bg-black/50 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
+                className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/70 text-white opacity-0 shadow-sm transition-opacity hover:bg-destructive group-hover:opacity-100"
                 disabled={disabled || uploading}
-                onClick={() => onUrlsChange(urls.filter((u) => u !== url))}
+                aria-label="Remove design photo"
+                title="Remove — not saved until you save the sheet"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onUrlsChange(urls.filter((u) => u !== url));
+                }}
               >
-                Remove
+                <X className="h-3 w-3" />
               </button>
             )}
           </div>
@@ -266,6 +290,34 @@ function TeamDesignStrip({
         )}
       </div>
       </div>
+      {viewerUrl &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Design photo"
+            onClick={() => setViewerUrl(null)}
+          >
+            <button
+              type="button"
+              className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+              aria-label="Close"
+              onClick={() => setViewerUrl(null)}
+            >
+              <X className="h-5 w-5" />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={viewerUrl}
+              alt="Design photo"
+              className="max-h-[90dvh] max-w-[min(96vw,1200px)] rounded-md object-contain shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -367,6 +419,8 @@ function teamsToFlatRows(teams: TeamDraft[]): FlatRow[] {
     const sheetKey = t.clientKey;
     const sheetName = t.sheetName || t.name || "Jersey";
     const notes = t.notes || "";
+    const fabricType = t.fabricType || "";
+    const patternType = t.patternType || "";
     const urls = [...(t.design_image_urls || [])];
     for (const p of t.players) {
       out.push({
@@ -377,6 +431,8 @@ function teamsToFlatRows(teams: TeamDraft[]): FlatRow[] {
         teamName: t.name,
         sheetName,
         notes,
+        fabricType,
+        patternType,
         teamDesignUrls: urls,
         surname: p.surname,
         jersey_number: p.jersey_number,
@@ -392,6 +448,7 @@ function flatRowsToTeams(rows: FlatRow[]): TeamDraft[] {
   const bySheet = new Map<string, {
     teamKey: string; teamName: string;
     sheetKey: string; sheetName: string; notes: string;
+    fabricType: string; patternType: string;
     designImageUrls: string[]; players: PlayerDraft[];
   }>();
 
@@ -402,6 +459,7 @@ function flatRowsToTeams(rows: FlatRow[]): TeamDraft[] {
       bySheet.set(key, {
         teamKey: r.teamKey, teamName: r.teamName.trim() || "Team",
         sheetKey: r.sheetKey, sheetName: r.sheetName || "Jersey", notes: r.notes || "",
+        fabricType: r.fabricType || "", patternType: r.patternType || "",
         designImageUrls: [...r.teamDesignUrls], players: [],
       });
     } else {
@@ -409,6 +467,8 @@ function flatRowsToTeams(rows: FlatRow[]): TeamDraft[] {
       g.teamName = r.teamName.trim() || "Team";
       g.sheetName = r.sheetName || "Jersey";
       g.notes = r.notes || "";
+      g.fabricType = r.fabricType || "";
+      g.patternType = r.patternType || "";
       g.designImageUrls = [...r.teamDesignUrls];
     }
     bySheet.get(key)!.players.push({
@@ -429,6 +489,8 @@ function flatRowsToTeams(rows: FlatRow[]): TeamDraft[] {
       name: g.teamName,
       sheetName: g.sheetName,
       notes: g.notes,
+      fabricType: g.fabricType,
+      patternType: g.patternType,
       design_image_urls: g.designImageUrls.map((u) => u.trim()).filter(Boolean),
       players: g.players.length > 0
         ? g.players
@@ -449,6 +511,8 @@ function defaultFlatRow(): FlatRow {
     teamName: "Team",
     sheetName: "Jersey",
     notes: "",
+    fabricType: "",
+    patternType: "",
     teamDesignUrls: [],
     surname: "",
     jersey_number: "",
@@ -456,7 +520,14 @@ function defaultFlatRow(): FlatRow {
   };
 }
 
-type SheetGroup = { sheetKey: string; sheetName: string; notes: string; rows: FlatRow[] };
+type SheetGroup = {
+  sheetKey: string;
+  sheetName: string;
+  notes: string;
+  fabricType: string;
+  patternType: string;
+  rows: FlatRow[];
+};
 type TeamGroup  = { teamKey: string; teamName: string; notes: string; sheets: SheetGroup[] };
 
 /** Preserve team and sheet order as first-seen in `rows` (matches save order). */
@@ -473,11 +544,20 @@ function groupRowsByTeamAndSheet(rows: FlatRow[]): TeamGroup[] {
     team.notes = r.notes || "";
     if (!team.sheetMap.has(r.sheetKey)) {
       team.sheetOrder.push(r.sheetKey);
-      team.sheetMap.set(r.sheetKey, { sheetKey: r.sheetKey, sheetName: r.sheetName, notes: r.notes || "", rows: [] });
+      team.sheetMap.set(r.sheetKey, {
+        sheetKey: r.sheetKey,
+        sheetName: r.sheetName,
+        notes: r.notes || "",
+        fabricType: r.fabricType || "",
+        patternType: r.patternType || "",
+        rows: [],
+      });
     }
     const sheet = team.sheetMap.get(r.sheetKey)!;
     sheet.sheetName = r.sheetName;
     sheet.notes = r.notes || "";
+    sheet.fabricType = r.fabricType || "";
+    sheet.patternType = r.patternType || "";
     sheet.rows.push(r);
   }
   return teamOrder.map((teamKey) => {
@@ -817,25 +897,57 @@ export function TeamsSheetClient({
   const balance = orderTotal - downPayment;
 
   // ── Data loading ───────────────────────────────────────────────────────────
+  const savedDesignUrlsRef = useRef<string[]>([]);
+
+  const snapshotSavedDesignUrls = useCallback((rows: FlatRow[]) => {
+    const seen = new Set<string>();
+    const urls: string[] = [];
+    for (const r of rows) {
+      for (const u of r.teamDesignUrls) {
+        if (u && !seen.has(u)) {
+          seen.add(u);
+          urls.push(u);
+        }
+      }
+    }
+    savedDesignUrlsRef.current = urls;
+  }, []);
+
   const reload = useCallback(() => {
     setLoading(true);
+    const applyRows = (data: unknown, error: { message?: string } | null) => {
+      if (error) {
+        const fallback = [defaultFlatRow()];
+        setFlatRows(fallback);
+        snapshotSavedDesignUrls(fallback);
+        setLoading(false);
+        return;
+      }
+      const teams = mapTeamsFromSupabase((data as unknown[]) || []);
+      const rows = teamsToFlatRows(teams.length ? teams : [emptyTeam()]);
+      const next = rows.length ? rows : [defaultFlatRow()];
+      setFlatRows(next);
+      snapshotSavedDesignUrls(next);
+      setLoading(false);
+    };
     void supabase
       .from("sublimation_teams")
-      .select("id, name, team_group_key, sheet_name, notes, sort_order, design_image_urls, players:sublimation_team_players(*)")
+      .select("id, name, team_group_key, sheet_name, notes, fabric_type, pattern_type, sort_order, design_image_urls, players:sublimation_team_players(*)")
       .eq("order_id", orderId)
       .order("sort_order", { ascending: true })
       .then(({ data, error }) => {
-        if (error) {
-          setFlatRows([defaultFlatRow()]);
-          setLoading(false);
+        if (error && /fabric_type|pattern_type/i.test(error.message || "")) {
+          void supabase
+            .from("sublimation_teams")
+            .select("id, name, team_group_key, sheet_name, notes, sort_order, design_image_urls, players:sublimation_team_players(*)")
+            .eq("order_id", orderId)
+            .order("sort_order", { ascending: true })
+            .then((retry) => applyRows(retry.data, retry.error));
           return;
         }
-        const teams = mapTeamsFromSupabase(data);
-        const rows = teamsToFlatRows(teams.length ? teams : [emptyTeam()]);
-        setFlatRows(rows.length ? rows : [defaultFlatRow()]);
-        setLoading(false);
+        applyRows(data, error);
       });
-  }, [orderId, supabase]);
+  }, [orderId, supabase, snapshotSavedDesignUrls]);
 
   useEffect(() => {
     reload();
@@ -877,34 +989,26 @@ export function TeamsSheetClient({
     );
   }
 
-  async function handleDesignUrlsChange(sheetKey: string, nextUrls: string[]) {
-    const prevUrls = flatRows.find((r) => r.sheetKey === sheetKey)?.teamDesignUrls ?? [];
-    const updatedRows = flatRows.map((r) =>
-      r.sheetKey === sheetKey ? { ...r, teamDesignUrls: nextUrls } : r,
+  function patchFabricType(teamKey: string, sheetKey: string, fabricType: string) {
+    setFlatRows((prev) =>
+      prev.map((r) =>
+        r.teamKey === teamKey && r.sheetKey === sheetKey ? { ...r, fabricType } : r,
+      ),
     );
-    setFlatRows(updatedRows);
-    if (viewOnly) return;
-    try {
-      const { updatedInPlace } = await saveTeamDesignGallery(
-        supabase,
-        orderId,
-        sheetKey,
-        nextUrls,
-        flatRowsToTeams(updatedRows),
-      );
-      const removed = prevUrls.filter((u) => !nextUrls.includes(u));
-      const stalePaths = removed
-        .map((url) => storagePathFromPublicUrl(url, JERSEY_DESIGNS_BUCKET))
-        .filter((p): p is string => Boolean(p));
-      if (stalePaths.length) {
-        await supabase.storage.from(JERSEY_DESIGNS_BUCKET).remove(stalePaths);
-      }
-      if (!updatedInPlace) reload();
-      setMessage("Design photos saved.");
-    } catch (err) {
-      console.error(err);
-      setMessage(jerseyDesignSaveErrorMessage(err));
-    }
+  }
+
+  function patchPatternType(teamKey: string, sheetKey: string, patternType: string) {
+    setFlatRows((prev) =>
+      prev.map((r) =>
+        r.teamKey === teamKey && r.sheetKey === sheetKey ? { ...r, patternType } : r,
+      ),
+    );
+  }
+
+  function handleDesignUrlsChange(sheetKey: string, nextUrls: string[]) {
+    setFlatRows((prev) =>
+      prev.map((r) => (r.sheetKey === sheetKey ? { ...r, teamDesignUrls: nextUrls } : r)),
+    );
   }
 
   function sortTeamPlayers(teamKey: string, sheetKey: string, mode: TeamRowSortMode) {
@@ -930,6 +1034,8 @@ export function TeamsSheetClient({
       const teamName = sample?.teamName ?? "Team";
       const sheetName = sample?.sheetName ?? "Jersey";
       const notes = sample?.notes ?? "";
+      const fabricType = sample?.fabricType ?? "";
+      const patternType = sample?.patternType ?? "";
       const teamDesignUrls = sample?.teamDesignUrls ?? [];
 
       // Auto-copy jersey lines from an existing player in the same sheet
@@ -948,7 +1054,7 @@ export function TeamsSheetClient({
       const pk = newClientKey();
       const rowId = `${sheetKey}__${pk}`;
       const newRow: FlatRow = {
-        rowId, teamKey, sheetKey, playerKey: pk, teamName, sheetName, notes, teamDesignUrls,
+        rowId, teamKey, sheetKey, playerKey: pk, teamName, sheetName, notes, fabricType, patternType, teamDesignUrls,
         surname: "", jersey_number: "", jerseyChecklist: copiedChecklist,
       };
       let insertAt = prev.length;
@@ -980,6 +1086,8 @@ export function TeamsSheetClient({
       teamName,
       sheetName: "Jersey Type",
       notes: "",
+      fabricType: "",
+      patternType: "",
       teamDesignUrls: [],
       surname: "",
       jersey_number: "",
@@ -1041,6 +1149,19 @@ export function TeamsSheetClient({
       // 1. Save teams/players
       const teams = flatRowsToTeams(flatRows);
       await persistSublimationTeams(supabase, orderId, teams);
+
+      const kept = new Set(
+        flatRows.flatMap((r) => r.teamDesignUrls).filter((u) => Boolean(u && u.trim())),
+      );
+      const stalePaths = savedDesignUrlsRef.current
+        .filter((u) => !kept.has(u))
+        .map((url) => storagePathFromPublicUrl(url, JERSEY_DESIGNS_BUCKET))
+        .filter((p): p is string => Boolean(p));
+      if (stalePaths.length) {
+        const { error: rmErr } = await supabase.storage.from(JERSEY_DESIGNS_BUCKET).remove(stalePaths);
+        if (rmErr) console.warn("Design photo cleanup:", rmErr.message);
+      }
+      snapshotSavedDesignUrls(flatRows);
 
       // 2. Save pricing back to the order
       const { error: orderErr } = await supabase
@@ -1142,6 +1263,8 @@ export function TeamsSheetClient({
             ? `${group.teamName} — ${sheet.sheetName}`
             : group.teamName,
           notes: sheet.notes || "",
+          fabricType: sheet.fabricType || "",
+          patternType: sheet.patternType || "",
           designImageUrls: [...(sheet.rows[0]?.teamDesignUrls ?? [])],
           rows: sheet.rows.map((r, idx) => ({
             index: idx + 1,
@@ -1528,28 +1651,68 @@ export function TeamsSheetClient({
                       </div>
                     </div>
 
-                    {/* Notes / guide for employees */}
-                    <div>
-                      <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Note / guide for employees
-                      </label>
-                      {viewOnly ? (
-                        sheet.notes ? (
-                          <p className="mt-1 whitespace-pre-wrap rounded-md border border-amber-200/60 bg-amber-50/50 px-3 py-2 text-sm text-foreground dark:border-amber-800/40 dark:bg-amber-950/30">
-                            {sheet.notes}
+                    {/* Fabric / pattern / notes for employees */}
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Fabric type
+                        </label>
+                        {viewOnly ? (
+                          <p className="mt-1 rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                            {sheet.fabricType.trim() || "—"}
                           </p>
                         ) : (
-                          <p className="mt-1 text-xs text-muted-foreground italic">No note</p>
-                        )
-                      ) : (
-                        <textarea
-                          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary/60 focus:bg-primary/5"
-                          rows={2}
-                          value={sheet.notes}
-                          placeholder="Add a note that employees can see when viewing or printing this sheet…"
-                          onChange={(e) => patchNotes(group.teamKey, sheet.sheetKey, e.target.value)}
-                        />
-                      )}
+                          <Input
+                            className="mt-1 h-9"
+                            value={sheet.fabricType}
+                            placeholder="e.g. Dry fit, microfiber, cotton…"
+                            onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                              patchFabricType(group.teamKey, sheet.sheetKey, e.target.value)
+                            }
+                          />
+                        )}
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Pattern type
+                        </label>
+                        {viewOnly ? (
+                          <p className="mt-1 rounded-md border border-input bg-muted/30 px-3 py-2 text-sm">
+                            {sheet.patternType.trim() || "—"}
+                          </p>
+                        ) : (
+                          <Input
+                            className="mt-1 h-9"
+                            value={sheet.patternType}
+                            placeholder="e.g. Full sub, panel, stripes…"
+                            onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                              patchPatternType(group.teamKey, sheet.sheetKey, e.target.value)
+                            }
+                          />
+                        )}
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Note / guide for employees
+                        </label>
+                        {viewOnly ? (
+                          sheet.notes ? (
+                            <p className="mt-1 whitespace-pre-wrap rounded-md border border-amber-200/60 bg-amber-50/50 px-3 py-2 text-sm text-foreground dark:border-amber-800/40 dark:bg-amber-950/30">
+                              {sheet.notes}
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-xs text-muted-foreground italic">No note</p>
+                          )
+                        ) : (
+                          <textarea
+                            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-primary/60 focus:bg-primary/5"
+                            rows={2}
+                            value={sheet.notes}
+                            placeholder="Add a note that employees can see when viewing or printing this sheet…"
+                            onChange={(e) => patchNotes(group.teamKey, sheet.sheetKey, e.target.value)}
+                          />
+                        )}
+                      </div>
                     </div>
 
                     <div className="overflow-x-auto rounded-md border border-border/80">

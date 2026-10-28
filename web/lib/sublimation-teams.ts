@@ -22,6 +22,10 @@ export type TeamDraft = {
   sheetName?: string;
   /** Free-text note / guide for employees. Shows in the sheet UI and PDF export. */
   notes?: string;
+  /** Free-text fabric type for production (sheet + PDF). */
+  fabricType?: string;
+  /** Free-text pattern type for production (sheet + PDF). */
+  patternType?: string;
   /** Public URLs (e.g. Supabase storage) for this team’s design references. */
   design_image_urls: string[];
   players: PlayerDraft[];
@@ -99,7 +103,7 @@ export function emptyPlayer(): PlayerDraft {
 
 export function emptyTeam(): TeamDraft {
   const ck = newClientKey();
-  return { clientKey: ck, teamGroupKey: ck, name: "Team", sheetName: "Jersey", notes: "", design_image_urls: [], players: [emptyPlayer()] };
+  return { clientKey: ck, teamGroupKey: ck, name: "Team", sheetName: "Jersey", notes: "", fabricType: "", patternType: "", design_image_urls: [], players: [emptyPlayer()] };
 }
 
 function parseTeamDesignUrls(t: Record<string, unknown>): string[] {
@@ -119,6 +123,8 @@ export function mapTeamsFromSupabase(data: any[] | null): TeamDraft[] {
     name: t.name || "Team",
     sheetName: t.sheet_name || t.name || "Jersey",
     notes: t.notes || "",
+    fabricType: t.fabric_type || "",
+    patternType: t.pattern_type || "",
     design_image_urls: parseTeamDesignUrls(t as Record<string, unknown>),
     players: [...(t.players || [])]
       .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -181,19 +187,29 @@ export async function persistSublimationTeams(supabase: SupabaseClient, orderId:
   for (let ti = 0; ti < teams.length; ti++) {
     const t = teams[ti];
     const gallery = (t.design_image_urls || []).map((u) => u.trim()).filter(Boolean);
-    const { data: teamRow, error: terr } = await supabase
+    const baseInsert = {
+      order_id: orderId,
+      name: t.name?.trim() || "Team",
+      team_group_key: t.teamGroupKey || t.clientKey,
+      sheet_name: t.sheetName || t.name?.trim() || "Jersey",
+      sort_order: ti,
+      design_image_urls: gallery,
+      notes: t.notes || "",
+    };
+    let { data: teamRow, error: terr } = await supabase
       .from("sublimation_teams")
       .insert({
-        order_id: orderId,
-        name: t.name?.trim() || "Team",
-        team_group_key: t.teamGroupKey || t.clientKey,
-        sheet_name: t.sheetName || t.name?.trim() || "Jersey",
-        sort_order: ti,
-        design_image_urls: gallery,
-        notes: t.notes || "",
+        ...baseInsert,
+        fabric_type: t.fabricType || "",
+        pattern_type: t.patternType || "",
       })
       .select("id")
       .single();
+    if (terr && /fabric_type|pattern_type/i.test(terr.message || "")) {
+      const retry = await supabase.from("sublimation_teams").insert(baseInsert).select("id").single();
+      teamRow = retry.data;
+      terr = retry.error;
+    }
     if (terr) throw terr;
     if (!teamRow) continue;
     const rows = (t.players || []).map((p, pi) => {
