@@ -259,3 +259,178 @@ export function readyMadeExportFilename(tag = exportDateTag()) {
 export function inventoryExportFilename(tag = exportDateTag()) {
   return `inventory_stock_${tag}`;
 }
+
+export function downloadPdfBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+type JsPDFDoc = import("jspdf").jsPDF;
+type AutoTableFn = typeof import("jspdf-autotable").default;
+
+const PDF_MARGIN = 8;
+
+function pdfContentWidth(doc: JsPDFDoc): number {
+  return doc.internal.pageSize.getWidth() - 2 * PDF_MARGIN;
+}
+
+function pdfTableEndY(doc: JsPDFDoc): number {
+  const last = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable;
+  return last?.finalY ?? 18;
+}
+
+/** Current stock PDF: all inventory items, optionally ready-made sheets. */
+export async function buildInventoryStockPdf(opts: {
+  inventory?: InventoryStockRow[];
+  readyMade?: ReadyMadeSheetGrid[];
+}): Promise<Blob> {
+  const [{ jsPDF }, autoTableModule] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
+  const autoTable = autoTableModule.default as AutoTableFn;
+  const inventory = opts.inventory ?? [];
+  const readyMade = opts.readyMade ?? [];
+  const includeInventory = opts.inventory != null;
+  const includeReadyMade = opts.readyMade != null;
+
+  const landscape = includeInventory;
+  const doc = new jsPDF({
+    orientation: landscape ? "landscape" : "portrait",
+    unit: "mm",
+    format: "a4",
+    compress: true,
+  });
+  const pageW = pdfContentWidth(doc);
+  const generated = new Date().toLocaleString();
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.text("PrintShop — All stock", PDF_MARGIN, 11);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(`Generated ${generated} · Current on-hand quantities`, PDF_MARGIN, 16);
+
+  let y = 20;
+  const tableOpts = {
+    styles: { fontSize: 7, cellPadding: 1.2, overflow: "linebreak" as const },
+    headStyles: { fillColor: [30, 30, 45] as [number, number, number], textColor: 255, fontSize: 7, fontStyle: "bold" as const },
+    margin: { left: PDF_MARGIN, right: PDF_MARGIN },
+  };
+
+  if (includeInventory) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text(`Stock inventory (${inventory.length} item${inventory.length === 1 ? "" : "s"})`, PDF_MARGIN, y);
+    y += 3;
+    const nameW = 48;
+    const catW = 28;
+    const typeW = 22;
+    const qtyW = 16;
+    const unitW = 16;
+    const minW = 14;
+    const costW = 18;
+    const supW = 32;
+    const notesW = pageW - nameW - catW - typeW - qtyW - unitW - minW - costW - supW;
+    autoTable(doc, {
+      ...tableOpts,
+      startY: y,
+      tableWidth: pageW,
+      head: [["Name", "Category", "Type", "Qty", "Unit", "Min", "Cost", "Supplier", "Notes"]],
+      body: inventory.map((r) => [
+        r.name.trim() || "—",
+        r.category.trim() || "—",
+        r.item_type.trim() || "—",
+        String(r.quantity),
+        r.unit || "—",
+        r.min_level || "—",
+        r.unit_cost || "—",
+        r.supplier.trim() || "—",
+        r.notes.trim() || "—",
+      ]),
+      columnStyles: {
+        0: { cellWidth: nameW },
+        1: { cellWidth: catW },
+        2: { cellWidth: typeW },
+        3: { cellWidth: qtyW, halign: "right" },
+        4: { cellWidth: unitW },
+        5: { cellWidth: minW, halign: "right" },
+        6: { cellWidth: costW, halign: "right" },
+        7: { cellWidth: supW },
+        8: { cellWidth: notesW },
+      },
+    });
+    y = pdfTableEndY(doc) + 8;
+  }
+
+  if (includeReadyMade) {
+    if (includeInventory) {
+      doc.addPage();
+      y = PDF_MARGIN + 6;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text(`Ready-made inventory (${readyMade.length} sheet${readyMade.length === 1 ? "" : "s"})`, PDF_MARGIN, y);
+    y += 4;
+
+    if (readyMade.length === 0) {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8);
+      doc.text("No ready-made sheets.", PDF_MARGIN, y);
+    }
+
+    for (const sheet of readyMade) {
+      const pageH = doc.internal.pageSize.getHeight();
+      if (y > pageH - 28) {
+        doc.addPage();
+        y = PDF_MARGIN + 6;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.text(`${sheet.group} / ${sheet.sheet}`, PDF_MARGIN, y);
+      y += 3.5;
+
+      if (sheet.columns.length === 0 && sheet.rows.length === 0) {
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(7);
+        doc.text("(empty)", PDF_MARGIN, y);
+        y += 6;
+        continue;
+      }
+
+      const headers = ["Item", ...sheet.columns.map((c) => c.trim() || "—")];
+      const body = sheet.rows.map((row) => [
+        row.label.trim() || "—",
+        ...row.values.map((v) => String(v ?? "").trim() || "—"),
+      ]);
+      const itemColW = Math.min(40, pageW * 0.22);
+      const dataCols = sheet.columns.length;
+      const dataColW = dataCols > 0 ? (pageW - itemColW) / dataCols : pageW - itemColW;
+      const colStyles: Record<number, { cellWidth: number; halign?: "left" | "center" }> = {
+        0: { cellWidth: itemColW },
+      };
+      for (let ci = 0; ci < dataCols; ci++) {
+        colStyles[ci + 1] = { cellWidth: dataColW, halign: "center" };
+      }
+
+      autoTable(doc, {
+        ...tableOpts,
+        startY: y,
+        tableWidth: pageW,
+        head: [headers],
+        body,
+        styles: { ...tableOpts.styles, fontSize: 6.5, cellPadding: 1 },
+        columnStyles: colStyles,
+      });
+      y = pdfTableEndY(doc) + 6;
+    }
+  }
+
+  return doc.output("blob");
+}

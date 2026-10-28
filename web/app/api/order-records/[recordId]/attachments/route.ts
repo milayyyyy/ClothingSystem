@@ -75,7 +75,8 @@ export async function POST(
   }
 
   const ext = kind === "pdf" ? "pdf" : "jpg";
-  const path = `${recordId}/${crypto.randomUUID()}.${ext}`;
+  const ownerId = access.record.submitted_by || me.id;
+  const path = `${ownerId}/${recordId}/${crypto.randomUUID()}.${ext}`;
   const bytes = Buffer.from(await file.arrayBuffer());
   const { error: upErr } = await admin.storage.from(ORDER_RECORD_BUCKET).upload(path, bytes, {
     contentType: kind === "pdf" ? file.type || "application/pdf" : "image/jpeg",

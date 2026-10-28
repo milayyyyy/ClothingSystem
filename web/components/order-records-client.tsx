@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import {
   employeeCanEditOrderRecord,
   parseDriverReturns,
+  parseOrderRecordSource,
   parseUsageSheets,
   usageSheetsSummary,
   type OrderRecordAttachment,
@@ -182,7 +183,12 @@ export function OrderRecordsClient({
             const href = recordHref(r);
             const isDeleting = deletingId === r.id;
             const canDelete = isAdmin && mode === "admin";
-            const isPos = (r.source ?? "manual") === "pos";
+            const source = parseOrderRecordSource(r.source);
+            const isPos = source === "pos";
+            const isNote = source === "note";
+            const sourceLabel = isPos ? "POS" : isNote ? "Daily order note" : "Manual";
+            const sourceVariant = isPos ? "blue" : isNote ? "purple" : "outline";
+            const notePreview = (r.notes || "").replace(/\s+/g, " ").trim();
 
             return (
               <div
@@ -192,14 +198,18 @@ export function OrderRecordsClient({
                 {/* Left: info — clicking this navigates to the record */}
                 <Link href={href} className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{r.title || "Order record"}</span>
-                    <Badge variant={isPos ? "blue" : "outline"}>{isPos ? "POS" : "Manual"}</Badge>
+                    <span className="font-medium">{r.title || (isNote ? "Daily order note" : "Order record")}</span>
+                    <Badge variant={sourceVariant}>{sourceLabel}</Badge>
                     <Badge variant={statusVariant(r.status)}>{STATUS_LABEL[r.status]}</Badge>
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {fmtDate(r.record_date)}
                     {mode === "admin" && ` · ${name}`}
-                    {` · ${usageSheetsSummary(parseUsageSheets(r.stock_lines))}`}
+                    {isNote
+                      ? notePreview
+                        ? ` · ${notePreview.slice(0, 80)}${notePreview.length > 80 ? "…" : ""}`
+                        : " · Empty note"
+                      : ` · ${usageSheetsSummary(parseUsageSheets(r.stock_lines))}`}
                     {returnsCount > 0 && ` · ${returnsCount} return(s)`}
                     {atts.length > 0 && ` · ${atts.length} file(s)`}
                   </div>

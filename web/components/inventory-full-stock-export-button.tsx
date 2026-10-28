@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Download } from "lucide-react";
+import { Download, FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import {
+  buildInventoryStockPdf,
   downloadCsvFile,
+  downloadPdfBlob,
   exportDateTag,
   fetchAllInventoryStock,
   fetchReadyMadeStockGrids,
@@ -25,10 +27,10 @@ type Props = {
   mode?: StockExportMode;
 };
 
-function buttonLabel(mode: StockExportMode, compact?: boolean) {
-  if (mode === "inventory") return compact ? "Export inventory" : "Export inventory (CSV)";
-  if (mode === "ready-made") return compact ? "Export ready-made" : "Export ready-made (CSV)";
-  return compact ? "Export all stock" : "Export all stock (CSV)";
+function buttonLabel(mode: StockExportMode) {
+  if (mode === "inventory") return "Export inventory";
+  if (mode === "ready-made") return "Export ready-made";
+  return "Export all stock";
 }
 
 function dialogTitle(mode: StockExportMode) {
@@ -39,21 +41,19 @@ function dialogTitle(mode: StockExportMode) {
 
 function dialogDescription(mode: StockExportMode) {
   if (mode === "inventory") {
-    return "Downloads one CSV listing all stock inventory items and current quantities.";
+    return "Download all stock inventory items and current quantities as CSV or PDF.";
   }
   if (mode === "ready-made") {
-    return "Downloads one CSV with every sheet group and sheet, each as a stock grid (rows × size columns) — same layout as Ready-made inventory.";
+    return "Download every sheet group and sheet as a stock grid (rows × size columns) — CSV or PDF, same layout as Ready-made inventory.";
   }
-  return "Downloads two CSV files: stock inventory list and ready-made sheet grids.";
+  return "Download stock inventory and ready-made sheet grids as CSV files, or one PDF of all current stock.";
 }
 
-function downloadActionLabel(mode: StockExportMode) {
-  if (mode === "inventory") return "Download inventory CSV";
-  if (mode === "ready-made") return "Download ready-made CSV";
-  return "Download both CSVs";
+function csvActionLabel(mode: StockExportMode) {
+  return mode === "both" ? "Download CSVs" : "Download CSV";
 }
 
-export function InventoryFullStockExportButton({ className, compact, mode = "both" }: Props) {
+export function InventoryFullStockExportButton({ className, mode = "both" }: Props) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ inventory: number; readyMadeSheets: number; readyMadeCells: number } | null>(
@@ -67,7 +67,7 @@ export function InventoryFullStockExportButton({ className, compact, mode = "bot
     return "Export failed";
   }
 
-  async function runExport() {
+  async function runExport(format: "csv" | "pdf") {
     setBusy(true);
     setError(null);
     setResult(null);
@@ -81,34 +81,47 @@ export function InventoryFullStockExportButton({ className, compact, mode = "bot
     const exportInventory = mode === "both" || mode === "inventory";
     const exportReadyMade = mode === "both" || mode === "ready-made";
 
-    if (exportInventory) {
-      try {
-        const inventory = await fetchAllInventoryStock(supabase);
-        downloadCsvFile(inventoryStockToCsv(inventory), inventoryExportFilename(tag));
-        inventoryCount = inventory.length;
-      } catch (e: unknown) {
-        failures.push(`Inventory: ${errorMessage(e)}`);
+    try {
+      const inventory = exportInventory ? await fetchAllInventoryStock(supabase) : [];
+      inventoryCount = inventory.length;
+      const grids = exportReadyMade ? await fetchReadyMadeStockGrids(supabase) : [];
+      readyMadeSheets = grids.length;
+      readyMadeCells = grids.reduce(
+        (n, g) => n + g.rows.reduce((m, r) => m + Math.max(r.values.length, g.columns.length ? 0 : 1), 0),
+        0,
+      );
+
+      if (format === "pdf") {
+        const blob = await buildInventoryStockPdf({
+          ...(exportInventory ? { inventory } : {}),
+          ...(exportReadyMade ? { readyMade: grids } : {}),
+        });
+        const name =
+          mode === "ready-made"
+            ? `ready_made_inventory_${tag}`
+            : mode === "inventory"
+              ? `inventory_stock_${tag}`
+              : `all_stock_${tag}`;
+        downloadPdfBlob(blob, name);
+      } else {
+        if (exportInventory) {
+          downloadCsvFile(inventoryStockToCsv(inventory), inventoryExportFilename(tag));
+        }
+        if (exportReadyMade) {
+          if (exportInventory) await new Promise((r) => setTimeout(r, 300));
+          downloadCsvFile(readyMadeStockGridsToCsv(grids), readyMadeExportFilename(tag));
+        }
       }
+
+      if (inventoryCount > 0 || readyMadeSheets > 0) {
+        setResult({ inventory: inventoryCount, readyMadeSheets, readyMadeCells });
+      } else {
+        setError("No stock rows to export.");
+      }
+    } catch (e: unknown) {
+      failures.push(errorMessage(e));
     }
 
-    if (exportReadyMade) {
-      try {
-        if (exportInventory) await new Promise((r) => setTimeout(r, 300));
-        const grids = await fetchReadyMadeStockGrids(supabase);
-        downloadCsvFile(readyMadeStockGridsToCsv(grids), readyMadeExportFilename(tag));
-        readyMadeSheets = grids.length;
-        readyMadeCells = grids.reduce(
-          (n, g) => n + g.rows.reduce((m, r) => m + Math.max(r.values.length, g.columns.length ? 0 : 1), 0),
-          0,
-        );
-      } catch (e: unknown) {
-        failures.push(`Ready-made: ${errorMessage(e)}`);
-      }
-    }
-
-    if (inventoryCount > 0 || readyMadeSheets > 0) {
-      setResult({ inventory: inventoryCount, readyMadeSheets, readyMadeCells });
-    }
     if (failures.length > 0) {
       setError(failures.join(" "));
     }
@@ -129,7 +142,7 @@ export function InventoryFullStockExportButton({ className, compact, mode = "bot
         }}
       >
         <Download className="mr-1.5 h-4 w-4" />
-        {buttonLabel(mode, compact)}
+        {buttonLabel(mode)}
       </Button>
 
       <Dialog open={open} onClose={() => setOpen(false)} title={dialogTitle(mode)} size="md">
@@ -161,9 +174,13 @@ export function InventoryFullStockExportButton({ className, compact, mode = "bot
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Close
             </Button>
-            <Button type="button" onClick={() => void runExport()} disabled={busy}>
+            <Button type="button" variant="outline" onClick={() => void runExport("csv")} disabled={busy}>
               <Download className="mr-1.5 h-4 w-4" />
-              {busy ? "Preparing…" : downloadActionLabel(mode)}
+              {busy ? "Preparing…" : csvActionLabel(mode)}
+            </Button>
+            <Button type="button" onClick={() => void runExport("pdf")} disabled={busy}>
+              <FileText className="mr-1.5 h-4 w-4" />
+              {busy ? "Preparing…" : "Download PDF"}
             </Button>
           </div>
         </div>

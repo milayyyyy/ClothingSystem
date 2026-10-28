@@ -12,6 +12,24 @@ export function jerseyLineFreebieKey(lineKey: string): string {
   return `__freebie__${lineKey}`;
 }
 
+/** Optional quantity override in `jersey_line_prices` (`__qty__<name>|||<size>`). */
+export function jerseyLineQtyKey(lineKey: string): string {
+  return `__qty__${lineKey}`;
+}
+
+/** Counted sheet lines, or an explicit qty typed in the price chart. */
+export function jerseyLineResolvedQty(
+  linePrices: Record<string, number> | null | undefined,
+  lineKey: string,
+  counted: number,
+): number {
+  const raw = linePrices?.[jerseyLineQtyKey(lineKey)];
+  if (raw == null) return Math.max(0, Math.floor(Number(counted) || 0));
+  const n = Math.floor(Number(raw));
+  if (!Number.isFinite(n) || n < 0) return Math.max(0, Math.floor(Number(counted) || 0));
+  return n;
+}
+
 export function jerseyLineFreebieQty(
   linePrices: Record<string, number> | null | undefined,
   lineKey: string,
@@ -84,16 +102,17 @@ function buildLineItemsFromTeams(
       return a.size.localeCompare(b.size, undefined, { sensitivity: "base" });
     })
     .map((row) => {
+      const quantity = jerseyLineResolvedQty(linePrices, row.key, row.count);
       const unitPrice = Number(linePrices[row.key] ?? 0);
-      const freebies = jerseyLineFreebieQty(linePrices, row.key, row.count);
+      const freebies = jerseyLineFreebieQty(linePrices, row.key, quantity);
       return {
         key: row.key,
         name: row.name,
         size: row.size,
-        quantity: row.count,
+        quantity,
         freebies,
         unitPrice,
-        subtotal: jerseyLineSubtotal(row.count, unitPrice, freebies),
+        subtotal: jerseyLineSubtotal(quantity, unitPrice, freebies),
       };
     });
 }

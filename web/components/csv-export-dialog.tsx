@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Download } from "lucide-react";
+import { localTodayYmd } from "@/lib/sales-list";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -48,7 +49,7 @@ function downloadCsv(csv: string, filename: string) {
 }
 
 export function CsvExportDialog<T>({ label = "Export CSV", filename, columns, fetchRows }: Props<T>) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localTodayYmd();
   const monthStart = today.slice(0, 7) + "-01";
 
   const [open, setOpen] = useState(false);

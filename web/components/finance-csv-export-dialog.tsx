@@ -8,6 +8,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { fetchFinanceMergedCsv } from "@/lib/finance-csv-export";
+import { localTodayYmd } from "@/lib/sales-list";
 
 function downloadCsv(csv: string, filename: string) {
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
@@ -22,7 +23,7 @@ function downloadCsv(csv: string, filename: string) {
 }
 
 export function FinanceCsvExportDialog({ supabase }: { supabase: SupabaseClient }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localTodayYmd();
   const monthStart = today.slice(0, 7) + "-01";
 
   const [open, setOpen] = useState(false);

@@ -13,7 +13,16 @@ import {
   type ReadyMadeSheetGrid,
 } from "@/lib/inventory-stock-export";
 import { formatActivityLog, formatActivityLogForPdf, type ActivityLogRow } from "@/lib/activity-log-format";
-import { mergeUnifiedSaleRows, type ManualSaleRow, type UnifiedSaleListRow } from "@/lib/sales-list";
+import {
+  inLocalDateRange,
+  localDateKeyFromIso,
+  localDayEndExclusiveIso,
+  localDayStartIso,
+  localTodayYmd,
+  mergeUnifiedSaleRows,
+  type ManualSaleRow,
+  type UnifiedSaleListRow,
+} from "@/lib/sales-list";
 import { peso as _peso } from "@/lib/utils";
 
 /** PDF-safe currency formatter — avoids the ₱ glyph which jsPDF Helvetica
@@ -27,8 +36,10 @@ function peso(n: number | null | undefined): string {
 void _peso; // suppress unused-import warning
 
 export type ExportReportOptions = {
-  /** Report date (YYYY-MM-DD) for sales, expenses, money flow, and activity log. */
-  date: string;
+  /** Inclusive local calendar start (YYYY-MM-DD). */
+  from: string;
+  /** Inclusive local calendar end (YYYY-MM-DD). Defaults to `from`. */
+  to?: string;
 };
 
 export type ExpenseExportRow = {
@@ -53,6 +64,8 @@ export type ActivityLogExportRow = {
 
 export type ExportReportData = {
   generatedAt: Date;
+  reportFrom: string;
+  reportTo: string;
   reportDate: string;
   inventory: InventoryStockRow[];
   readyMade: ReadyMadeSheetGrid[];
@@ -75,46 +88,62 @@ function formatPdfTime(iso: string): string {
 }
 
 export function exportDateTag(d = new Date()): string {
-  return d.toISOString().slice(0, 10);
+  return localDateKeyFromIso(d.toISOString()) || localTodayYmd();
 }
 
 export function defaultExportDate(): string {
-  return exportDateTag();
+  return localTodayYmd();
 }
 
-/** Start of local calendar day as ISO for timestamp filters. */
-function localDayStartIso(ymd: string): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  return new Date(y, m - 1, d, 0, 0, 0, 0).toISOString();
+export function defaultExportRange(): { from: string; to: string } {
+  const to = localTodayYmd();
+  const start = new Date();
+  start.setDate(start.getDate() - 6);
+  const from = localDateKeyFromIso(start.toISOString()) || to;
+  return { from, to };
 }
 
-/** End of local calendar day as ISO for timestamp filters. */
-function localDayEndIso(ymd: string): string {
-  const [y, m, d] = ymd.split("-").map(Number);
-  return new Date(y, m - 1, d, 23, 59, 59, 999).toISOString();
+export function exportRangeLabel(from: string, to: string): string {
+  return from === to ? from : `${from} to ${to}`;
 }
 
 export async function fetchExportReportData(
   supabase: SupabaseClient,
   opts: ExportReportOptions,
 ): Promise<ExportReportData> {
-  const date = opts.date.trim().slice(0, 10);
-  const dayStart = localDayStartIso(date);
-  const dayEnd = localDayEndIso(date);
+  let from = opts.from.trim().slice(0, 10);
+  let to = (opts.to || opts.from).trim().slice(0, 10);
+  if (from && to && from > to) {
+    const swap = from;
+    from = to;
+    to = swap;
+  }
+  const rangeLabel = exportRangeLabel(from, to);
+  const dayStart = localDayStartIso(from);
+  const dayEndExcl = localDayEndExclusiveIso(to);
 
-  const ordersQuery = supabase
+  const orderSelect =
+    "id, order_no, customer_name, kind, order_type, source, notes, design_ref, status, stage, total, down_payment, waybill_no, external_order_no, sku_code, return_status, updated_at, created_at";
+
+  const ordersByUpdated = supabase
     .from("orders")
-    .select(
-      "id, order_no, customer_name, kind, order_type, source, notes, design_ref, status, stage, total, down_payment, waybill_no, external_order_no, sku_code, return_status, updated_at, created_at",
-    )
+    .select(orderSelect)
     .gte("updated_at", dayStart)
-    .lte("updated_at", dayEnd)
+    .lt("updated_at", dayEndExcl)
     .order("updated_at", { ascending: false });
+
+  const ordersByCreated = supabase
+    .from("orders")
+    .select(orderSelect)
+    .gte("created_at", dayStart)
+    .lt("created_at", dayEndExcl)
+    .order("created_at", { ascending: false });
 
   const manualQuery = supabase
     .from("manual_sales")
     .select("id, sale_date, amount, description, channel, revenue_channel, product_service, notes, import_key")
-    .eq("sale_date", date)
+    .gte("sale_date", from)
+    .lte("sale_date", to)
     .order("sale_date", { ascending: false });
 
   const expensesQuery = supabase
@@ -122,23 +151,25 @@ export async function fetchExportReportData(
     .select(
       "expense_date,category,description,amount,notes,paid_through,supplier:supplier_id(name),account:finance_account_id(name)",
     )
-    .eq("expense_date", date)
+    .gte("expense_date", from)
+    .lte("expense_date", to)
     .order("expense_date", { ascending: false });
 
   const activityQuery = supabase
     .from("activity_logs")
     .select("id,action,entity,entity_id,summary,payload,created_at,actor:actor_id(full_name,email)")
     .gte("created_at", dayStart)
-    .lte("created_at", dayEnd)
+    .lt("created_at", dayEndExcl)
     .order("created_at", { ascending: false })
-    .limit(500);
+    .limit(2000);
 
   const [
     inventory,
     readyMade,
     { data: accounts, error: accErr },
     { data: allTxs, error: txErr },
-    { data: orders, error: ordersErr },
+    { data: ordersUpdated, error: ordersUpdatedErr },
+    { data: ordersCreated, error: ordersCreatedErr },
     { data: manual, error: manualErr },
     { data: expenseRows, error: expErr },
     { data: activityRows, error: actErr },
@@ -155,7 +186,8 @@ export async function fetchExportReportData(
       .select("id,occurred_at,account_id,direction,amount,description,created_at")
       .order("occurred_at", { ascending: true })
       .order("created_at", { ascending: true }),
-    ordersQuery,
+    ordersByUpdated,
+    ordersByCreated,
     manualQuery,
     expensesQuery,
     activityQuery,
@@ -163,7 +195,8 @@ export async function fetchExportReportData(
 
   if (accErr) throw new Error(accErr.message);
   if (txErr) throw new Error(txErr.message);
-  if (ordersErr) throw new Error(ordersErr.message);
+  if (ordersUpdatedErr) throw new Error(ordersUpdatedErr.message);
+  if (ordersCreatedErr) throw new Error(ordersCreatedErr.message);
   if (manualErr) throw new Error(manualErr.message);
   if (expErr) throw new Error(expErr.message);
   if (actErr) throw new Error(actErr.message);
@@ -172,10 +205,18 @@ export async function fetchExportReportData(
   const allTransactions = (allTxs || []) as FinanceTxExport[];
   const balanceAfter = balanceAfterByTransactionId(accountRows, allTransactions);
 
-  const filteredTx = allTransactions.filter((t) => String(t.occurred_at).slice(0, 10) === date);
+  const filteredTx = allTransactions.filter((t) =>
+    inLocalDateRange(localDateKeyFromIso(t.occurred_at), from, to),
+  );
 
-  const sales = mergeUnifiedSaleRows(orders || [], (manual || []) as ManualSaleRow[]).filter(
-    (r) => r.dateKey === date,
+  const ordersById = new Map<string, Record<string, unknown>>();
+  for (const row of [...(ordersUpdated || []), ...(ordersCreated || [])] as Record<string, unknown>[]) {
+    const id = String(row.id || "");
+    if (id) ordersById.set(id, row);
+  }
+
+  const sales = mergeUnifiedSaleRows([...ordersById.values()], (manual || []) as ManualSaleRow[]).filter(
+    (r) => inLocalDateRange(r.dateKey, from, to),
   );
 
   const expenses: ExpenseExportRow[] = ((expenseRows || []) as any[]).map((e) => ({
@@ -201,7 +242,9 @@ export async function fetchExportReportData(
 
   return {
     generatedAt: new Date(),
-    reportDate: date,
+    reportFrom: from,
+    reportTo: to,
+    reportDate: rangeLabel,
     inventory,
     readyMade,
     accounts: accountRows,
@@ -339,7 +382,7 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   const coverLines = doc.splitTextToSize(
-    `Generated ${generated} · Report date ${data.reportDate} · Stock/ready-made = current; other sections = report date.`,
+    `Generated ${generated} · Dates ${data.reportDate} · Stock/ready-made = current; sales, expenses, money flow, and activity = selected dates.`,
     portraitW,
   );
   doc.text(coverLines, PDF_MARGIN_MM, 16);
@@ -481,7 +524,7 @@ export async function buildExportReportPdf(data: ExportReportData): Promise<Blob
         const dir = t.direction === "out" ? "out" : "in";
         const amt = Number(t.amount || 0);
         return [
-          String(t.occurred_at).slice(0, 10),
+          localDateKeyFromIso(t.occurred_at) || String(t.occurred_at).slice(0, 10),
           goodwill ? "Uncollected / Goodwill" : unassigned ? "None" : (a?.name ?? "").trim() || "—",
           !unassigned && dir === "in" ? peso(amt) : "—",
           !unassigned && dir === "out" ? peso(amt) : "—",

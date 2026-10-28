@@ -25,6 +25,8 @@ import {
 import {
   jerseyLineFreebieKey,
   jerseyLineFreebieQty,
+  jerseyLineQtyKey,
+  jerseyLineResolvedQty,
   jerseyLineSubtotal,
 } from "@/lib/order-invoice";
 import { FileDown, X } from "lucide-react";
@@ -877,8 +879,9 @@ export function TeamsSheetClient({
   const orderTotal = useMemo(
     () => {
       const linesTotal = uniqueLines.reduce((sum, l) => {
-        const freebies = jerseyLineFreebieQty(linePrices, l.key, l.count);
-        return sum + jerseyLineSubtotal(l.count, linePrices[l.key] ?? 0, freebies);
+        const qty = jerseyLineResolvedQty(linePrices, l.key, l.count);
+        const freebies = jerseyLineFreebieQty(linePrices, l.key, qty);
+        return sum + jerseyLineSubtotal(qty, linePrices[l.key] ?? 0, freebies);
       }, 0);
       const extra = linePrices["__extra__"] ?? 0;
       return linesTotal + extra;
@@ -887,8 +890,9 @@ export function TeamsSheetClient({
   );
   const activeTeamTotal = useMemo(
     () => activeUniqueLines.reduce((sum, l) => {
-      const freebies = jerseyLineFreebieQty(linePrices, l.key, l.count);
-      return sum + jerseyLineSubtotal(l.count, linePrices[l.key] ?? 0, freebies);
+      const qty = jerseyLineResolvedQty(linePrices, l.key, l.count);
+      const freebies = jerseyLineFreebieQty(linePrices, l.key, qty);
+      return sum + jerseyLineSubtotal(qty, linePrices[l.key] ?? 0, freebies);
     }, 0),
     [activeUniqueLines, linePrices],
   );
@@ -1212,8 +1216,9 @@ export function TeamsSheetClient({
 
   async function save() {
     const computedTotal = uniqueLines.reduce((sum, l) => {
-      const freebies = jerseyLineFreebieQty(linePrices, l.key, l.count);
-      return sum + jerseyLineSubtotal(l.count, linePrices[l.key] ?? 0, freebies);
+      const qty = jerseyLineResolvedQty(linePrices, l.key, l.count);
+      const freebies = jerseyLineFreebieQty(linePrices, l.key, qty);
+      return sum + jerseyLineSubtotal(qty, linePrices[l.key] ?? 0, freebies);
     }, 0) + (linePrices["__extra__"] ?? 0);
     const dp = Math.max(0, Number(downPaymentStr) || 0);
 
@@ -1278,13 +1283,16 @@ export function TeamsSheetClient({
           })),
         })),
       ),
-      priceLines: uniqueLines.map((line) => ({
-        name: line.name,
-        size: line.size,
-        count: line.count,
-        freebies: jerseyLineFreebieQty(linePrices, line.key, line.count),
-        unitPrice: linePrices[line.key] ?? 0,
-      })),
+      priceLines: uniqueLines.map((line) => {
+        const count = jerseyLineResolvedQty(linePrices, line.key, line.count);
+        return {
+          name: line.name,
+          size: line.size,
+          count,
+          freebies: jerseyLineFreebieQty(linePrices, line.key, count),
+          unitPrice: linePrices[line.key] ?? 0,
+        };
+      }),
       extraAmount,
       orderTotal,
       downPayment,
@@ -1824,8 +1832,8 @@ export function TeamsSheetClient({
             {viewOnly
               ? "Grouped line items and pricing for this jersey type sheet."
               : isSvc
-                ? "Service lines with the same name & size are grouped. Set a unit price per type and freebies per size — free pieces are deducted from the subtotal. Save sheet saves both the data and the pricing."
-                : "Jersey lines for the active sheet are grouped here. Set a unit price per type and freebies per size — free pieces are deducted from the subtotal. Switch jersey type tabs to see each sheet's chart."}
+                ? "Service lines with the same name & size are grouped. Edit Qty if you do not want one row per piece. Set a unit price per type and freebies per size — free pieces are deducted from the subtotal. Save sheet saves both the data and the pricing."
+                : "Jersey lines for the active sheet are grouped here. Edit Qty for bulk orders without adding a surname per piece. Set a unit price per type and freebies per size — free pieces are deducted from the subtotal. Switch jersey type tabs to see each sheet's chart."}
           </p>
 
           {activeUniqueLines.length === 0 ? (
@@ -1846,15 +1854,43 @@ export function TeamsSheetClient({
                 <tbody>
                   {activeUniqueLines.map((line) => {
                     const unitPrice = linePrices[line.key] ?? 0;
-                    const freebies = jerseyLineFreebieQty(linePrices, line.key, line.count);
-                    const subtotal = jerseyLineSubtotal(line.count, unitPrice, freebies);
+                    const qty = jerseyLineResolvedQty(linePrices, line.key, line.count);
+                    const freebies = jerseyLineFreebieQty(linePrices, line.key, qty);
+                    const subtotal = jerseyLineSubtotal(qty, unitPrice, freebies);
                     return (
                       <tr key={line.key} className="border-b border-border/60 hover:bg-muted/10">
                         <td className="border-r px-3 py-2 font-medium">{line.name}</td>
                         <td className="border-r px-3 py-2 text-center font-mono text-muted-foreground">
                           {line.size || <span className="italic text-muted-foreground/60">—</span>}
                         </td>
-                        <td className="border-r px-3 py-2 text-center font-mono">{line.count}</td>
+                        <td className="border-r px-3 py-2 text-center font-mono">
+                          {viewOnly ? (
+                            qty
+                          ) : (
+                            <input
+                              type="number"
+                              min={0}
+                              step={1}
+                              className="mx-auto h-8 w-16 rounded border border-border/60 bg-transparent px-1 text-center font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
+                              value={qty}
+                              title={qty === line.count ? "Matches sheet line count" : `Sheet has ${line.count} line(s); chart qty is ${qty}`}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                setLinePrices((prev) => {
+                                  const next = { ...prev };
+                                  if (raw === "") {
+                                    delete next[jerseyLineQtyKey(line.key)];
+                                    return next;
+                                  }
+                                  const n = Math.floor(Number(raw));
+                                  next[jerseyLineQtyKey(line.key)] = Number.isFinite(n) && n >= 0 ? n : 0;
+                                  return next;
+                                });
+                              }}
+                              aria-label={`Quantity for ${line.name} ${line.size}`}
+                            />
+                          )}
+                        </td>
                         <td className="border-r px-3 py-2 text-center font-mono">
                           {viewOnly ? (
                             freebies > 0 ? freebies : <span className="text-muted-foreground">—</span>
@@ -1862,14 +1898,14 @@ export function TeamsSheetClient({
                             <input
                               type="number"
                               min={0}
-                              max={line.count}
+                              max={qty}
                               step={1}
                               className="mx-auto h-8 w-16 rounded border border-border/60 bg-transparent px-1 text-center font-mono text-sm outline-none focus:border-primary/60 focus:bg-primary/5"
                               value={freebies === 0 ? "" : freebies}
                               placeholder="0"
                               onChange={(e) => {
                                 const n = Math.floor(Number(e.target.value) || 0);
-                                const clamped = Math.min(Math.max(0, n), line.count);
+                                const clamped = Math.min(Math.max(0, n), qty);
                                 setLinePrices((prev) => ({ ...prev, [jerseyLineFreebieKey(line.key)]: clamped }));
                               }}
                               aria-label={`Freebies for ${line.name} ${line.size}`}

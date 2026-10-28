@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -14,11 +14,13 @@ import {
   emptyUsageSheet,
   employeeCanEditOrderRecord,
   parseDriverReturns,
+  parseOrderRecordSource,
   parseUsageSheets,
   type DriverReturnPick,
   type ManualUsageSheet,
   type OrderRecordAttachment,
   type OrderRecordRow,
+  type OrderRecordSource,
 } from "@/lib/order-records";
 import { OrderRecordAttachments } from "@/components/order-record-attachments";
 import { OrderRecordBigSellerImport } from "@/components/order-record-bigseller-import";
@@ -61,12 +63,37 @@ export function OrderRecordEditor({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const persistLock = useRef<Promise<OrderRecordRow | null> | null>(null);
+
+  useEffect(() => {
+    const preventNav = (e: DragEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("dragover", preventNav);
+    window.addEventListener("drop", preventNav);
+    return () => {
+      window.removeEventListener("dragover", preventNav);
+      window.removeEventListener("drop", preventNav);
+    };
+  }, []);
+
+  const syncRecordUrl = (id: string) => {
+    if (layout !== "page" || typeof window === "undefined") return;
+    const next = `${backHref}/${id}`;
+    if (window.location.pathname !== next) {
+      window.history.replaceState(window.history.state, "", next);
+    }
+  };
 
   const [title, setTitle] = useState(initialRecord?.title || "");
   const [recordDate, setRecordDate] = useState(
     initialRecord?.record_date || new Date().toISOString().slice(0, 10),
   );
+  const [source, setSource] = useState<OrderRecordSource>(
+    parseOrderRecordSource(initialRecord?.source),
+  );
   const [notes, setNotes] = useState(initialRecord?.notes || "");
+  const isNote = source === "note";
   const [usageSheets, setUsageSheets] = useState<ManualUsageSheet[]>(() => {
     const sheets = initialRecord ? parseUsageSheets(initialRecord.stock_lines) : [];
     return sheets.length > 0 ? sheets : [emptyUsageSheet()];
@@ -86,53 +113,63 @@ export function OrderRecordEditor({
   const creatingOrOpen = !record || record.status === "draft" || record.status === "rejected";
   const employeePending = mode === "employee" && record?.status === "submitted";
 
-  const saveDraft = async (): Promise<OrderRecordRow | null> => {
-    setBusy(true);
-    setErr(null);
-    const payload: Record<string, unknown> = {
-      record_date: recordDate,
-      title: title.trim() || null,
-      notes: notes.trim() || null,
-      stock_lines: usageSheets,
-      driver_returns: driverReturns,
-      updated_at: new Date().toISOString(),
-    };
-    if (mode !== "admin" && record?.status !== "submitted") {
-      payload.status = "draft";
-    }
+  const saveDraft = async (opts?: { navigate?: boolean }): Promise<OrderRecordRow | null> => {
+    if (persistLock.current) return persistLock.current;
 
-    if (record) {
-      const updated = await writeRecord("update", payload, record.id);
+    const run = (async (): Promise<OrderRecordRow | null> => {
+      setBusy(true);
+      setErr(null);
+      const payload: Record<string, unknown> = {
+        record_date: recordDate,
+        title: title.trim() || (isNote ? "Daily order note" : null),
+        notes: notes.trim() || null,
+        source,
+        stock_lines: isNote ? [] : usageSheets,
+        driver_returns: isNote ? [] : driverReturns,
+        updated_at: new Date().toISOString(),
+      };
+      if (mode !== "admin" && record?.status !== "submitted") {
+        payload.status = "draft";
+      }
+
+      const applyRow = (raw: Record<string, unknown>) => {
+        const row = mapRecord(raw);
+        if (!row.id) {
+          setErr("Could not save this record.");
+          return null;
+        }
+        setRecord(row);
+        if ("driver_returns" in raw) {
+          setDriverReturns(parseDriverReturns(raw.driver_returns));
+        }
+        onSaved?.(row);
+        syncRecordUrl(row.id);
+        return row;
+      };
+
+      if (record) {
+        const updated = await writeRecord("update", payload, record.id);
+        setBusy(false);
+        if (!updated) return null;
+        const row = applyRow(updated);
+        if (row && opts?.navigate !== false && layout === "page" && mode === "admin") {
+          router.refresh();
+        }
+        return row;
+      }
+
+      const inserted = await writeRecord("insert", { ...payload, submitted_by: userId });
       setBusy(false);
-      if (!updated) return null;
-      const row = mapRecord(updated);
-      setRecord(row);
-      if ("driver_returns" in updated) {
-        setDriverReturns(parseDriverReturns(updated.driver_returns));
-      }
-      onSaved?.(row);
-      if (layout === "page" && mode === "admin") {
-        router.refresh();
-      }
-      if (layout === "page" && !initialRecord) {
-        router.replace(`${backHref}/${row.id}`);
-      }
-      return row;
-    }
+      if (!inserted) return null;
+      return applyRow(inserted);
+    })();
 
-    const inserted = await writeRecord("insert", { ...payload, submitted_by: userId });
-    setBusy(false);
-    if (!inserted) return null;
-    const row = mapRecord(inserted);
-    setRecord(row);
-    if ("driver_returns" in inserted) {
-      setDriverReturns(parseDriverReturns(inserted.driver_returns));
+    persistLock.current = run;
+    try {
+      return await run;
+    } finally {
+      persistLock.current = null;
     }
-    onSaved?.(row);
-    if (layout === "page") {
-      router.replace(`${backHref}/${row.id}`);
-    }
-    return row;
   };
 
   const writeRecord = async (
@@ -154,6 +191,13 @@ export function OrderRecordEditor({
         setErr("Returns were not saved. Apply the latest database migration, then save again.");
       }
     }
+    if (error && /source/i.test(error.message)) {
+      const { source: _omit, ...rest } = payload;
+      ({ data, error } = await attempt(rest));
+      if (!error) {
+        setErr("Saved without the Daily order note type. Apply the latest database migration, then save again.");
+      }
+    }
     if (error) {
       setErr(error.message);
       return null;
@@ -162,6 +206,10 @@ export function OrderRecordEditor({
   };
 
   const submitRecord = async () => {
+    if (isNote && !notes.trim()) {
+      setErr("Paste the daily order note before submitting.");
+      return;
+    }
     setBusy(true);
     setErr(null);
     const saved = await saveDraft();
@@ -188,37 +236,42 @@ export function OrderRecordEditor({
     if (!list.length) return;
     setUploading(true);
     setErr(null);
-    let recordId = record?.id;
-    if (!recordId) {
-      const saved = await saveDraft();
-      if (!saved) { setUploading(false); return; }
-      recordId = saved.id;
+    try {
+      let recordId = record?.id;
+      if (!recordId) {
+        const saved = await saveDraft({ navigate: false });
+        if (!saved?.id) return;
+        recordId = saved.id;
+      }
+      for (const file of list) {
+        if (!attachmentKind(file)) {
+          setErr("Only PDF and image files are allowed.");
+          continue;
+        }
+        let prepared;
+        try {
+          prepared = await prepareStorageUpload(file, "screenshot");
+        } catch (err) {
+          setErr(err instanceof Error ? err.message : "Could not compress this file.");
+          break;
+        }
+        const fd = new FormData();
+        fd.append("file", prepared.file);
+        const res = await fetch(`/api/order-records/${recordId}/attachments`, { method: "POST", body: fd });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setErr(json.error || "Upload failed");
+          break;
+        }
+        if (json.attachment) {
+          setAttachments((prev) => [...prev, json.attachment as OrderRecordAttachment]);
+        }
+      }
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
     }
-    for (const file of list) {
-      if (!attachmentKind(file)) {
-        setErr("Only PDF and image files are allowed.");
-        continue;
-      }
-      let prepared;
-      try {
-        prepared = await prepareStorageUpload(file, "screenshot");
-      } catch (err) {
-        setErr(err instanceof Error ? err.message : "Could not compress this file.");
-        break;
-      }
-      const fd = new FormData();
-      fd.append("file", prepared.file);
-      const res = await fetch(`/api/order-records/${recordId}/attachments`, { method: "POST", body: fd });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setErr(json.error || "Upload failed");
-        break;
-      }
-      if (json.attachment) {
-        setAttachments((prev) => [...prev, json.attachment as OrderRecordAttachment]);
-      }
-    }
-    setUploading(false);
   };
 
   const removeAttachment = async (att: OrderRecordAttachment) => {
@@ -250,7 +303,9 @@ export function OrderRecordEditor({
   };
 
   const formTitle = !record
-    ? "New order record"
+    ? isNote
+      ? "New daily order note"
+      : "New order record"
     : mode === "admin"
       ? record.status === "submitted"
         ? "Review order record"
@@ -273,7 +328,49 @@ export function OrderRecordEditor({
         </div>
       )}
 
-      <div className="space-y-4 rounded-lg border bg-card p-4 sm:p-6">
+      <form
+        className="space-y-4 rounded-lg border bg-card p-4 sm:p-6"
+        onSubmit={(e) => {
+          e.preventDefault();
+        }}
+      >
+        {!record && (
+          <div>
+            <Label>Record type</Label>
+            <div className="mt-1 flex flex-wrap gap-1 rounded-lg border p-0.5">
+              <Button
+                type="button"
+                size="sm"
+                variant={!isNote ? "secondary" : "ghost"}
+                className="h-8"
+                onClick={() => {
+                  setSource("manual");
+                  if (title.trim() === "Daily order note") setTitle("");
+                }}
+              >
+                Stock usage
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={isNote ? "secondary" : "ghost"}
+                className="h-8"
+                onClick={() => {
+                  setSource("note");
+                  if (!title.trim()) setTitle("Daily order note");
+                }}
+              >
+                Daily order note
+              </Button>
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              {isNote
+                ? "Paste order texts in one note. No usage sheet required."
+                : "Upload files and fill usage sheets for stock review."}
+            </p>
+          </div>
+        )}
+
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <Label>Record date</Label>
@@ -289,7 +386,7 @@ export function OrderRecordEditor({
             <Label>Title (optional)</Label>
             <Input
               className="mt-1"
-              placeholder="e.g. Walk-in orders May 29"
+              placeholder={isNote ? "Daily order note" : "e.g. Walk-in orders May 29"}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               disabled={editorReadOnly}
@@ -297,16 +394,30 @@ export function OrderRecordEditor({
           </div>
         </div>
 
-        <div>
-          <Label>Notes</Label>
-          <Input
-            className="mt-1"
-            placeholder="Summary for admin…"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            disabled={editorReadOnly}
-          />
-        </div>
+        {isNote ? (
+          <div>
+            <Label>Daily order note</Label>
+            <textarea
+              className="mt-1 min-h-[280px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              placeholder="Paste order notes here…"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              disabled={editorReadOnly}
+              spellCheck={false}
+            />
+          </div>
+        ) : (
+          <div>
+            <Label>Notes</Label>
+            <Input
+              className="mt-1"
+              placeholder="Summary for admin…"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              disabled={editorReadOnly}
+            />
+          </div>
+        )}
 
         <OrderRecordAttachments
           attachments={attachments}
@@ -319,13 +430,15 @@ export function OrderRecordEditor({
           uploading={uploading}
         />
 
-        <OrderRecordDriverReturns
-          selected={driverReturns}
-          onChange={setDriverReturns}
-          readOnly={!canEditForm}
-        />
+        {!isNote && (
+          <OrderRecordDriverReturns
+            selected={driverReturns}
+            onChange={setDriverReturns}
+            readOnly={!canEditForm}
+          />
+        )}
 
-        {canEditForm && (
+        {!isNote && canEditForm && (
           <OrderRecordBigSellerImport
             disabled={busy || uploading}
             existingSheets={usageSheets}
@@ -339,7 +452,9 @@ export function OrderRecordEditor({
           />
         )}
 
-        <OrderRecordManualSheet sheets={usageSheets} onChange={setUsageSheets} readOnly={!canEditForm} />
+        {!isNote && (
+          <OrderRecordManualSheet sheets={usageSheets} onChange={setUsageSheets} readOnly={!canEditForm} />
+        )}
 
         {record?.status === "rejected" && record.rejection_reason && (
           <p className="text-sm text-destructive">Rejected: {record.rejection_reason}</p>
@@ -348,16 +463,17 @@ export function OrderRecordEditor({
         {err && <p className="text-sm text-destructive">{err}</p>}
 
         <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
-          <Button variant="outline" onClick={handleClose}>
+          <Button type="button" variant="outline" onClick={handleClose}>
             {layout === "page" ? "Cancel" : "Close"}
           </Button>
 
           {mode === "admin" && record?.status === "submitted" && onReject && onApprove && (
             <>
-              <Button variant="outline" className="gap-1.5 text-destructive" disabled={busy} onClick={() => onReject(record.id)}>
+              <Button type="button" variant="outline" className="gap-1.5 text-destructive" disabled={busy} onClick={() => onReject(record.id)}>
                 <XCircle className="h-4 w-4" /> Reject
               </Button>
               <Button
+                type="button"
                 className="gap-1.5"
                 disabled={busy}
                 onClick={() => {
@@ -375,36 +491,36 @@ export function OrderRecordEditor({
 
           {canEditForm && mode === "admin" && creatingOrOpen && (
             <>
-              <Button variant="outline" disabled={busy || uploading} onClick={() => void saveDraft()}>
+              <Button type="button" variant="outline" disabled={busy || uploading} onClick={() => void saveDraft()}>
                 Save draft
               </Button>
-              <Button disabled={busy || uploading} onClick={() => void submitRecord()}>
+              <Button type="button" disabled={busy || uploading} onClick={() => void submitRecord()}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit for review"}
               </Button>
             </>
           )}
           {canEditForm && mode === "admin" && !creatingOrOpen && (
-            <Button disabled={busy || uploading} onClick={() => void saveDraft()}>
+            <Button type="button" disabled={busy || uploading} onClick={() => void saveDraft()}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save changes"}
             </Button>
           )}
           {canEditForm && mode === "employee" && employeePending && (
-            <Button disabled={busy || uploading} onClick={() => void saveDraft()}>
+            <Button type="button" disabled={busy || uploading} onClick={() => void saveDraft()}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save changes"}
             </Button>
           )}
           {canEditForm && mode === "employee" && !employeePending && (
             <>
-              <Button variant="outline" disabled={busy || uploading} onClick={() => void saveDraft()}>
+              <Button type="button" variant="outline" disabled={busy || uploading} onClick={() => void saveDraft()}>
                 Save draft
               </Button>
-              <Button disabled={busy || uploading} onClick={() => void submitRecord()}>
+              <Button type="button" disabled={busy || uploading} onClick={() => void submitRecord()}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit for review"}
               </Button>
             </>
           )}
         </div>
-      </div>
+      </form>
     </div>
   );
 }
@@ -417,6 +533,7 @@ function mapRecord(data: Record<string, unknown>): OrderRecordRow {
     title: (data.title as string) || null,
     notes: (data.notes as string) || null,
     status: data.status as OrderRecordRow["status"],
+    source: parseOrderRecordSource(data.source),
     stock_lines: parseUsageSheets(data.stock_lines),
     driver_returns: parseDriverReturns(data.driver_returns),
     reviewed_by: (data.reviewed_by as string) || null,

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isUncollectedGoodwillFinanceTx } from "@/lib/order-balance";
+import { inLocalDateRange, localDateKeyFromIso } from "@/lib/sales-list";
 
 export type FinanceAccountExport = {
   id: string;
@@ -172,8 +173,9 @@ export async function fetchFinanceMergedCsv(
   const balanceAfter = balanceAfterByTransactionId(accountRows, allTransactions);
 
   let filtered = allTransactions;
-  if (from) filtered = filtered.filter((t) => String(t.occurred_at) >= from);
-  if (to) filtered = filtered.filter((t) => String(t.occurred_at) <= to);
+  if (from || to) {
+    filtered = filtered.filter((t) => inLocalDateRange(localDateKeyFromIso(t.occurred_at), from || "", to || ""));
+  }
 
   const csv = buildFinanceMergedCsv(accountRows, filtered, balanceAfter);
   return { csv, accountCount: accountRows.length, txCount: filtered.length };

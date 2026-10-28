@@ -61,9 +61,36 @@ function pad2(n: number) {
 
 export function localDateKeyFromIso(iso: string | null | undefined): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
+  const raw = String(iso).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw.slice(0, 10);
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** Local calendar YYYY-MM-DD (browser timezone). */
+export function localTodayYmd(): string {
+  return localDateKeyFromIso(new Date().toISOString());
+}
+
+/** Inclusive start of a local YYYY-MM-DD as UTC ISO (for timestamptz filters). */
+export function localDayStartIso(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0).toISOString();
+}
+
+/** Exclusive start of the day after a local YYYY-MM-DD as UTC ISO. */
+export function localDayEndExclusiveIso(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, (d || 1) + 1, 0, 0, 0, 0).toISOString();
+}
+
+export function inLocalDateRange(dateKey: string, from: string, to: string): boolean {
+  const k = String(dateKey || "").slice(0, 10);
+  if (!k) return false;
+  if (from && k < from) return false;
+  if (to && k > to) return false;
+  return true;
 }
 
 /** Completed orders + deposit (down payment) rows → unified rows for sales list browsing. */

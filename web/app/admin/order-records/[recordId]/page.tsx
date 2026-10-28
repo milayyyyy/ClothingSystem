@@ -1,6 +1,6 @@
 import { createClient, requireStaff } from "@/lib/supabase/server";
 import { AdminOrderRecordReview } from "@/components/admin-order-record-review";
-import { parseDriverReturns, parseUsageSheets, type OrderRecordRow } from "@/lib/order-records";
+import { parseDriverReturns, parseOrderRecordSource, parseUsageSheets, type OrderRecordRow } from "@/lib/order-records";
 import { redirect, notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +35,7 @@ export default async function AdminOrderRecordReviewPage({
     title: row.title,
     notes: row.notes,
     status: row.status,
+    source: parseOrderRecordSource(row.source),
     stock_lines: parseUsageSheets(row.stock_lines),
     driver_returns: parseDriverReturns(row.driver_returns),
     reviewed_by: row.reviewed_by,

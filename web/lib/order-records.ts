@@ -3,6 +3,12 @@ import type { ReturnListTab } from "@/lib/bigseller-return-excel";
 export const ORDER_RECORD_BUCKET = "order-record-attachments";
 
 export type OrderRecordStatus = "draft" | "submitted" | "approved" | "rejected";
+export type OrderRecordSource = "manual" | "pos" | "note";
+
+export function parseOrderRecordSource(raw: unknown): OrderRecordSource {
+  if (raw === "pos" || raw === "note") return raw;
+  return "manual";
+}
 
 export type { ReturnListTab } from "@/lib/bigseller-return-excel";
 
@@ -37,7 +43,7 @@ export type OrderRecordRow = {
   title: string | null;
   notes: string | null;
   status: OrderRecordStatus;
-  source?: "manual" | "pos" | null;
+  source?: OrderRecordSource | null;
   stock_lines: ManualUsageSheet[];
   driver_returns?: DriverReturnPick[];
   reviewed_by: string | null;

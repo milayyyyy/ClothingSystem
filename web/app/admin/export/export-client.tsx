@@ -8,7 +8,14 @@ import { MediaArchivePdfButton } from "@/components/media-archive-pdf-button";
 import { InventoryFullStockExportButton } from "@/components/inventory-full-stock-export-button";
 import { CsvExportDialog, type CsvColumn } from "@/components/csv-export-dialog";
 import { FinanceCsvExportDialog } from "@/components/finance-csv-export-dialog";
-import { mergeUnifiedSaleRows, type ManualSaleRow, type UnifiedSaleListRow } from "@/lib/sales-list";
+import {
+  inLocalDateRange,
+  localDayEndExclusiveIso,
+  localDayStartIso,
+  mergeUnifiedSaleRows,
+  type ManualSaleRow,
+  type UnifiedSaleListRow,
+} from "@/lib/sales-list";
 
 type ExpenseRow = {
   id: string;
@@ -44,11 +51,11 @@ export function AdminExportClient() {
       .order("sale_date", { ascending: false });
 
     if (from) {
-      ordersQuery = ordersQuery.gte("updated_at", from);
+      ordersQuery = ordersQuery.gte("updated_at", localDayStartIso(from));
       manualQuery = manualQuery.gte("sale_date", from);
     }
     if (to) {
-      ordersQuery = ordersQuery.lte("updated_at", to);
+      ordersQuery = ordersQuery.lt("updated_at", localDayEndExclusiveIso(to));
       manualQuery = manualQuery.lte("sale_date", to);
     }
 
@@ -67,7 +74,9 @@ export function AdminExportClient() {
     }
 
     const manualRows = (manual || []) as ManualSaleRow[];
-    return mergeUnifiedSaleRows(orders || [], manualRows);
+    const merged = mergeUnifiedSaleRows(orders || [], manualRows);
+    if (!from && !to) return merged;
+    return merged.filter((r) => inLocalDateRange(r.dateKey, from || "", to || ""));
   }
 
   const salesColumns: CsvColumn<UnifiedSaleListRow>[] = [
@@ -134,7 +143,7 @@ export function AdminExportClient() {
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
             Combine stock inventory, ready-made sheets, finance balances, money flow, sales, expenses, and activity log
-            into a single PDF for one date — no need to export each section separately.
+            into a single PDF for the dates you pick — no need to export each section separately.
           </p>
           <ExportAllPdfButton />
         </CardContent>
@@ -160,7 +169,7 @@ export function AdminExportClient() {
           <CardTitle>Stock inventory</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
-          <p>All inventory items with current quantities, categories, suppliers, and notes.</p>
+          <p>All inventory items with current quantities, categories, suppliers, and notes (CSV or PDF).</p>
           <InventoryFullStockExportButton mode="inventory" />
         </CardContent>
       </Card>
@@ -170,7 +179,7 @@ export function AdminExportClient() {
           <CardTitle>Ready-made inventory</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
-          <p>All sheet groups and sheets as stock grids (rows × columns), matching the Ready-made inventory page.</p>
+          <p>All sheet groups and sheets as stock grids (rows × columns), matching the Ready-made inventory page (CSV or PDF).</p>
           <InventoryFullStockExportButton mode="ready-made" />
         </CardContent>
       </Card>
