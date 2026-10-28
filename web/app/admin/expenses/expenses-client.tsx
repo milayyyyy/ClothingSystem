@@ -956,6 +956,8 @@ function ExpenseForm({
       cancelled = true;
     };
   }, [open, form.expense_purpose, form.order_id, commissionOrders, supabase]);
+
+  const filteredCommissionOrders = useMemo(() => {
     const q = orderSearch.trim().toLowerCase();
     const tokens = q.split(/\s+/).filter(Boolean);
     const rows = !tokens.length
