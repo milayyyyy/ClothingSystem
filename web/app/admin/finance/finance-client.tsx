@@ -11,6 +11,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FinanceCsvExportDialog } from "@/components/finance-csv-export-dialog";
+import { UncollectedGoodwillRecordButton } from "@/components/uncollected-goodwill-record-dialog";
 import { ListPagination } from "@/components/list-pagination";
 import { useListPagination } from "@/lib/list-pagination";
 import { useConfirmAction } from "@/components/confirm-dialog";
@@ -1097,7 +1098,8 @@ export function FinanceClient({
                 : "Showing all money flow, newest date first. Use a date range only if you want to narrow it."}
             </p>
           </div>
-          <div className="flex shrink-0 self-end gap-2 sm:self-start">
+          <div className="flex shrink-0 flex-wrap self-end gap-2 sm:self-start">
+            <UncollectedGoodwillRecordButton />
             <Button type="button" size="sm" onClick={openCreateTx} disabled={liveAccounts.length === 0}>
               Add money flow
             </Button>

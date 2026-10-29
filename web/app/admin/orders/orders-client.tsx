@@ -1327,84 +1327,6 @@ function OutstandingBalancesSection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Uncollected / Goodwill — remaining balance the owner agreed not to collect
-// ---------------------------------------------------------------------------
-function UncollectedGoodwillSection({ orders }: { orders: Order[] }) {
-  const [collapsed, setCollapsed] = useState(false);
-
-  const rows = useMemo(() => {
-    return orders.filter((o) => {
-      if (isBigSellerOnlineOrder(o)) return false;
-      return orderUncollectedAmount(o) > 0;
-    }).sort((a, b) => orderUncollectedAmount(b) - orderUncollectedAmount(a));
-  }, [orders]);
-
-  if (rows.length === 0) return null;
-
-  const grand = rows.reduce((s, o) => s + orderUncollectedAmount(o), 0);
-
-  return (
-    <Card className="mt-4 border-slate-200 dark:border-slate-700">
-      <CardContent className="p-0">
-        <div
-          className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 hover:bg-muted/30"
-          onClick={() => setCollapsed((c) => !c)}
-        >
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-[11px] font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              {rows.length}
-            </span>
-            Uncollected / Goodwill
-            <span className="text-xs font-normal text-muted-foreground">
-              — remaining balance the owner agreed not to collect
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">{peso(grand)} uncollected</span>
-            <span className="text-xs text-muted-foreground">{collapsed ? "▼ show" : "▲ hide"}</span>
-          </div>
-        </div>
-
-        {!collapsed && (
-          <div className="overflow-x-auto border-t">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-2 text-left font-medium">#</th>
-                  <th className="py-2 text-left font-medium">Customer</th>
-                  <th className="py-2 text-left font-medium">Type</th>
-                  <th className="py-2 text-right font-medium">Total</th>
-                  <th className="py-2 text-right font-medium">Paid</th>
-                  <th className="py-2 text-right font-medium">Uncollected</th>
-                  <th className="px-4 py-2 text-left font-medium">Note</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((o) => {
-                  const k = getOrderKind(o);
-                  const kindLabel = k === "pos" ? "POS" : k === "sublimation" ? "Sublimation" : k === "services" ? "Services" : k === "online" ? "Online" : "Walk-in";
-                  return (
-                    <tr key={o.id} className="border-t hover:bg-muted/20">
-                      <td className="px-4 py-2 font-mono text-xs text-muted-foreground">#{o.order_no}</td>
-                      <td className="py-2 font-medium">{o.customer_name}</td>
-                      <td className="py-2 text-xs text-muted-foreground">{kindLabel}</td>
-                      <td className="py-2 text-right font-mono text-xs">{peso(Number(o.total || 0))}</td>
-                      <td className="py-2 text-right font-mono text-xs text-green-600">{peso(orderPaidAmount(o))}</td>
-                      <td className="py-2 text-right font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">{peso(orderUncollectedAmount(o))}</td>
-                      <td className="px-4 py-2 text-xs text-muted-foreground">{String(o.uncollected_note || "").trim() || "Goodwill"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 function JobTypesManagerDialog({ open, onClose, onChanged }: { open: boolean; onClose: () => void; onChanged: () => void }) {
   const supabase = createClient();
   const [jobTypes, setJobTypes] = useState<JobType[]>([]);
@@ -2742,7 +2664,6 @@ export function OrdersClient({
         onEnsureAccounts={ensureFinanceAccounts}
         onPaymentRecorded={refresh}
       />
-      <UncollectedGoodwillSection orders={orders} />
 
       <OrderForm open={open} onClose={() => setOpen(false)} order={editing} employees={employees} jobTypes={jobTypes} onSaved={refresh} />
       <JobTypesManagerDialog open={jobTypesMgrOpen} onClose={() => setJobTypesMgrOpen(false)} onChanged={fetchJobTypes} />
