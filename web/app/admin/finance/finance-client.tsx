@@ -579,6 +579,8 @@ export function FinanceClient({
     const note = `transfer:${transferId}`;
 
     setTransferBusy(true);
+    const { data: auth } = await supabase.auth.getUser();
+    const createdBy = auth.user?.id ?? null;
     const { error } = await supabase.from("finance_transactions").insert([
       {
         occurred_at: transferDate,
@@ -587,6 +589,7 @@ export function FinanceClient({
         amount: amt,
         description: descOut,
         notes: note,
+        created_by: createdBy,
       },
       {
         occurred_at: transferDate,
@@ -595,6 +598,7 @@ export function FinanceClient({
         amount: amt,
         description: descIn,
         notes: note,
+        created_by: createdBy,
       },
     ]);
     setTransferBusy(false);
@@ -709,6 +713,7 @@ export function FinanceClient({
 
     try {
       const saleId = await saveLinkedSale(editingTx?.manual_sale_id);
+      const { data: auth } = await supabase.auth.getUser();
       const payload: Record<string, unknown> = {
         occurred_at: txDate,
         account_id: txAccountId,
@@ -717,6 +722,7 @@ export function FinanceClient({
         description: txDesc.trim() || (asSale ? `Sale — ${saleCustomer.trim()}` : ""),
         manual_sale_id: saleId,
       };
+      if (!editingTx && auth.user?.id) payload.created_by = auth.user.id;
 
       if (editingTx) {
         const { error: e } = await supabase.from("finance_transactions").update(payload).eq("id", editingTx.id);
@@ -747,6 +753,7 @@ export function FinanceClient({
               direction: txDir,
               amount: amt,
               description: payload.description,
+              created_by: payload.created_by ?? null,
             });
             if (retry) {
               if (saleId) await supabase.from("manual_sales").delete().eq("id", saleId);

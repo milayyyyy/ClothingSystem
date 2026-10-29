@@ -22,7 +22,14 @@ export type FinanceTxExport = {
   amount: number;
   description?: string | null;
   created_at?: string | null;
+  created_by?: string | null;
+  created_by_name?: string | null;
 };
+
+function personLabel(p: { full_name?: string | null; email?: string | null } | null | undefined): string {
+  if (!p) return "";
+  return String(p.full_name || p.email || "").trim();
+}
 
 function escapeCsv(v: string | number | null | undefined): string {
   const s = v == null ? "" : String(v);
@@ -110,6 +117,7 @@ export function buildFinanceMergedCsv(
       "Money Out",
       "Account Balance",
       "Description",
+      "Made by",
       "Recorded",
     ]),
   );
@@ -138,6 +146,7 @@ export function buildFinanceMergedCsv(
         !unassigned && dir === "out" ? amt : "",
         unassigned ? "" : balanceAfter.get(t.id) ?? "",
         t.description ?? "",
+        t.created_by_name ?? "",
         t.created_at ? String(t.created_at).slice(0, 10) : "",
       ]),
     );
@@ -159,17 +168,66 @@ export async function fetchFinanceMergedCsv(
       .order("name", { ascending: true }),
     supabase
       .from("finance_transactions")
-      .select("id,occurred_at,account_id,direction,amount,description,created_at")
+      .select("id,occurred_at,account_id,direction,amount,description,created_at,created_by,creator:created_by(full_name,email)")
       .order("occurred_at", { ascending: true })
       .order("created_at", { ascending: true })
       .order("id", { ascending: true }),
   ]);
 
   if (accErr) throw new Error(accErr.message);
-  if (txErr) throw new Error(txErr.message);
+  let txRows = allTxs;
+  let txLoadErr = txErr;
+  if (txLoadErr && /created_by/i.test(txLoadErr.message)) {
+    const retry = await supabase
+      .from("finance_transactions")
+      .select("id,occurred_at,account_id,direction,amount,description,created_at")
+      .order("occurred_at", { ascending: true })
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true });
+    txRows = retry.data;
+    txLoadErr = retry.error;
+  }
+  if (txLoadErr) throw new Error(txLoadErr.message);
 
   const accountRows = (accounts || []) as FinanceAccountExport[];
-  const allTransactions = (allTxs || []) as FinanceTxExport[];
+  const allTransactions: FinanceTxExport[] = ((txRows || []) as Record<string, unknown>[]).map((t) => {
+    const creator = t.creator as { full_name?: string | null; email?: string | null } | null;
+    return {
+      id: String(t.id || ""),
+      occurred_at: String(t.occurred_at || ""),
+      account_id: (t.account_id as string | null) ?? null,
+      direction: String(t.direction || "in"),
+      amount: Number(t.amount || 0),
+      description: (t.description as string | null) ?? null,
+      created_at: t.created_at == null ? null : String(t.created_at),
+      created_by: t.created_by == null ? null : String(t.created_by),
+      created_by_name: personLabel(creator) || null,
+    };
+  });
+
+  const missingIds = allTransactions.filter((t) => !t.created_by_name).map((t) => t.id);
+  if (missingIds.length > 0) {
+    const names = new Map<string, string>();
+    const chunk = 200;
+    for (let i = 0; i < missingIds.length; i += chunk) {
+      const slice = missingIds.slice(i, i + chunk);
+      const { data: logs } = await supabase
+        .from("activity_logs")
+        .select("entity_id, action, created_at, actor:actor_id(full_name,email)")
+        .eq("entity", "finance_transactions")
+        .in("entity_id", slice)
+        .order("created_at", { ascending: true });
+      for (const log of (logs || []) as Record<string, unknown>[]) {
+        const id = String(log.entity_id || "");
+        if (!id || names.has(id)) continue;
+        const label = personLabel(log.actor as { full_name?: string | null; email?: string | null } | null);
+        if (label) names.set(id, label);
+      }
+    }
+    for (const t of allTransactions) {
+      if (!t.created_by_name && names.has(t.id)) t.created_by_name = names.get(t.id) || null;
+    }
+  }
   const balanceAfter = balanceAfterByTransactionId(accountRows, allTransactions);
 
   let filtered = allTransactions;

@@ -69,7 +69,8 @@ export function FinanceCsvExportDialog({ supabase }: { supabase: SupabaseClient 
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
             Downloads one file with an <strong>Accounts</strong> section (current balances) and a{" "}
-            <strong>Money flow</strong> section. Each in/out row includes the account balance after that entry.
+            <strong>Money flow</strong> section. Each in/out row includes the account, who recorded it, and the
+            balance after that entry.
           </p>
 
           <div className="flex items-center gap-2">
