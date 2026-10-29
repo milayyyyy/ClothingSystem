@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { localDayEndExclusiveIso, localTodayYmd } from "@/lib/sales-list";
 
 export type InventoryStockRow = {
   id: string;
@@ -56,10 +57,45 @@ export function downloadCsvFile(csv: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export async function fetchAllInventoryStock(supabase: SupabaseClient): Promise<InventoryStockRow[]> {
-  const { data, error } = await supabase.from("inventory").select("*").order("name");
-  if (error) throw error;
-  return ((data || []) as Record<string, unknown>[]).map((r) => ({
+export type StockAsOfOpts = {
+  /** Local calendar day YYYY-MM-DD. Stock is reconstructed as of the end of that day. */
+  asOfYmd?: string;
+};
+
+function normalizeAsOfYmd(asOfYmd?: string): string | null {
+  const ymd = String(asOfYmd || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  const today = localTodayYmd();
+  if (ymd > today) return today;
+  return ymd;
+}
+
+/** True when we must rewind from current stock to a past local day. */
+function needsHistoryRewind(asOfYmd?: string): asOfYmd is string {
+  const ymd = normalizeAsOfYmd(asOfYmd);
+  return !!ymd && ymd < localTodayYmd();
+}
+
+async function fetchPaged<T>(
+  run: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const page = 1000;
+  const out: T[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await run(offset, offset + page - 1);
+    if (error) throw error;
+    const rows = data || [];
+    out.push(...rows);
+    if (rows.length < page) break;
+    offset += page;
+    if (offset > 80_000) break;
+  }
+  return out;
+}
+
+function mapInventoryRow(r: Record<string, unknown>): InventoryStockRow {
+  return {
     id: String(r.id || ""),
     name: String(r.name || ""),
     category: String(r.category ?? ""),
@@ -71,11 +107,54 @@ export async function fetchAllInventoryStock(supabase: SupabaseClient): Promise<
     supplier: String(r.supplier ?? ""),
     supplier_link: String(r.supplier_link ?? ""),
     notes: String(r.notes ?? ""),
-  }));
+  };
 }
 
-type GroupRow = { id: string; name: string; sort_order: number };
-type BoardRow = { id: string; name: string; group_id: string | null; sort_order: number };
+export async function fetchAllInventoryStock(
+  supabase: SupabaseClient,
+  opts?: StockAsOfOpts,
+): Promise<InventoryStockRow[]> {
+  const { data, error } = await supabase.from("inventory").select("*").order("name");
+  if (error) throw error;
+  const raw = (data || []) as Record<string, unknown>[];
+  let rows = raw.map(mapInventoryRow);
+
+  const asOf = normalizeAsOfYmd(opts?.asOfYmd);
+  if (!asOf || !needsHistoryRewind(asOf)) return rows;
+
+  const asOfEnd = localDayEndExclusiveIso(asOf);
+  const createdAfter = new Set(
+    raw.filter((r) => r.created_at && String(r.created_at) >= asOfEnd).map((r) => String(r.id || "")),
+  );
+  if (createdAfter.size) rows = rows.filter((r) => !createdAfter.has(r.id));
+
+  try {
+    const movements = await fetchPaged<{ inventory_id: string; delta: number }>((from, to) =>
+      supabase
+        .from("inventory_quantity_movements")
+        .select("inventory_id, delta")
+        .gte("created_at", asOfEnd)
+        .range(from, to),
+    );
+    const laterDelta = new Map<string, number>();
+    for (const m of movements) {
+      const id = String(m.inventory_id || "");
+      if (!id) continue;
+      laterDelta.set(id, (laterDelta.get(id) || 0) + Number(m.delta || 0));
+    }
+    rows = rows.map((r) => {
+      const later = laterDelta.get(r.id) || 0;
+      return { ...r, quantity: Number(r.quantity) - later };
+    });
+  } catch {
+    // Movements table missing — fall back to current quantities.
+  }
+
+  return rows;
+}
+
+type GroupRow = { id: string; name: string; sort_order: number; created_at?: string | null };
+type BoardRow = { id: string; name: string; group_id: string | null; sort_order: number; created_at?: string | null };
 type ColRow = { id: string; board_id: string; header_name: string; sort_order: number };
 type RowRow = { id: string; board_id: string; row_label: string; sort_order: number };
 
@@ -92,8 +171,8 @@ async function fetchReadyMadeCatalog(supabase: SupabaseClient) {
     { data: allRows, error: rErr },
     { data: allCells, error: cellErr },
   ] = await Promise.all([
-    supabase.from("ready_made_sheet_groups").select("id,name,sort_order").order("sort_order"),
-    supabase.from("ready_made_boards").select("id,name,group_id,sort_order").order("sort_order"),
+    supabase.from("ready_made_sheet_groups").select("id,name,sort_order,created_at").order("sort_order"),
+    supabase.from("ready_made_boards").select("id,name,group_id,sort_order,created_at").order("sort_order"),
     supabase.from("ready_made_columns").select("id,board_id,header_name,sort_order").order("sort_order"),
     supabase.from("ready_made_rows").select("id,board_id,row_label,sort_order").order("sort_order"),
     supabase.from("ready_made_cells").select("row_id,column_id,value"),
@@ -115,9 +194,72 @@ async function fetchReadyMadeCatalog(supabase: SupabaseClient) {
   };
 }
 
+function undoReadyMadeCellValue(
+  payload: unknown,
+  action: string,
+): { key: string; undoTo: string } | null {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as Record<string, unknown>;
+  const rec = (p.record || p.after || p.before) as Record<string, unknown> | undefined;
+  const rowId = String(rec?.row_id || "");
+  const colId = String(rec?.column_id || "");
+  if (!rowId || !colId) return null;
+  const key = `${rowId}:${colId}`;
+  const op = String(action || p.op || "").toUpperCase();
+  if (op === "INSERT") return { key, undoTo: "" };
+  if (op === "DELETE") return { key, undoTo: String(rec?.value ?? "") };
+  if (op === "UPDATE") {
+    const changes = Array.isArray(p.changes) ? p.changes : [];
+    const valChange = changes.find((c) => c && typeof c === "object" && (c as { field?: string }).field === "value") as
+      | { from?: unknown }
+      | undefined;
+    if (valChange) return { key, undoTo: valChange.from == null ? "" : String(valChange.from) };
+    const before = p.before as Record<string, unknown> | undefined;
+    if (before && "value" in before) return { key, undoTo: String(before.value ?? "") };
+  }
+  return null;
+}
+
+async function rewindReadyMadeCells(
+  supabase: SupabaseClient,
+  cellMap: Record<string, string>,
+  asOfEndIso: string,
+): Promise<Record<string, string>> {
+  const next = { ...cellMap };
+  try {
+    const logs = await fetchPaged<{ action: string; payload: unknown; created_at: string }>((from, to) =>
+      supabase
+        .from("activity_logs")
+        .select("action, payload, created_at")
+        .eq("entity", "ready_made_cells")
+        .gte("created_at", asOfEndIso)
+        .order("created_at", { ascending: false })
+        .range(from, to),
+    );
+    for (const log of logs) {
+      const undo = undoReadyMadeCellValue(log.payload, log.action);
+      if (!undo) continue;
+      next[undo.key] = undo.undoTo;
+    }
+  } catch {
+    // Activity log unavailable — keep current cell values.
+  }
+  return next;
+}
+
 /** Sheet grids in group → sheet order (same structure as the Ready-made inventory UI). */
-export async function fetchReadyMadeStockGrids(supabase: SupabaseClient): Promise<ReadyMadeSheetGrid[]> {
-  const { groups, boards, cols, rows, cellMap } = await fetchReadyMadeCatalog(supabase);
+export async function fetchReadyMadeStockGrids(
+  supabase: SupabaseClient,
+  opts?: StockAsOfOpts,
+): Promise<ReadyMadeSheetGrid[]> {
+  let { groups, boards, cols, rows, cellMap } = await fetchReadyMadeCatalog(supabase);
+  const asOf = normalizeAsOfYmd(opts?.asOfYmd);
+  if (asOf && needsHistoryRewind(asOf)) {
+    const asOfEnd = localDayEndExclusiveIso(asOf);
+    groups = groups.filter((g) => !g.created_at || String(g.created_at) < asOfEnd);
+    boards = boards.filter((b) => !b.created_at || String(b.created_at) < asOfEnd);
+    cellMap = await rewindReadyMadeCells(supabase, cellMap, asOfEnd);
+  }
   const groupMap = Object.fromEntries(groups.map((g) => [g.id, g]));
   const sortedBoards = sortByOrder(boards);
 
@@ -248,8 +390,8 @@ export function readyMadeStockToCsv(
   );
 }
 
-export function exportDateTag(): string {
-  return new Date().toISOString().slice(0, 10);
+export function exportDateTag(asOfYmd?: string): string {
+  return normalizeAsOfYmd(asOfYmd) || localTodayYmd();
 }
 
 export function readyMadeExportFilename(tag = exportDateTag()) {
@@ -285,10 +427,11 @@ function pdfTableEndY(doc: JsPDFDoc): number {
   return last?.finalY ?? 18;
 }
 
-/** Current stock PDF: all inventory items, optionally ready-made sheets. */
+/** Stock PDF: all inventory items, optionally ready-made sheets. */
 export async function buildInventoryStockPdf(opts: {
   inventory?: InventoryStockRow[];
   readyMade?: ReadyMadeSheetGrid[];
+  asOfYmd?: string;
 }): Promise<Blob> {
   const [{ jsPDF }, autoTableModule] = await Promise.all([
     import("jspdf"),
@@ -309,13 +452,18 @@ export async function buildInventoryStockPdf(opts: {
   });
   const pageW = pdfContentWidth(doc);
   const generated = new Date().toLocaleString();
+  const asOf = normalizeAsOfYmd(opts.asOfYmd) || localTodayYmd();
+  const asOfLabel =
+    asOf === localTodayYmd()
+      ? `Generated ${generated} · Stock as of today (${asOf})`
+      : `Generated ${generated} · Stock as of ${asOf} (end of day)`;
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.text("PrintShop — All stock", PDF_MARGIN, 11);
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
-  doc.text(`Generated ${generated} · Current on-hand quantities`, PDF_MARGIN, 16);
+  doc.text(asOfLabel, PDF_MARGIN, 16);
 
   let y = 20;
   const tableOpts = {

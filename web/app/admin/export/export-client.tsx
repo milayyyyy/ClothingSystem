@@ -169,7 +169,7 @@ export function AdminExportClient() {
           <CardTitle>Stock inventory</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
-          <p>All inventory items with current quantities, categories, suppliers, and notes (CSV or PDF).</p>
+          <p>All inventory items with quantities as of a selected day, plus categories, suppliers, and notes (CSV or PDF).</p>
           <InventoryFullStockExportButton mode="inventory" />
         </CardContent>
       </Card>
@@ -179,7 +179,7 @@ export function AdminExportClient() {
           <CardTitle>Ready-made inventory</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
-          <p>All sheet groups and sheets as stock grids (rows × columns), matching the Ready-made inventory page (CSV or PDF).</p>
+          <p>All sheet groups and sheets as stock grids as of a selected day (CSV or PDF).</p>
           <InventoryFullStockExportButton mode="ready-made" />
         </CardContent>
       </Card>

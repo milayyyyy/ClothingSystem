@@ -5,6 +5,9 @@ import { Download, FileText } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { localTodayYmd } from "@/lib/sales-list";
 import {
   buildInventoryStockPdf,
   downloadCsvFile,
@@ -36,17 +39,17 @@ function buttonLabel(mode: StockExportMode) {
 function dialogTitle(mode: StockExportMode) {
   if (mode === "inventory") return "Export stock inventory";
   if (mode === "ready-made") return "Export ready-made inventory";
-  return "Export current stock";
+  return "Export stock";
 }
 
 function dialogDescription(mode: StockExportMode) {
   if (mode === "inventory") {
-    return "Download all stock inventory items and current quantities as CSV or PDF.";
+    return "Pick one day. The file shows stock as of the end of that day (not today's quantities unless you pick today).";
   }
   if (mode === "ready-made") {
-    return "Download every sheet group and sheet as a stock grid (rows × size columns) — CSV or PDF, same layout as Ready-made inventory.";
+    return "Pick one day. Ready-made sheet grids use cell values as of the end of that day.";
   }
-  return "Download stock inventory and ready-made sheet grids as CSV files, or one PDF of all current stock.";
+  return "Pick one day. Inventory and ready-made exports use stock as of the end of that day.";
 }
 
 function csvActionLabel(mode: StockExportMode) {
@@ -60,6 +63,7 @@ export function InventoryFullStockExportButton({ className, mode = "both" }: Pro
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [asOfYmd, setAsOfYmd] = useState(localTodayYmd);
 
   function errorMessage(e: unknown): string {
     if (e instanceof Error) return e.message;
@@ -72,7 +76,9 @@ export function InventoryFullStockExportButton({ className, mode = "both" }: Pro
     setError(null);
     setResult(null);
     const supabase = createClient();
-    const tag = exportDateTag();
+    const asOf = asOfYmd || localTodayYmd();
+    const tag = exportDateTag(asOf);
+    const asOfOpts = { asOfYmd: asOf };
     let inventoryCount = 0;
     let readyMadeSheets = 0;
     let readyMadeCells = 0;
@@ -82,9 +88,9 @@ export function InventoryFullStockExportButton({ className, mode = "both" }: Pro
     const exportReadyMade = mode === "both" || mode === "ready-made";
 
     try {
-      const inventory = exportInventory ? await fetchAllInventoryStock(supabase) : [];
+      const inventory = exportInventory ? await fetchAllInventoryStock(supabase, asOfOpts) : [];
       inventoryCount = inventory.length;
-      const grids = exportReadyMade ? await fetchReadyMadeStockGrids(supabase) : [];
+      const grids = exportReadyMade ? await fetchReadyMadeStockGrids(supabase, asOfOpts) : [];
       readyMadeSheets = grids.length;
       readyMadeCells = grids.reduce(
         (n, g) => n + g.rows.reduce((m, r) => m + Math.max(r.values.length, g.columns.length ? 0 : 1), 0),
@@ -95,6 +101,7 @@ export function InventoryFullStockExportButton({ className, mode = "both" }: Pro
         const blob = await buildInventoryStockPdf({
           ...(exportInventory ? { inventory } : {}),
           ...(exportReadyMade ? { readyMade: grids } : {}),
+          asOfYmd: asOf,
         });
         const name =
           mode === "ready-made"
@@ -139,6 +146,7 @@ export function InventoryFullStockExportButton({ className, mode = "both" }: Pro
           setOpen(true);
           setResult(null);
           setError(null);
+          setAsOfYmd(localTodayYmd());
         }}
       >
         <Download className="mr-1.5 h-4 w-4" />
@@ -148,6 +156,18 @@ export function InventoryFullStockExportButton({ className, mode = "both" }: Pro
       <Dialog open={open} onClose={() => setOpen(false)} title={dialogTitle(mode)} size="md">
         <div className="space-y-4 text-sm">
           <p className="text-muted-foreground">{dialogDescription(mode)}</p>
+          <div>
+            <Label htmlFor="stock-export-date">Stock date</Label>
+            <Input
+              id="stock-export-date"
+              type="date"
+              className="mt-1 max-w-[12rem]"
+              value={asOfYmd}
+              max={localTodayYmd()}
+              onChange={(e) => setAsOfYmd(e.target.value.slice(0, 10))}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">One day only. Leave as today for current stock.</p>
+          </div>
           {error && <p className="text-destructive">{error}</p>}
           {result && (
             <p className="text-green-600 dark:text-green-400">
@@ -174,11 +194,11 @@ export function InventoryFullStockExportButton({ className, mode = "both" }: Pro
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Close
             </Button>
-            <Button type="button" variant="outline" onClick={() => void runExport("csv")} disabled={busy}>
+            <Button type="button" variant="outline" onClick={() => void runExport("csv")} disabled={busy || !asOfYmd}>
               <Download className="mr-1.5 h-4 w-4" />
               {busy ? "Preparing…" : csvActionLabel(mode)}
             </Button>
-            <Button type="button" onClick={() => void runExport("pdf")} disabled={busy}>
+            <Button type="button" onClick={() => void runExport("pdf")} disabled={busy || !asOfYmd}>
               <FileText className="mr-1.5 h-4 w-4" />
               {busy ? "Preparing…" : "Download PDF"}
             </Button>
