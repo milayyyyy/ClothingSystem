@@ -175,7 +175,7 @@ export async function fetchFinanceMergedCsv(
   ]);
 
   if (accErr) throw new Error(accErr.message);
-  let txRows = allTxs;
+  let txRows = allTxs as Record<string, unknown>[] | null;
   let txLoadErr = txErr;
   if (txLoadErr && /created_by/i.test(txLoadErr.message)) {
     const retry = await supabase
@@ -184,7 +184,7 @@ export async function fetchFinanceMergedCsv(
       .order("occurred_at", { ascending: true })
       .order("created_at", { ascending: true })
       .order("id", { ascending: true });
-    txRows = retry.data;
+    txRows = (retry.data || null) as Record<string, unknown>[] | null;
     txLoadErr = retry.error;
   }
   if (txLoadErr) throw new Error(txLoadErr.message);

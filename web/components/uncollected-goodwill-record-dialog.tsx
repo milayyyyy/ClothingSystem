@@ -24,7 +24,9 @@ type UncollectedOrder = {
 
 function kindLabel(o: UncollectedOrder): string {
   if (String(o.kind || "").toLowerCase() === "pos") return "POS";
-  return orderTypeLabel(getOrderKind(o));
+  return orderTypeLabel(
+    getOrderKind({ kind: o.kind ?? undefined, order_type: o.order_type ?? undefined }),
+  );
 }
 
 export function UncollectedGoodwillRecordButton() {
