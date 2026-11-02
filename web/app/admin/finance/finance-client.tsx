@@ -24,6 +24,7 @@ import {
   orderPatchAfterDeletingFinanceTx,
 } from "@/lib/order-balance";
 import { orderTypeLabel, SALES_CHANNELS, type SalesChannel } from "@/lib/sales";
+import { expenseIdFromFinanceTx, syncExpenseFromFinanceTx } from "@/lib/expense-finance-link";
 
 type FinanceAccountRow = {
   id: string;
@@ -726,6 +727,9 @@ export function FinanceClient({
       if (!editingTx && auth.user?.id) payload.created_by = auth.user.id;
 
       if (editingTx) {
+        const linkedExpenseId = expenseIdFromFinanceTx(editingTx);
+        const direction = linkedExpenseId ? "out" : txDir;
+        payload.direction = direction;
         const { error: e } = await supabase.from("finance_transactions").update(payload).eq("id", editingTx.id);
         if (e) {
           if (/manual_sale_id/i.test(e.message)) {
@@ -734,7 +738,7 @@ export function FinanceClient({
               .update({
                 occurred_at: txDate,
                 account_id: txAccountId,
-                direction: txDir,
+                direction,
                 amount: amt,
                 description: payload.description,
               })
@@ -743,6 +747,16 @@ export function FinanceClient({
           } else {
             throw new Error(e.message);
           }
+        }
+        if (linkedExpenseId) {
+          const acct = liveAccounts.find((a) => a.id === txAccountId);
+          await syncExpenseFromFinanceTx(supabase, {
+            expenseId: linkedExpenseId,
+            amount: amt,
+            expenseDate: txDate,
+            accountId: txAccountId || null,
+            accountName: acct?.name ?? null,
+          });
         }
       } else {
         const { error: e } = await supabase.from("finance_transactions").insert(payload);
@@ -1468,7 +1482,11 @@ export function FinanceClient({
         open={txOpen}
         onClose={() => setTxOpen(false)}
         title={editingTx ? "Edit money flow" : "Add money flow"}
-        description="Record money coming in or going out from a specific account."
+        description={
+          editingTx && expenseIdFromFinanceTx(editingTx)
+            ? "This row is linked to an expense. Changing the amount, date, or account also updates that expense."
+            : "Record money coming in or going out from a specific account."
+        }
         size={txDir === "in" && recordAsSale ? "lg" : "md"}
       >
         <form
@@ -1502,7 +1520,8 @@ export function FinanceClient({
             <select
               id="tx-dir"
               className={uiSelectClassName()}
-              value={txDir}
+              value={editingTx && expenseIdFromFinanceTx(editingTx) ? "out" : txDir}
+              disabled={Boolean(editingTx && expenseIdFromFinanceTx(editingTx))}
               onChange={(e) => {
                 const next = e.target.value as "in" | "out";
                 setTxDir(next);

@@ -9,6 +9,8 @@ import { Dialog } from "@/components/ui/dialog";
 import { ChevronDown, ChevronLeft, ChevronRight, Plus, Pencil, Trash2, Bell, CheckSquare, X, Check, ArrowRight, RotateCcw, Repeat, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { spawnNextRecurringTask, spawnNextRecurringReminder, repeatLabel } from "@/lib/task-recurrence";
+import { TaskCompleteDialog, type TaskCompleteTarget } from "@/components/task-complete-dialog";
+import { clearTaskCompletionOnReopen, saveTaskCompletion } from "@/lib/task-completion";
 import { markDueContentPosted } from "@/lib/content-schedule-status";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -38,6 +40,8 @@ export type TaskItem = {
   machine_type_id?: string | null;
   repeat_mode?: string | null;
   repeat_interval_days?: number | null;
+  completion_note?: string | null;
+  completion_photo_path?: string | null;
 };
 
 /** Calendar day key YYYY-MM-DD from a date or timestamp string. */
@@ -355,6 +359,8 @@ export function ContentPlannerClient({
   const [storeFilters, setStoreFilters] = useState<string[]>([]);
   const [typeFilters, setTypeFilters] = useState<string[]>([]);
   const [actionSaving,  setActionSaving]  = useState(false);
+  const [completeTarget, setCompleteTarget] = useState<TaskCompleteTarget | null>(null);
+  const [completeMode, setCompleteMode] = useState<"complete" | "edit">("complete");
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
@@ -550,26 +556,52 @@ export function ContentPlannerClient({
   async function forwardTask(t: TaskItem) {
     const next = TASK_STATUS_FLOW[t.status];
     if (!next) return;
+    if (next === "done") {
+      setCompleteMode("complete");
+      setCompleteTarget(t);
+      return;
+    }
     setActionSaving(true);
-    const patch: Record<string, unknown> = { status: next };
-    if (next === "done") patch.completed_at = new Date().toISOString();
-    const { error } = await supabase.from("tasks").update(patch).eq("id", t.id);
-    if (!error) {
-      patchTask(t.id, { status: next });
-      if (next === "done") {
+    const { error } = await supabase.from("tasks").update({ status: next }).eq("id", t.id);
+    if (!error) patchTask(t.id, { status: next });
+    setActionSaving(false);
+  }
+
+  async function submitTaskCompletion(payload: { note: string; photoFile: File | null; removePhoto: boolean }) {
+    if (!completeTarget) return;
+    const t = tasks.find((x) => x.id === completeTarget.id);
+    setActionSaving(true);
+    try {
+      const { photoPath } = await saveTaskCompletion(supabase, completeTarget.id, {
+        markDone: completeMode === "complete",
+        note: payload.note,
+        photoFile: payload.photoFile,
+        removePhoto: payload.removePhoto,
+        existingPhotoPath: completeTarget.completion_photo_path,
+      });
+      patchTask(completeTarget.id, {
+        status: "done",
+        completion_note: payload.note.trim() || null,
+        completion_photo_path: photoPath,
+      });
+      if (completeMode === "complete" && t) {
         await spawnNextRecurringTask(supabase, t, []);
       }
+      setCompleteTarget(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not save completion.");
     }
     setActionSaving(false);
   }
 
   async function reopenTask(t: TaskItem) {
     setActionSaving(true);
-    const { error } = await supabase
-      .from("tasks")
-      .update({ status: "open", completed_at: null })
-      .eq("id", t.id);
-    if (!error) patchTask(t.id, { status: "open" });
+    try {
+      await clearTaskCompletionOnReopen(supabase, t);
+      patchTask(t.id, { status: "open", completion_note: null, completion_photo_path: null });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not reopen task.");
+    }
     setActionSaving(false);
   }
 
@@ -988,7 +1020,32 @@ export function ContentPlannerClient({
                           <p className="rounded-md bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">No description</p>
                         )}
                       </div>
-                      <div className="pt-0.5">
+                      {t.status === "done" && (t.completion_note || t.completion_photo_path) && (
+                        <div>
+                          <p className="mb-0.5 text-[10px] font-medium text-muted-foreground">Completion record</p>
+                          {t.completion_note && (
+                            <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-2.5 py-1.5 text-xs">{t.completion_note}</p>
+                          )}
+                          {t.completion_photo_path && (
+                            <p className="mt-1 text-[10px] text-muted-foreground">Photo attached</p>
+                          )}
+                        </div>
+                      )}
+                      <div className="pt-0.5 space-y-1">
+                        {t.status === "done" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 w-full gap-1 text-xs"
+                            disabled={actionSaving}
+                            onClick={() => {
+                              setCompleteMode("edit");
+                              setCompleteTarget(t);
+                            }}
+                          >
+                            {t.completion_note || t.completion_photo_path ? "Edit record" : "Add photo / notes"}
+                          </Button>
+                        )}
                         {t.status === "done" || t.status === "cancelled" ? (
                           <Button size="sm" variant="outline" className="h-7 w-full gap-1 text-xs" disabled={actionSaving} onClick={() => void reopenTask(t)}>
                             <RotateCcw className="h-3.5 w-3.5" /> Reopen
@@ -1242,6 +1299,14 @@ export function ContentPlannerClient({
           await refreshStores();
           if (nextId) setF("content_store_id", nextId);
         }}
+      />
+      <TaskCompleteDialog
+        open={!!completeTarget}
+        task={completeTarget}
+        mode={completeMode}
+        saving={actionSaving}
+        onClose={() => setCompleteTarget(null)}
+        onSubmit={(payload) => void submitTaskCompletion(payload)}
       />
     </div>
   );

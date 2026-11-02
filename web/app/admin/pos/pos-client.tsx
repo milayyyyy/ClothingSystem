@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { posSharedDescription } from "@/lib/pos-order-description";
 import { AmountInput } from "@/components/ui/amount-input";
 import {
   Search, Plus, Minus, Trash2, ShoppingCart, Package,
@@ -295,6 +296,7 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
 
       // 1. Create the POS order
       // For completed orders, set down_payment = total so balance = 0 (payment already collected)
+      const extraNotes = notes.trim() || null;
       const { data: order, error: orderErr } = await supabase
         .from("orders")
         .insert({
@@ -304,7 +306,7 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
           total: subtotal,
           down_payment: orderStatus === "completed" ? subtotal : 0,
           quantity: cart.reduce((s, ci) => s + ci.quantity, 0),
-          notes: notes.trim() || null,
+          notes: extraNotes,
           stage,
           status: "pending", // order_status enum only has: pending, printing, sewing, ready, delivered, cancelled
         })
@@ -312,6 +314,16 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
         .single();
 
       if (orderErr || !order) { alert(orderErr?.message ?? "Failed to create order"); setSaving(false); return; }
+
+      const sharedDesc = posSharedDescription({
+        orderNo: order.order_no,
+        items: cart,
+        extraNotes,
+      });
+      if (sharedDesc !== extraNotes) {
+        const { error: notesErr } = await supabase.from("orders").update({ notes: sharedDesc }).eq("id", order.id);
+        if (notesErr) console.warn("POS description:", notesErr.message);
+      }
 
       // 2. Insert POS line items
       const { error: itemsErr } = await supabase.from("pos_order_items").insert(
@@ -334,7 +346,7 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
             account_id: paymentAccountId,
             direction: "in",
             amount: subtotal,
-            description: `POS Sale #${order.order_no}${customerName ? ` — ${customerName.trim()}` : ""}`,
+            description: sharedDesc,
             occurred_at: new Date().toISOString(),
             order_id: order.id,
           });
@@ -350,8 +362,8 @@ export function PosClient({ inventoryItems, financeAccounts, viewerRole }: Props
             await supabase.from("order_records").insert({
               submitted_by: userId,
               record_date: new Date().toISOString().slice(0, 10),
-              title: `POS Sale #${order.order_no}${customerName ? ` — ${customerName.trim()}` : ""}`,
-              notes: `POS sale total: ${peso(subtotal)}${notes.trim() ? `\n${notes.trim()}` : ""}`,
+              title: sharedDesc,
+              notes: `POS sale total: ${peso(subtotal)}${extraNotes ? `\n${extraNotes}` : ""}`,
               status: "submitted",
               source: "pos",   // ← separate section in Daily Order Records
               stock_lines: [{

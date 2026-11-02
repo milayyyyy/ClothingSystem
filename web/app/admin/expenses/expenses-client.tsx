@@ -27,6 +27,7 @@ import { orderDisplayStatusLabel } from "@/lib/order-display";
 import { deleteSalariesLinkedToExpenses } from "@/lib/payroll-ledger";
 import { prepareStorageUpload } from "@/lib/compress-image";
 import { EXPENSE_RECEIPTS_BUCKET, expenseReceiptPath } from "@/lib/media-storage";
+import { expenseFinanceTxPayload, syncFinanceTxFromExpense } from "@/lib/expense-finance-link";
 
 const RECEIPT_BUCKET = EXPENSE_RECEIPTS_BUCKET;
 
@@ -156,29 +157,6 @@ function inDateRange(dateKey: string, from: string, to: string, allTime: boolean
   if (from && dateKey < from) return false;
   if (to && dateKey > to) return false;
   return true;
-}
-
-/** Finance ledger row for an expense. Paid through None → no account, amount 0, still listed. */
-function expenseFinanceTxPayload(opts: {
-  expenseId: string;
-  expenseDate: string;
-  category: string;
-  description: string;
-  amount: number;
-  accountId: string | null;
-}) {
-  const descParts = [`Expense: ${opts.category}`];
-  if (opts.description.trim()) descParts.push(opts.description.trim().slice(0, 120));
-  const deduct = opts.amount > 0 && Boolean(opts.accountId);
-  return {
-    occurred_at: opts.expenseDate,
-    account_id: deduct ? opts.accountId : null,
-    direction: "out" as const,
-    amount: deduct ? opts.amount : 0,
-    description: descParts.join(" — "),
-    notes: `expense:${opts.expenseId}`,
-    expense_id: opts.expenseId,
-  };
 }
 
 export function ExpensesClient({
@@ -1081,27 +1059,18 @@ function ExpenseForm({
           alert(exErr.message);
           return;
         }
-        const { data: tx } = await supabase.from("finance_transactions").select("id").eq("expense_id", id).maybeSingle();
-        const txBody = expenseFinanceTxPayload({
-          expenseId: id,
-          expenseDate: form.expense_date,
-          category: form.category,
-          description: form.description,
-          amount: amt,
-          accountId: form.finance_account_id || null,
-        });
-        if (tx?.id) {
-          const { error: txErr } = await supabase.from("finance_transactions").update(txBody).eq("id", tx.id);
-          if (txErr) {
-            alert(txErr.message);
-            return;
-          }
-        } else {
-          const { error: txErr } = await supabase.from("finance_transactions").insert(txBody);
-          if (txErr) {
-            alert(txErr.message);
-            return;
-          }
+        try {
+          await syncFinanceTxFromExpense(supabase, {
+            expenseId: id,
+            expenseDate: form.expense_date,
+            category: form.category,
+            description: form.description,
+            amount: amt,
+            accountId: form.finance_account_id || null,
+          });
+        } catch (err) {
+          alert(err instanceof Error ? err.message : "Could not update the linked money flow.");
+          return;
         }
       } else {
         const { error: insertErr } = await supabase.from("expenses").insert({
@@ -1247,7 +1216,11 @@ function ExpenseForm({
       open={open}
       onClose={saving ? () => {} : onClose}
       title={editing ? "Edit expense" : "Add Expense"}
-      description={editing ? "Update any field. Save writes this row and its linked finance withdrawal." : undefined}
+      description={
+        editing
+          ? "Changing the amount, date, or paid-through account also updates the linked money flow."
+          : undefined
+      }
     >
       <form onSubmit={save} className="grid grid-cols-2 gap-3">
         <div className="col-span-2 rounded-md border bg-muted/20 p-3">

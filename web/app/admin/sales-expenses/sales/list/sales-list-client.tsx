@@ -479,25 +479,29 @@ function SalesRow({
   onToggleSelect: () => void;
 }) {
   const ch =
-    row.isBigSeller
-      ? "purple"
-      : row.channel === "online"
+    row.isPos
+      ? "green"
+      : row.isBigSeller
         ? "purple"
-        : row.channel === "sublimation"
-          ? "teal"
-          : row.channel === "services"
-            ? "amber"
-            : "blue";
+        : row.channel === "online"
+          ? "purple"
+          : row.channel === "sublimation"
+            ? "teal"
+            : row.channel === "services"
+              ? "amber"
+              : "blue";
 
-  const channelLabel = row.onlineShop
-    ? onlineShopLabel(row.onlineShop)
-    : row.isOthersList
-      ? "Others"
-      : row.isManualSale
-        ? "Revenue"
-        : row.isBigSeller
-          ? "BigSeller"
-          : orderTypeLabel(row.channel);
+  const channelLabel = row.isPos
+    ? "POS"
+    : row.onlineShop
+      ? onlineShopLabel(row.onlineShop)
+      : row.isOthersList
+        ? "Others"
+        : row.isManualSale
+          ? "Revenue"
+          : row.isBigSeller
+            ? "BigSeller"
+            : orderTypeLabel(row.channel);
   const dateLabel = formatSalesDateTime(new Date(row.atMs).toISOString());
 
   return (
@@ -541,7 +545,7 @@ function SalesRow({
       </td>
       <td className="py-3">
         <div className="flex flex-wrap items-center gap-1">
-          <Badge variant={ch as "purple" | "teal" | "blue" | "amber"}>{channelLabel}</Badge>
+          <Badge variant={ch as "purple" | "teal" | "blue" | "amber" | "green"}>{channelLabel}</Badge>
           {row.isDeposit && (
             <Badge variant="amber" className="text-[10px]">Deposit</Badge>
           )}

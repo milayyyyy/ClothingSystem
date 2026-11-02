@@ -43,6 +43,7 @@ import {
   orderUncollectedAmount,
   UNCOLLECTED_GOODWILL_TX_NOTE_PREFIX,
 } from "@/lib/order-balance";
+import { posDescriptionFromOrder, posSharedDescription } from "@/lib/pos-order-description";
 
 /** Local calendar day `YYYY-MM-DD` for date-range filters on `bigseller_printed_at`. */
 function localDayKeyFromIso(iso: string | null | undefined): string | null {
@@ -765,8 +766,23 @@ function PosCompleteDialog({
     setSaving(true);
     setMsg(null);
     try {
+      const { data: posItems } = await supabase
+        .from("pos_order_items")
+        .select("product_name, quantity, unit_price")
+        .eq("order_id", order.id)
+        .order("sort_order");
+      const sharedDesc = posSharedDescription({
+        orderNo: order.order_no,
+        items: posItems || [],
+        extraNotes: order.notes,
+      });
+
       // 1. Advance stage to completed + set down_payment if collecting
-      const patch: Record<string, unknown> = { stage: "completed", updated_at: new Date().toISOString() };
+      const patch: Record<string, unknown> = {
+        stage: "completed",
+        updated_at: new Date().toISOString(),
+        notes: sharedDesc,
+      };
       if (collectPayment) patch.down_payment = orderTotal;
 
       const { error: oe } = await supabase.from("orders").update(patch).eq("id", order.id);
@@ -780,7 +796,7 @@ function PosCompleteDialog({
           account_id: accountId,
           direction: "in",
           amount: orderTotal,
-          description: `POS Sale #${order.order_no}${order.customer_name ? ` — ${order.customer_name}` : ""}`,
+          description: sharedDesc,
           notes: `order:${order.id}`,
           order_id: order.id,
         });
@@ -789,18 +805,12 @@ function PosCompleteDialog({
         // 3. Auto-submit Daily Order Record
         const { data: { user } } = await supabase.auth.getUser();
         if (user?.id) {
-          const { data: posItems } = await supabase
-            .from("pos_order_items")
-            .select("product_name, quantity, unit_price")
-            .eq("order_id", order.id)
-            .order("sort_order");
-
           if (posItems && posItems.length > 0) {
             const colProduct = "col-product", colQty = "col-qty", colPrice = "col-price", colTotal = "col-total";
             await supabase.from("order_records").insert({
               submitted_by: user.id,
               record_date: today,
-              title: `POS Sale #${order.order_no}${order.customer_name ? ` — ${order.customer_name}` : ""}`,
+              title: sharedDesc,
               notes: `POS sale total: ${peso(orderTotal)}`,
               status: "submitted",
               source: "pos",
@@ -963,10 +973,25 @@ function PaymentCollectDialog({
     try {
       const newPaid = Math.min(orderTotal, alreadyPaid + Math.max(0, cashAmt));
       const newUncollected = writeOffRemaining ? alreadyUncollected + writeOffAmt : alreadyUncollected;
-      const isPendingPOS = getOrderKind(order) === "pos" && String(order?.stage || "").toLowerCase() !== "completed";
+      const isPOS = getOrderKind(order) === "pos";
+      const isPendingPOS = isPOS && String(order?.stage || "").toLowerCase() !== "completed";
+      let sharedDesc = posDescriptionFromOrder(order);
+      if (isPOS) {
+        const { data: posItems } = await supabase
+          .from("pos_order_items")
+          .select("product_name, quantity")
+          .eq("order_id", order.id)
+          .order("sort_order");
+        sharedDesc = posSharedDescription({
+          orderNo: order.order_no,
+          items: posItems || [],
+          extraNotes: order.notes,
+        });
+      }
 
       // Update order: record payment + optional goodwill write-off + advance POS stage if pending
       const orderPatch: Record<string, unknown> = { down_payment: newPaid };
+      if (isPOS && sharedDesc) orderPatch.notes = sharedDesc;
       if (writeOffRemaining) {
         orderPatch.uncollected_amount = newUncollected;
         const note = writeOffNote.trim();
@@ -978,7 +1003,9 @@ function PaymentCollectDialog({
 
       const today = new Date().toISOString().slice(0, 10);
       if (cashAmt > 0) {
-        const desc = `Order payment: #${order.order_no} — ${order.customer_name || ""}`;
+        const desc = isPOS
+          ? sharedDesc
+          : `Order payment: #${order.order_no} — ${order.customer_name || ""}`;
         const { error: te } = await supabase.from("finance_transactions").insert({
           occurred_at: today,
           account_id: accountId,
@@ -1029,7 +1056,7 @@ function PaymentCollectDialog({
             await supabase.from("order_records").insert({
               submitted_by: user.id,
               record_date: today,
-              title: `POS Sale #${order.order_no}${order.customer_name ? ` — ${order.customer_name}` : ""}`,
+              title: sharedDesc,
               notes: `POS sale total: ${peso(orderTotal)}`,
               status: "submitted",
               source: "pos",   // ← POS Sales section in Daily Order Records
@@ -2524,6 +2551,7 @@ export function OrdersClient({
                   const balance = orderCollectibleBalance(o);
                   const k = KINDS.find((x) => x.v === getOrderKind(o)) || KINDS[0];
                   const isPOS = getOrderKind(o) === "pos";
+                  const posDesc = isPOS ? posDescriptionFromOrder(o) : "";
                   const stageLabel = isPOS
                     ? (String(o.stage || "").toLowerCase() === "completed" ? "POS Sale" : "Pending")
                     : orderDisplayStatusLabel(o);
@@ -2545,6 +2573,9 @@ export function OrdersClient({
                           {o.customer_social && <div>{o.customer_social}</div>}
                           {o.customer_phone && <div>{o.customer_phone}</div>}
                           {o.customer_email && <div>{o.customer_email}</div>}
+                          {posDesc && (
+                            <div className="line-clamp-2 text-foreground/80">{posDesc}</div>
+                          )}
                         </div>
                       </td>
                       <td>

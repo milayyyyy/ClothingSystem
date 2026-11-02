@@ -5,7 +5,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
-import { ArrowRight, Cog, Repeat, RotateCcw } from "lucide-react";
+import { ArrowRight, Cog, ImagePlus, Repeat, RotateCcw, StickyNote } from "lucide-react";
+import { TaskCompleteDialog, type TaskCompleteTarget } from "@/components/task-complete-dialog";
+import { clearTaskCompletionOnReopen, saveTaskCompletion } from "@/lib/task-completion";
 import { repeatLabel, spawnNextRecurringTask } from "@/lib/task-recurrence";
 import {
   inTaskDateRange,
@@ -42,6 +44,9 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
   const supabase = createClient();
   const [list, setList] = useState(initial);
   const [forwarding, setForwarding] = useState<string | null>(null);
+  const [completeTarget, setCompleteTarget] = useState<TaskCompleteTarget | null>(null);
+  const [completeMode, setCompleteMode] = useState<"complete" | "edit">("complete");
+  const [completeSaving, setCompleteSaving] = useState(false);
   const [machineTypes, setMachineTypes] = useState<MachineType[]>([]);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -76,35 +81,81 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
     return machineTypes.find((m) => m.id === task.machine_type_id)?.name ?? null;
   }
 
+  async function refreshMine() {
+    const { data: refreshed } = await supabase
+      .from("tasks")
+      .select("*, assignees:task_assignees!inner(user_id)")
+      .eq("assignees.user_id", userId)
+      .order("created_at", { ascending: false });
+    if (refreshed) setList(refreshed);
+  }
+
   async function forward(task: any) {
     const next = STATUS_FLOW[task.status];
     if (!next) return;
-    setForwarding(task.id);
-    const patch: any = { status: next };
-    if (next === "done") patch.completed_at = new Date().toISOString();
-    const { data } = await supabase.from("tasks").update(patch).eq("id", task.id).select().single();
-    if (data) setList((p) => p.map((t) => (t.id === task.id ? { ...t, ...data } : t)));
     if (next === "done") {
-      const assigneeIds = (task.assignees || [])
-        .map((a: any) => a.user_id)
-        .filter(Boolean) as string[];
-      const spawned = await spawnNextRecurringTask(supabase, task, assigneeIds);
-      if (spawned) {
-        const { data: refreshed } = await supabase
-          .from("tasks")
-          .select("*, assignees:task_assignees!inner(user_id)")
-          .eq("assignees.user_id", userId)
-          .order("created_at", { ascending: false });
-        if (refreshed) setList(refreshed);
-      }
+      setCompleteMode("complete");
+      setCompleteTarget(task);
+      return;
     }
+    setForwarding(task.id);
+    const { data } = await supabase.from("tasks").update({ status: next }).eq("id", task.id).select().single();
+    if (data) setList((p) => p.map((t) => (t.id === task.id ? { ...t, ...data } : t)));
     setForwarding(null);
+  }
+
+  async function submitCompletion(payload: { note: string; photoFile: File | null; removePhoto: boolean }) {
+    if (!completeTarget) return;
+    const task = list.find((t) => t.id === completeTarget.id) || completeTarget;
+    setCompleteSaving(true);
+    try {
+      const { photoPath } = await saveTaskCompletion(supabase, completeTarget.id, {
+        markDone: completeMode === "complete",
+        note: payload.note,
+        photoFile: payload.photoFile,
+        removePhoto: payload.removePhoto,
+        existingPhotoPath: completeTarget.completion_photo_path,
+      });
+      setList((p) =>
+        p.map((t) =>
+          t.id === completeTarget.id
+            ? {
+                ...t,
+                status: "done",
+                completion_note: payload.note.trim() || null,
+                completion_photo_path: photoPath,
+              }
+            : t,
+        ),
+      );
+      if (completeMode === "complete") {
+        const assigneeIds = ((task as any).assignees || [])
+          .map((a: any) => a.user_id)
+          .filter(Boolean) as string[];
+        const spawned = await spawnNextRecurringTask(supabase, task as any, assigneeIds);
+        if (spawned) await refreshMine();
+      }
+      setCompleteTarget(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not save completion.");
+    }
+    setCompleteSaving(false);
   }
 
   async function reopen(task: any) {
     setForwarding(task.id);
-    const { data } = await supabase.from("tasks").update({ status: "open", completed_at: null }).eq("id", task.id).select().single();
-    if (data) setList((p) => p.map((t) => (t.id === task.id ? { ...t, ...data } : t)));
+    try {
+      await clearTaskCompletionOnReopen(supabase, task);
+      setList((p) =>
+        p.map((t) =>
+          t.id === task.id
+            ? { ...t, status: "open", completed_at: null, completion_note: null, completion_photo_path: null }
+            : t,
+        ),
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not reopen task.");
+    }
     setForwarding(null);
   }
 
@@ -247,6 +298,21 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
                         {t.description && (
                           <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{t.description}</div>
                         )}
+                        {t.status === "done" && (t.completion_note || t.completion_photo_path) && (
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            {t.completion_photo_path && (
+                              <span className="inline-flex items-center gap-0.5">
+                                <ImagePlus className="h-3 w-3" /> Photo
+                              </span>
+                            )}
+                            {t.completion_note && (
+                              <span className="inline-flex min-w-0 items-center gap-0.5">
+                                <StickyNote className="h-3 w-3 shrink-0" />
+                                <span className="line-clamp-1">{t.completion_note}</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="w-20 py-3 pr-3">
                         {t.priority && (
@@ -257,9 +323,33 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
                         {t.due_date ? formatDate(t.due_date) : "—"}
                       </td>
                       <td className="py-3 pr-3">
-                        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" disabled={forwarding === t.id} onClick={() => reopen(t)}>
-                          <RotateCcw className="h-3 w-3" /> Reopen
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {t.status === "done" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 gap-1 text-xs"
+                              disabled={forwarding === t.id}
+                              onClick={() => {
+                                setCompleteMode("edit");
+                                setCompleteTarget(t);
+                              }}
+                            >
+                              {t.completion_note || t.completion_photo_path ? (
+                                <>
+                                  <StickyNote className="h-3 w-3" /> Record
+                                </>
+                              ) : (
+                                <>
+                                  <ImagePlus className="h-3 w-3" /> Add record
+                                </>
+                              )}
+                            </Button>
+                          )}
+                          <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" disabled={forwarding === t.id} onClick={() => reopen(t)}>
+                            <RotateCcw className="h-3 w-3" /> Reopen
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -269,6 +359,15 @@ export function EmployeeTasksClient({ userId, initial }: { userId: string; initi
           </Card>
         </details>
       )}
+
+      <TaskCompleteDialog
+        open={!!completeTarget}
+        task={completeTarget}
+        mode={completeMode}
+        saving={completeSaving}
+        onClose={() => setCompleteTarget(null)}
+        onSubmit={(payload) => void submitCompletion(payload)}
+      />
     </div>
   );
 }

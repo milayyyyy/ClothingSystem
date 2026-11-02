@@ -10,7 +10,9 @@ import { Dialog } from "@/components/ui/dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
-import { ArrowRight, Cog, Pencil, Plus, Repeat, RotateCcw, Settings2, Trash2, Users, X } from "lucide-react";
+import { ArrowRight, Cog, ImagePlus, Pencil, Plus, Repeat, RotateCcw, Settings2, StickyNote, Trash2, Users, X } from "lucide-react";
+import { TaskCompleteDialog, type TaskCompleteTarget } from "@/components/task-complete-dialog";
+import { clearTaskCompletionOnReopen, saveTaskCompletion } from "@/lib/task-completion";
 import { repeatLabel, repeatFieldsForInsert, spawnNextRecurringTask, type RepeatMode } from "@/lib/task-recurrence";
 import { TaskDateFilterBar } from "@/components/task-date-filter-bar";
 import {
@@ -65,6 +67,9 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
     }
   );
   const [forwarding, setForwarding] = useState<string | null>(null);
+  const [completeTarget, setCompleteTarget] = useState<TaskCompleteTarget | null>(null);
+  const [completeMode, setCompleteMode] = useState<"complete" | "edit">("complete");
+  const [completeSaving, setCompleteSaving] = useState(false);
   const [taskTypes, setTaskTypes] = useState<TaskType[]>([]);
   const [machineTypes, setMachineTypes] = useState<MachineType[]>([]);
   const [typesMgrOpen, setTypesMgrOpen] = useState(false);
@@ -136,24 +141,51 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
   async function forward(task: T) {
     const next = STATUS_FLOW[task.status];
     if (!next) return;
-    setForwarding(task.id);
-    const patch: any = { status: next };
-    if (next === "done") patch.completed_at = new Date().toISOString();
-    await supabase.from("tasks").update(patch).eq("id", task.id);
     if (next === "done") {
-      const assigneeIds = (task.assignees || [])
-        .map((a: any) => a.user_id)
-        .filter(Boolean) as string[];
-      await spawnNextRecurringTask(supabase, task, assigneeIds);
+      setCompleteMode("complete");
+      setCompleteTarget(task);
+      return;
     }
+    setForwarding(task.id);
+    await supabase.from("tasks").update({ status: next }).eq("id", task.id);
     await refresh();
     setForwarding(null);
   }
 
+  async function submitCompletion(payload: { note: string; photoFile: File | null; removePhoto: boolean }) {
+    if (!completeTarget) return;
+    const task = list.find((t) => t.id === completeTarget.id) || completeTarget;
+    setCompleteSaving(true);
+    try {
+      await saveTaskCompletion(supabase, completeTarget.id, {
+        markDone: completeMode === "complete",
+        note: payload.note,
+        photoFile: payload.photoFile,
+        removePhoto: payload.removePhoto,
+        existingPhotoPath: completeTarget.completion_photo_path,
+      });
+      if (completeMode === "complete") {
+        const assigneeIds = ((task as T).assignees || [])
+          .map((a: any) => a.user_id)
+          .filter(Boolean) as string[];
+        await spawnNextRecurringTask(supabase, task as T, assigneeIds);
+      }
+      setCompleteTarget(null);
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not save completion.");
+    }
+    setCompleteSaving(false);
+  }
+
   async function reopen(task: T) {
     setForwarding(task.id);
-    await supabase.from("tasks").update({ status: "open", completed_at: null }).eq("id", task.id);
-    await refresh();
+    try {
+      await clearTaskCompletionOnReopen(supabase, task);
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Could not reopen task.");
+    }
     setForwarding(null);
   }
 
@@ -209,6 +241,21 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
           {t.description && (
             <div className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{t.description}</div>
           )}
+          {t.status === "done" && (t.completion_note || t.completion_photo_path) && (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              {t.completion_photo_path && (
+                <span className="inline-flex items-center gap-0.5">
+                  <ImagePlus className="h-3 w-3" /> Photo
+                </span>
+              )}
+              {t.completion_note && (
+                <span className="inline-flex min-w-0 items-center gap-0.5">
+                  <StickyNote className="h-3 w-3 shrink-0" />
+                  <span className="line-clamp-1">{t.completion_note}</span>
+                </span>
+              )}
+            </div>
+          )}
         </td>
 
         {/* Priority */}
@@ -250,6 +297,28 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
               </Button>
             )}
             {/* Reopen for done/cancelled */}
+            {t.status === "done" && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1 text-xs"
+                disabled={busy}
+                onClick={() => {
+                  setCompleteMode("edit");
+                  setCompleteTarget(t);
+                }}
+              >
+                {t.completion_note || t.completion_photo_path ? (
+                  <>
+                    <StickyNote className="h-3 w-3" /> Record
+                  </>
+                ) : (
+                  <>
+                    <ImagePlus className="h-3 w-3" /> Add record
+                  </>
+                )}
+              </Button>
+            )}
             {(t.status === "done" || t.status === "cancelled") && (
               <Button
                 size="sm"
@@ -416,6 +485,29 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
                 <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-3 py-2 text-sm">{detailTask.description}</p>
               </div>
             )}
+            {detailTask.status === "done" && (detailTask.completion_note || detailTask.completion_photo_path) && (
+              <div>
+                <p className="mb-0.5 text-xs font-medium text-muted-foreground">Completion record</p>
+                {detailTask.completion_note && (
+                  <p className="whitespace-pre-wrap rounded-md bg-muted/30 px-3 py-2 text-sm">{detailTask.completion_note}</p>
+                )}
+                {detailTask.completion_photo_path && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2 gap-1"
+                    onClick={() => {
+                      setDetailTask(null);
+                      setCompleteMode("edit");
+                      setCompleteTarget(detailTask);
+                    }}
+                  >
+                    <ImagePlus className="h-3.5 w-3.5" /> View photo / notes
+                  </Button>
+                )}
+              </div>
+            )}
             {detailTask.assignees?.length > 0 && (
               <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">Assignees</p>
@@ -435,6 +527,15 @@ export function TasksClient({ userId, initial, people }: { userId: string; initi
           </div>
         </Dialog>
       )}
+
+      <TaskCompleteDialog
+        open={!!completeTarget}
+        task={completeTarget}
+        mode={completeMode}
+        saving={completeSaving}
+        onClose={() => setCompleteTarget(null)}
+        onSubmit={(payload) => void submitCompletion(payload)}
+      />
     </>
   );
 }

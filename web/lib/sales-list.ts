@@ -2,6 +2,7 @@ import type { SalesChannel } from "@/lib/sales";
 import { getOrderKind, isBigSellerOnlineOrder, isSalesRecognized, storeOrPlatform } from "@/lib/sales";
 import { mapRevenueChannelToKind } from "@/lib/revenue-excel-import";
 import { resolveOnlineShop, resolveOthersListRow, type OnlineShopFilter, type OnlineShopKey } from "@/lib/online-shops";
+import { isPosOrderKind, posDescriptionFromOrder } from "@/lib/pos-order-description";
 
 export type ManualSaleRow = {
   id: string;
@@ -44,6 +45,8 @@ export type UnifiedSaleListRow = {
   designRef: string;
   /** Human-readable description: notes, design ref, or deposit label */
   description: string;
+  /** True when the source order is a POS sale (`kind = pos`). */
+  isPos: boolean;
   /** BigSeller-specific identifiers */
   waybillNo: string;
   externalOrderNo: string;
@@ -123,21 +126,21 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
     const storeLabel = storeOrPlatform(o);
     const onlineShop = resolveOnlineShop(storeLabel, { channel, isManualSale: false });
     const isOthersList = resolveOthersListRow(storeLabel, { channel, isManualSale: false });
-    // Build description: prefer notes, fall back to design_ref
-    const baseDesc = notes || designRef;
+    const isPos = isPosOrderKind(o);
+    const baseDesc = isPos ? posDescriptionFromOrder(o) : notes || designRef;
 
     if (recognized) {
       // Completed sale — show full total
       out.push({
         key: `o-${o.id}`,
         dateKey, atMs, channel, isBigSeller, hasTeamsSheet,
-        isDeposit: false, isManualSale: false, manualSaleId: "", onlineShop, isOthersList,
+        isDeposit: false, isManualSale: false, manualSaleId: "", onlineShop, isOthersList, isPos,
         amount: orderTotal,
         orderTotal,
         orderId: String(o.id || ""),
         orderNo: o.order_no,
         customerOrTitle: String(o.customer_name || "—"),
-        storeOrNotes: storeLabel,
+        storeOrNotes: isPos ? "POS" : storeLabel,
         designRef,
         description: baseDesc,
         waybillNo: String(o.waybill_no || ""),
@@ -150,13 +153,13 @@ export function unifiedRowsFromOrders(orders: any[]): UnifiedSaleListRow[] {
       out.push({
         key: `dp-${o.id}`,
         dateKey, atMs, channel, isBigSeller, hasTeamsSheet,
-        isDeposit: true, isManualSale: false, manualSaleId: "", onlineShop, isOthersList,
+        isDeposit: true, isManualSale: false, manualSaleId: "", onlineShop, isOthersList, isPos,
         amount: dp,
         orderTotal,
         orderId: String(o.id || ""),
         orderNo: o.order_no,
         customerOrTitle: String(o.customer_name || "—"),
-        storeOrNotes: storeLabel,
+        storeOrNotes: isPos ? "POS" : storeLabel,
         designRef,
         description: baseDesc,
         waybillNo: String(o.waybill_no || ""),
@@ -196,6 +199,7 @@ export function unifiedRowsFromManualSales(manual: ManualSaleRow[]): UnifiedSale
       hasTeamsSheet: false,
       isDeposit: false,
       isManualSale: true,
+      isPos: false,
       manualSaleId: m.id,
       onlineShop,
       isOthersList,
